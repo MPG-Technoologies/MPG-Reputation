@@ -28,7 +28,6 @@ export function QuickCompleteForm({
       const res = await submitQuickComplete(formData)
       setResult(res)
       if (res.success && !res.duplicate) {
-        // Reset form inputs except organizationId and locationId
         const form = e.target as HTMLFormElement
         form.reset()
       }
@@ -101,7 +100,7 @@ export function QuickCompleteForm({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label htmlFor="firstName" className="block text-sm font-medium text-slate-300">
-            Customer First Name <span className="text-rose-400">*</span>
+            First Name <span className="text-rose-400">*</span>
           </label>
           <input
             id="firstName"
@@ -109,25 +108,24 @@ export function QuickCompleteForm({
             type="text"
             required
             placeholder="Jane"
-            className="mt-1 block w-full px-3 py-2 border border-slate-700 bg-slate-800 text-slate-100 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full px-3 py-2 border border-slate-700 bg-slate-800 text-slate-100 rounded-md shadow-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
           />
         </div>
-
         <div>
           <label htmlFor="lastName" className="block text-sm font-medium text-slate-300">
-            Customer Last Name (optional)
+            Last Name
           </label>
           <input
             id="lastName"
             name="lastName"
             type="text"
             placeholder="Doe"
-            className="mt-1 block w-full px-3 py-2 border border-slate-700 bg-slate-800 text-slate-100 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full px-3 py-2 border border-slate-700 bg-slate-800 text-slate-100 rounded-md shadow-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
           />
         </div>
       </div>
 
-      {/* Email & Phone */}
+      {/* Contact info: Email and Phone */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label htmlFor="email" className="block text-sm font-medium text-slate-300">
@@ -138,50 +136,55 @@ export function QuickCompleteForm({
             name="email"
             type="email"
             required
-            placeholder="customer@example.test"
-            className="mt-1 block w-full px-3 py-2 border border-slate-700 bg-slate-800 text-slate-100 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
+            placeholder="jane.doe@example.test"
+            className="mt-1 block w-full px-3 py-2 border border-slate-700 bg-slate-800 text-slate-100 rounded-md shadow-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
           />
         </div>
-
         <div>
           <label htmlFor="phone" className="block text-sm font-medium text-slate-300">
-            Phone Number (optional)
+            Phone Number <span className="text-slate-500 text-xs">(optional)</span>
           </label>
           <input
             id="phone"
             name="phone"
             type="tel"
-            placeholder="416-555-0199"
-            className="mt-1 block w-full px-3 py-2 border border-slate-700 bg-slate-800 text-slate-100 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
+            placeholder="+1 (555) 000-0000"
+            className="mt-1 block w-full px-3 py-2 border border-slate-700 bg-slate-800 text-slate-100 rounded-md shadow-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
           />
         </div>
       </div>
 
-      {/* Completion Time */}
+      {/* Explicit Email Permission Selector (Prompt Correction 1) */}
       <div>
-        <label htmlFor="completedAt" className="block text-sm font-medium text-slate-300">
-          Completion Date / Time (UTC or local)
+        <label className="block text-sm font-medium text-slate-300">
+          Email Permission
         </label>
-        <input
-          id="completedAt"
-          name="completedAt"
-          type="datetime-local"
-          defaultValue={new Date().toISOString().slice(0, 16)}
-          className="mt-1 block w-full px-3 py-2 border border-slate-700 bg-slate-800 text-slate-100 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
-        />
-        <p className="mt-1 text-xs text-slate-500">
-          Defaults to current time. Idempotency is enforced on identical completion events.
+        <p className="text-xs text-slate-400 mt-0.5 mb-2">
+          Conservative default is Unknown. Review solicitation requires explicit Allowed permission.
         </p>
+        <div className="grid grid-cols-3 gap-3">
+          <label className="flex items-center gap-2 p-2.5 rounded border border-slate-700 bg-slate-800 text-xs text-slate-200 cursor-pointer hover:bg-slate-700">
+            <input type="radio" name="permissionEmail" value="unknown" defaultChecked />
+            <span>Unknown (Default)</span>
+          </label>
+          <label className="flex items-center gap-2 p-2.5 rounded border border-slate-700 bg-slate-800 text-xs text-slate-200 cursor-pointer hover:bg-slate-700">
+            <input type="radio" name="permissionEmail" value="allowed" />
+            <span>Allowed</span>
+          </label>
+          <label className="flex items-center gap-2 p-2.5 rounded border border-slate-700 bg-slate-800 text-xs text-slate-200 cursor-pointer hover:bg-slate-700">
+            <input type="radio" name="permissionEmail" value="denied" />
+            <span>Denied</span>
+          </label>
+        </div>
       </div>
 
-      {/* Submit */}
-      <div className="pt-2">
+      <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
         <button
           type="submit"
           disabled={loading}
-          className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors disabled:opacity-50"
+          className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-colors"
         >
-          {loading ? 'Recording Completion...' : 'Complete Customer'}
+          {loading ? 'Recording...' : 'Record Completion & Trigger'}
         </button>
       </div>
     </form>

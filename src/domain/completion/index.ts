@@ -1,3 +1,5 @@
+export type PermissionState = 'allowed' | 'unknown' | 'denied'
+
 export interface QuickCompleteInput {
   organizationId: string
   locationId: string
@@ -5,6 +7,8 @@ export interface QuickCompleteInput {
   lastName?: string | null
   email: string
   phone?: string | null
+  permissionEmail?: PermissionState
+  permissionPhone?: PermissionState
   completedAt?: string | null
   country?: string
   sourceEventId?: string
@@ -26,8 +30,8 @@ export interface CanonicalCompletionEvent {
     phone: string | null
   }
   permission: {
-    email: 'allowed' | 'unknown' | 'denied'
-    sms: 'allowed' | 'unknown' | 'denied'
+    email: PermissionState
+    sms: PermissionState
     source: 'quick_complete'
   }
 }
@@ -43,8 +47,8 @@ export interface NormalizationResult {
     last_name: string | null
     email: string
     phone: string | null
-    permission_email: 'allowed'
-    permission_sms: 'unknown'
+    permission_email: PermissionState
+    permission_sms: PermissionState
     permission_source: 'quick_complete'
   }
 }
@@ -78,6 +82,10 @@ export function normalizeQuickCompleteInput(input: QuickCompleteInput): Normaliz
   const phone = input.phone?.trim() || null
   const country = (input.country?.trim().toUpperCase() || 'CA').slice(0, 2)
 
+  // Conservative consent default: 'unknown' unless explicitly provided
+  const permissionEmail: PermissionState = input.permissionEmail || 'unknown'
+  const permissionPhone: PermissionState = input.permissionPhone || 'unknown'
+
   let completedAt: string
   if (input.completedAt) {
     const parsed = new Date(input.completedAt)
@@ -103,8 +111,8 @@ export function normalizeQuickCompleteInput(input: QuickCompleteInput): Normaliz
       phone,
     },
     permission: {
-      email: 'allowed',
-      sms: 'unknown',
+      email: permissionEmail,
+      sms: permissionPhone,
       source: 'quick_complete',
     },
   }
@@ -116,8 +124,8 @@ export function normalizeQuickCompleteInput(input: QuickCompleteInput): Normaliz
     last_name: lastName,
     email: email!,
     phone,
-    permission_email: 'allowed' as const,
-    permission_sms: 'unknown' as const,
+    permission_email: permissionEmail,
+    permission_sms: permissionPhone,
     permission_source: 'quick_complete' as const,
   }
 

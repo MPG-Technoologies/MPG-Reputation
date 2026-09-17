@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { normalizeQuickCompleteInput } from '../../src/domain/completion'
 
 describe('normalizeQuickCompleteInput', () => {
-  it('normalizes valid Quick Complete input into canonical event', () => {
+  it('normalizes valid Quick Complete input with conservative UNKNOWN consent default', () => {
     const res = normalizeQuickCompleteInput({
       organizationId: 'org-123',
       locationId: 'loc-456',
@@ -15,11 +15,41 @@ describe('normalizeQuickCompleteInput', () => {
     expect(res.valid).toBe(true)
     expect(res.canonical).toBeDefined()
     expect(res.canonical?.contact.email).toBe('alice.smith@example.test')
-    expect(res.canonical?.permission.email).toBe('allowed')
+    // Prompt Correction 1: Conservative default is unknown
+    expect(res.canonical?.permission.email).toBe('unknown')
     expect(res.canonical?.permission.sms).toBe('unknown')
     expect(res.canonical?.source).toBe('quick_complete')
     expect(res.customerPayload?.first_name).toBe('Alice')
     expect(res.customerPayload?.last_name).toBe('Smith')
+    expect(res.customerPayload?.permission_email).toBe('unknown')
+  })
+
+  it('preserves explicitly granted email consent', () => {
+    const res = normalizeQuickCompleteInput({
+      organizationId: 'org-123',
+      locationId: 'loc-456',
+      firstName: 'Alice',
+      email: 'alice@example.test',
+      permissionEmail: 'allowed',
+    })
+
+    expect(res.valid).toBe(true)
+    expect(res.canonical?.permission.email).toBe('allowed')
+    expect(res.customerPayload?.permission_email).toBe('allowed')
+  })
+
+  it('preserves explicitly denied email consent', () => {
+    const res = normalizeQuickCompleteInput({
+      organizationId: 'org-123',
+      locationId: 'loc-456',
+      firstName: 'Alice',
+      email: 'alice@example.test',
+      permissionEmail: 'denied',
+    })
+
+    expect(res.valid).toBe(true)
+    expect(res.canonical?.permission.email).toBe('denied')
+    expect(res.customerPayload?.permission_email).toBe('denied')
   })
 
   it('rejects missing first name or invalid email', () => {

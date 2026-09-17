@@ -27,6 +27,14 @@ export async function GET(
     return new NextResponse('Review request not found or expired.', { status: 404 })
   }
 
+  // Prompt Correction 7: Guard tracking click state
+  // FAILED, CANCELLED, SUPPRESSED, or SCHEDULED requests must not become CLICKED
+  // and must not increment click conversion metrics
+  const invalidStates = ['FAILED', 'CANCELLED', 'SUPPRESSED', 'SCHEDULED']
+  if (invalidStates.includes(reviewRequest.status)) {
+    return new NextResponse('This review request is no longer available or was cancelled.', { status: 410 })
+  }
+
   // 2. Verify active organization
   const { data: org } = await supabase
     .from('organizations')
@@ -89,43 +97,46 @@ export async function GET(
     return new NextResponse('Review destination URL is invalid.', { status: 500 })
   }
 
-  // 5. Asynchronously record click (must not block customer redirect)
+  // 5. Asynchronously record first click if in a deliverable sent state (SENT or DELIVERED)
   // Data Minimization (Prompt Correction 17): Do not store raw IP or unnecessary client headers.
-  // Click Idempotency (Prompt Correction 18): Atomic state transition guards first click from duplicate increments.
-  try {
-    const { data: updatedRequest } = await supabase
-      .from('review_requests')
-      .update({
-        status: 'CLICKED',
-        clicked_at: new Date().toISOString(),
-      })
-      .eq('id', reviewRequest.id)
-      .neq('status', 'CLICKED')
-      .select('id')
-      .maybeSingle()
+  // Click Idempotency (Prompt Correction 18 & 7): Only SENT/DELIVERED requests transition to CLICKED.
+  // Repeated valid clicks (already CLICKED) redirect safely without duplicating metrics.
+  if (reviewRequest.status === 'SENT' || reviewRequest.status === 'DELIVERED') {
+    try {
+      const { data: updatedRequest } = await supabase
+        .from('review_requests')
+        .update({
+          status: 'CLICKED',
+          clicked_at: new Date().toISOString(),
+        })
+        .eq('id', reviewRequest.id)
+        .in('status', ['SENT', 'DELIVERED'])
+        .select('id')
+        .maybeSingle()
 
-    if (updatedRequest) {
-      // Record first-click event without raw IP (privacy-first data minimization)
-      await supabase.from('review_request_events').insert({
-        organization_id: reviewRequest.organization_id,
-        review_request_id: reviewRequest.id,
-        event_type: 'first_click',
-        metadata: {
-          timestamp: new Date().toISOString(),
-        },
-      })
+      if (updatedRequest) {
+        // Record first-click event without raw IP (privacy-first data minimization)
+        await supabase.from('review_request_events').insert({
+          organization_id: reviewRequest.organization_id,
+          review_request_id: reviewRequest.id,
+          event_type: 'first_click',
+          metadata: {
+            timestamp: new Date().toISOString(),
+          },
+        })
 
-      // Atomic usage increment
-      const period = new Date().toISOString().slice(0, 7)
-      await supabase.rpc('increment_organization_usage', {
-        p_org_id: reviewRequest.organization_id,
-        p_period: period,
-        p_metric: 'link_clicks',
-        p_amount: 1,
-      })
+        // Atomic usage increment via service_role admin client
+        const period = new Date().toISOString().slice(0, 7)
+        await supabase.rpc('increment_organization_usage', {
+          p_org_id: reviewRequest.organization_id,
+          p_period: period,
+          p_metric: 'link_clicks',
+          p_amount: 1,
+        })
+      }
+    } catch (err) {
+      console.error('Failed to record review request click analytics:', err)
     }
-  } catch (err) {
-    console.error('Failed to record review request click analytics:', err)
   }
 
   // 6. Safe HTTP 302 redirect directly to confirmed Google review URL

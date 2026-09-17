@@ -5,14 +5,28 @@ import { getEmailProvider } from '@/providers/email'
 import { hashSuppressionContact } from '@/domain/suppression'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-export const processReviewRequestWorkflow = inngest.createFunction(
-  {
-    id: 'process-customer-completion',
-    name: 'Process Customer Completion & Trigger Review Solicitation',
-    retries: 2,
-    triggers: [{ event: 'customer.completed' }],
-  },
-  async ({ event, step }) => {
+export interface ReviewRequestEventData {
+  eventId: string
+  organizationId: string
+  locationId: string
+  customerId: string
+  sourceEventId: string
+  completedAt?: string
+  country?: string
+  contact?: { email?: string; phone?: string }
+  permission?: { email?: string; sms?: string; source?: string }
+}
+
+export async function executeReviewRequestHandler({
+  event,
+  step,
+}: {
+  event: { data: ReviewRequestEventData }
+  step: {
+    run: <T>(name: string, fn: () => Promise<T>) => Promise<T>
+    sleep: (name: string, duration: string) => Promise<void>
+  }
+}) {
     const {
       eventId,
       organizationId,
@@ -105,14 +119,18 @@ export const processReviewRequestWorkflow = inngest.createFunction(
         .eq('contact_hash', suppressionHash)
         .maybeSingle()
 
-      // 6. Check Recent Request (within 30 days)
+      // 6. Check Recent Request (within 30 days, excluding current event to permit safe retries)
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-      const { data: recentRequest } = await supabase
+      let recentQuery = supabase
         .from('review_requests')
         .select('id')
         .eq('customer_id', customerId)
         .gte('created_at', thirtyDaysAgo)
-        .maybeSingle()
+
+      if (eventId) {
+        recentQuery = recentQuery.neq('completion_event_id', eventId)
+      }
+      const { data: recentRequest } = await recentQuery.maybeSingle()
 
       const decision = evaluateReviewEligibility({
         organization: { id: org.id, status: org.status as 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' },
@@ -246,10 +264,43 @@ export const processReviewRequestWorkflow = inngest.createFunction(
       return { id: created.id, token: created.token, isNew: true, status: 'SCHEDULED' }
     })
 
-    // Step 5: Provider Send Guarded by Atomic State Transition (Prompt Correction 8)
+    // Step 5: Provider Send Guarded by Atomic State Machine (Prompt Correction 5 & 8)
     // One completion event + channel = at most one initial customer send
     const sendResult = await step.run('dispatch-review-email', async () => {
-      // Atomic guard: atomically transition from SCHEDULED -> SENDING
+      // 1. Fetch current status of review_request from source of truth
+      const { data: currentReq } = await supabase
+        .from('review_requests')
+        .select('id, status, updated_at')
+        .eq('id', reviewRequest.id)
+        .single()
+
+      if (!currentReq) {
+        throw new Error(`Review request not found: ${reviewRequest.id}`)
+      }
+
+      // If already successfully sent, delivered, or clicked: skip safely
+      if (['SENT', 'DELIVERED', 'CLICKED'].includes(currentReq.status)) {
+        return {
+          success: true,
+          alreadySent: true,
+          provider: 'idempotent_skip',
+          messageId: 'skipped_already_sent',
+        }
+      }
+
+      // If cancelled or suppressed during wait: abort send
+      if (['CANCELLED', 'SUPPRESSED'].includes(currentReq.status)) {
+        return {
+          success: false,
+          aborted: true,
+          provider: 'abort',
+          messageId: 'aborted_due_to_ineligibility',
+        }
+      }
+
+      // 2. Atomic state transition to SENDING:
+      // Claimable if SCHEDULED, FAILED (previous retry failed), or stale SENDING (updated > 5m ago)
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
       const { data: claim } = await supabase
         .from('review_requests')
         .update({
@@ -257,17 +308,17 @@ export const processReviewRequestWorkflow = inngest.createFunction(
           updated_at: new Date().toISOString(),
         })
         .eq('id', reviewRequest.id)
-        .eq('status', 'SCHEDULED')
+        .or(`status.eq.SCHEDULED,status.eq.FAILED,and(status.eq.SENDING,updated_at.lt.${fiveMinutesAgo})`)
         .select('id')
         .maybeSingle()
 
-      // If cannot claim SCHEDULED, another execution already sent or is sending
       if (!claim) {
+        // Another active execution claimed the send; skip duplicate dispatch
         return {
           success: true,
           alreadySent: true,
           provider: 'idempotent_skip',
-          messageId: 'skipped_duplicate_dispatch',
+          messageId: 'skipped_concurrent_dispatch',
         }
       }
 
@@ -275,20 +326,27 @@ export const processReviewRequestWorkflow = inngest.createFunction(
       const trackingUrl = buildTrackedReviewUrl(appUrl, reviewRequest.token)
       const emailProvider = getEmailProvider()
 
-      const result = await emailProvider.send({
-        to: postDelayCheck.customerEmail!,
-        recipientName: postDelayCheck.customerName || 'there',
-        businessName: postDelayCheck.businessName || 'our business',
-        trackingUrl,
-      })
+      try {
+        const result = await emailProvider.send({
+          to: postDelayCheck.customerEmail!,
+          recipientName: postDelayCheck.customerName || 'there',
+          businessName: postDelayCheck.businessName || 'our business',
+          trackingUrl,
+          idempotencyKey: `req_${reviewRequest.id}`,
+        })
 
-      if (result.success) {
+        if (!result.success) {
+          throw new Error(result.error || 'Email provider rejected send')
+        }
+
+        // Durably mark SENT
         await supabase
           .from('review_requests')
           .update({
             status: 'SENT',
             sent_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
+            error_message: null,
           })
           .eq('id', reviewRequest.id)
 
@@ -299,11 +357,11 @@ export const processReviewRequestWorkflow = inngest.createFunction(
           provider: result.provider,
           provider_message_id: result.messageId,
           event_type: 'sent',
-          status: 'success',
-          metadata: { to: postDelayCheck.customerEmail },
+          status: 'SENT',
+          metadata: { to: postDelayCheck.customerEmail, trackingUrl },
         })
 
-        // Atomic usage increment (Prompt Correction 19)
+        // Atomic usage increment via service_role admin client (Prompt Correction 19)
         const period = new Date().toISOString().slice(0, 7)
         await supabase.rpc('increment_organization_usage', {
           p_org_id: organizationId,
@@ -311,19 +369,36 @@ export const processReviewRequestWorkflow = inngest.createFunction(
           p_metric: 'review_requests_sent',
           p_amount: 1,
         })
-      } else {
+
+        return result
+      } catch (sendErr: unknown) {
+        const errorMsg = (sendErr instanceof Error ? sendErr.message : 'Email dispatch failed').slice(0, 500)
+        console.error('Email dispatch error; marking review request FAILED for retry:', errorMsg)
+
+        // Durably record FAILED state so it does not remain stranded in SENDING
         await supabase
           .from('review_requests')
           .update({
             status: 'FAILED',
             failed_at: new Date().toISOString(),
-            error_message: result.error || 'Provider send failed',
+            error_message: errorMsg,
             updated_at: new Date().toISOString(),
           })
           .eq('id', reviewRequest.id)
-      }
 
-      return result
+        // Record failure event
+        await supabase.from('message_events').insert({
+          organization_id: organizationId,
+          review_request_id: reviewRequest.id,
+          provider: 'email',
+          event_type: 'failed',
+          status: 'FAILED',
+          sanitized_error: errorMsg,
+        })
+
+        // Rethrow for Inngest retry mechanism
+        throw sendErr
+      }
     })
 
     return {
@@ -332,5 +407,27 @@ export const processReviewRequestWorkflow = inngest.createFunction(
       emailSent: sendResult.success,
       provider: sendResult.provider,
     }
+}
+
+export const processReviewRequestWorkflow = inngest.createFunction(
+  {
+    id: 'process-customer-completion',
+    name: 'Process Customer Completion & Trigger Review Solicitation',
+    retries: 2,
+    triggers: [{ event: 'customer.completed' }],
+  },
+  async ({ event, step }) => {
+    return executeReviewRequestHandler({
+      event: { data: event.data as unknown as ReviewRequestEventData },
+      step: {
+        run: async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+          const res = await step.run(name, fn)
+          return res as unknown as T
+        },
+        sleep: async (name: string, duration: string) => {
+          await step.sleep(name, duration)
+        },
+      },
+    })
   }
 )

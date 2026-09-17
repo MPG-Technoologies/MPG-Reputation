@@ -4,6 +4,7 @@ export interface SendEmailInput {
   businessName: string
   trackingUrl: string
   subject?: string
+  idempotencyKey?: string
 }
 
 export interface SendEmailResult {

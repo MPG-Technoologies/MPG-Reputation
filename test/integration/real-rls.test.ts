@@ -32,10 +32,14 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
     })
 
     const timestamp = Date.now()
+    const emailA = `usera_${timestamp}@test.local`
+    const emailB = `userb_${timestamp}@test.local`
+    const emailV = `viewer_${timestamp}@test.local`
+    const emailO = `operator_${timestamp}@test.local`
 
     // 1. Create test users
     const { data: uA, error: errA } = await adminClient.auth.admin.createUser({
-      email: `usera_${timestamp}@test.local`,
+      email: emailA,
       password: 'Password123!',
       email_confirm: true,
     })
@@ -43,7 +47,7 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
     userAId = uA.user.id
 
     const { data: uB, error: errB } = await adminClient.auth.admin.createUser({
-      email: `userb_${timestamp}@test.local`,
+      email: emailB,
       password: 'Password123!',
       email_confirm: true,
     })
@@ -51,7 +55,7 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
     userBId = uB.user.id
 
     const { data: uV, error: errV } = await adminClient.auth.admin.createUser({
-      email: `viewer_${timestamp}@test.local`,
+      email: emailV,
       password: 'Password123!',
       email_confirm: true,
     })
@@ -59,7 +63,7 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
     userViewerId = uV.user.id
 
     const { data: uO, error: errO } = await adminClient.auth.admin.createUser({
-      email: `operator_${timestamp}@test.local`,
+      email: emailO,
       password: 'Password123!',
       email_confirm: true,
     })
@@ -70,39 +74,43 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
     userAClient = createClient<Database>(SUPABASE_URL, ANON_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     })
-    await userAClient.auth.signInWithPassword({
-      email: `usera_${timestamp}@test.local`,
+    const { error: signErrA } = await userAClient.auth.signInWithPassword({
+      email: emailA,
       password: 'Password123!',
     })
+    if (signErrA) throw new Error(`User A signin failed: ${signErrA.message}`)
 
     userBClient = createClient<Database>(SUPABASE_URL, ANON_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     })
-    await userBClient.auth.signInWithPassword({
-      email: `userb_${timestamp}@test.local`,
+    const { error: signErrB } = await userBClient.auth.signInWithPassword({
+      email: emailB,
       password: 'Password123!',
     })
+    if (signErrB) throw new Error(`User B signin failed: ${signErrB.message}`)
 
     viewerClient = createClient<Database>(SUPABASE_URL, ANON_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     })
-    await viewerClient.auth.signInWithPassword({
-      email: `viewer_${timestamp}@test.local`,
+    const { error: signErrV } = await viewerClient.auth.signInWithPassword({
+      email: emailV,
       password: 'Password123!',
     })
+    if (signErrV) throw new Error(`Viewer signin failed: ${signErrV.message}`)
 
     operatorClient = createClient<Database>(SUPABASE_URL, ANON_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     })
-    await operatorClient.auth.signInWithPassword({
-      email: `operator_${timestamp}@test.local`,
+    const { error: signErrO } = await operatorClient.auth.signInWithPassword({
+      email: emailO,
       password: 'Password123!',
     })
+    if (signErrO) throw new Error(`Operator signin failed: ${signErrO.message}`)
 
     // 3. Create Org A with User A as OWNER via atomic onboarding RPC
     const { data: resA, error: rpcErrA } = await userAClient.rpc('create_org_with_owner_and_location', {
-      p_org_name: `Northstar Dental ${timestamp}`,
-      p_slug: `northstar-${timestamp}`,
+      p_org_name: `Northstar Dental ${Date.now()}`,
+      p_slug: `northstar-${Date.now()}`,
       p_loc_name: 'Main Clinic',
       p_address: '100 Medical Plaza',
     })
@@ -113,8 +121,8 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
 
     // 4. Create Org B with User B as OWNER via atomic onboarding RPC
     const { data: resB, error: rpcErrB } = await userBClient.rpc('create_org_with_owner_and_location', {
-      p_org_name: `Beacon Health ${timestamp}`,
-      p_slug: `beacon-${timestamp}`,
+      p_org_name: `Beacon Health ${Date.now()}`,
+      p_slug: `beacon-${Date.now()}`,
       p_loc_name: 'West Branch',
       p_address: '200 Wellness Way',
     })
@@ -321,5 +329,105 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
     // PostgreSQL composite foreign key constraint (fk_customer_location) must reject this!
     expect(fkErr).not.toBeNull()
     expect(fkErr?.message).toContain('fk_customer_location')
+  })
+
+  it('proves direct INSERT into organizations by authenticated user is denied (Prompt Correction 4)', async () => {
+    const { error: directInsertErr } = await userAClient
+      .from('organizations')
+      .insert({
+        name: 'Bypass Direct Org',
+        slug: `bypass-org-${Date.now()}`,
+        country: 'CA',
+        timezone: 'America/Toronto',
+      })
+
+    // Must be rejected because authenticated has no INSERT policy on organizations
+    expect(directInsertErr).not.toBeNull()
+  })
+
+  it('proves direct execution of increment_organization_usage is denied to authenticated users (Prompt Correction 3)', async () => {
+    const { error: usageErr } = await userAClient.rpc('increment_organization_usage', {
+      p_org_id: orgAId,
+      p_period: '2026-09',
+      p_metric: 'link_clicks',
+      p_amount: 1,
+    })
+
+    // Must be rejected because EXECUTE is revoked from authenticated and anon
+    expect(usageErr).not.toBeNull()
+    expect(usageErr?.message?.toLowerCase()).toContain('permission denied')
+  })
+
+  it('proves composite foreign keys prevent cross-tenant associations on downstream event tables (Prompt Correction 6)', async () => {
+    // 1. Create valid customer, completion event, and review request in Org A
+    const { data: custA } = await adminClient
+      .from('customers')
+      .insert({
+        organization_id: orgAId,
+        location_id: locAId,
+        first_name: 'TenantA',
+        email: `tenant.a.${Date.now()}@example.test`,
+        permission_email: 'allowed',
+        permission_source: 'test',
+      })
+      .select('id')
+      .single()
+
+    const { data: cceA } = await adminClient
+      .from('customer_completion_events')
+      .insert({
+        organization_id: orgAId,
+        location_id: locAId,
+        customer_id: custA!.id,
+        source: 'quick_complete',
+        source_event_id: `cce_tenanta_${Date.now()}`,
+        contact: { email: `tenant.a.${Date.now()}@example.test` },
+        permission: { email: 'allowed' },
+      })
+      .select('id')
+      .single()
+
+    const { data: rrA } = await adminClient
+      .from('review_requests')
+      .insert({
+        organization_id: orgAId,
+        location_id: locAId,
+        customer_id: custA!.id,
+        completion_event_id: cceA!.id,
+        channel: 'email',
+        status: 'SCHEDULED',
+        token: `token_tenanta_${Date.now()}`,
+        token_hash: `hash_tenanta_${Date.now()}`,
+      })
+      .select('id')
+      .single()
+
+    expect(rrA?.id).toBeDefined()
+
+    // 2. Attempt to insert review_request_events with review_request of Org A, but organization_id of Org B
+    const { error: rreErr } = await adminClient
+      .from('review_request_events')
+      .insert({
+        organization_id: orgBId, // MISMATCH: belongs to Org B while rrA belongs to Org A
+        review_request_id: rrA!.id,
+        event_type: 'first_click',
+      })
+
+    expect(rreErr).not.toBeNull()
+    expect(rreErr?.message).toContain('fk_rre_review_request')
+
+    // 3. Attempt to insert message_events with review_request of Org A, but organization_id of Org B
+    const { error: meErr } = await adminClient
+      .from('message_events')
+      .insert({
+        organization_id: orgBId, // MISMATCH
+        review_request_id: rrA!.id,
+        provider: 'console',
+        event_type: 'sent',
+        status: 'SENT',
+      })
+
+    expect(meErr).not.toBeNull()
+    expect(meErr?.message).toContain('fk_me_review_request')
   })
 })

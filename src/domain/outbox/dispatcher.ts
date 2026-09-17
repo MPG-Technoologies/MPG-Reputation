@@ -16,16 +16,22 @@ export interface OutboxDispatchResult {
 export async function dispatchPendingOutboxEvents(
   supabase: SupabaseClient<Database>,
   inngestClient: Inngest,
-  options: { batchSize?: number } = {}
+  options: { batchSize?: number; organizationId?: string } = {}
 ): Promise<OutboxDispatchResult> {
   const batchSize = options.batchSize || 25
 
-  const { data: pendingEvents, error: fetchErr } = await supabase
+  let query = supabase
     .from('domain_event_outbox')
     .select('id, organization_id, event_type, aggregate_type, aggregate_id, payload, attempt_count')
     .eq('status', 'PENDING')
     .order('created_at', { ascending: true })
     .limit(batchSize)
+
+  if (options.organizationId) {
+    query = query.eq('organization_id', options.organizationId)
+  }
+
+  const { data: pendingEvents, error: fetchErr } = await query
 
   if (fetchErr || !pendingEvents || pendingEvents.length === 0) {
     return { processed: 0, dispatched: 0, failed: 0, errors: [] }

@@ -1,8 +1,12 @@
-import { serve } from 'inngest/next'
-import { inngest } from '@/inngest/client'
-import { processReviewRequestWorkflow } from '@/inngest/functions/review-request'
+import { serve } from "inngest/next"
+import { inngest } from "@/inngest/client"
+import { processReviewRequestWorkflow } from "@/inngest/functions/review-request"
+import { recoverPendingOutboxWorkflow } from "@/inngest/functions/outbox-recovery"
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [processReviewRequestWorkflow],
+  functions: [
+    processReviewRequestWorkflow,
+    recoverPendingOutboxWorkflow,
+  ],
 })

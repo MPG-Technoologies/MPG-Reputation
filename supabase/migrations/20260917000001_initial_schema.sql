@@ -513,7 +513,10 @@ CREATE POLICY org_users_select ON public.organization_users
 
 CREATE POLICY org_users_insert ON public.organization_users
     FOR INSERT TO authenticated
-    WITH CHECK (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN']));
+    WITH CHECK (
+      public.user_has_role(organization_id, ARRAY['OWNER']) OR
+      (public.user_has_role(organization_id, ARRAY['ADMIN']) AND role IN ('OPERATOR', 'VIEWER'))
+    );
 
 CREATE POLICY org_users_update ON public.organization_users
     FOR UPDATE TO authenticated
@@ -596,37 +599,20 @@ CREATE POLICY dest_delete ON public.review_destinations
     FOR DELETE TO authenticated
     USING (public.user_has_role(organization_id, ARRAY['OWNER']));
 
--- POLICIES: review_requests
+-- POLICIES: review_requests (System-write-only: mutations handled exclusively by trusted server/service_role workflows)
 CREATE POLICY rr_select ON public.review_requests
     FOR SELECT TO authenticated
     USING (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR', 'VIEWER']));
 
-CREATE POLICY rr_insert ON public.review_requests
-    FOR INSERT TO authenticated
-    WITH CHECK (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR']));
-
-CREATE POLICY rr_update ON public.review_requests
-    FOR UPDATE TO authenticated
-    USING (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR']))
-    WITH CHECK (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR']));
-
--- POLICIES: review_request_events
+-- POLICIES: review_request_events (System-write-only)
 CREATE POLICY rre_select ON public.review_request_events
     FOR SELECT TO authenticated
     USING (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR', 'VIEWER']));
 
-CREATE POLICY rre_insert ON public.review_request_events
-    FOR INSERT TO authenticated
-    WITH CHECK (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR']));
-
--- POLICIES: message_events
+-- POLICIES: message_events (System-write-only)
 CREATE POLICY me_select ON public.message_events
     FOR SELECT TO authenticated
     USING (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR', 'VIEWER']));
-
-CREATE POLICY me_insert ON public.message_events
-    FOR INSERT TO authenticated
-    WITH CHECK (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR']));
 
 -- POLICIES: suppressions
 CREATE POLICY sup_select ON public.suppressions
@@ -641,42 +627,20 @@ CREATE POLICY sup_delete ON public.suppressions
     FOR DELETE TO authenticated
     USING (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN']));
 
--- POLICIES: organization_usage
+-- POLICIES: organization_usage (System-write-only: mutated strictly via service_role / increment_organization_usage)
 CREATE POLICY usage_select ON public.organization_usage
     FOR SELECT TO authenticated
     USING (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR', 'VIEWER']));
 
-CREATE POLICY usage_insert ON public.organization_usage
-    FOR INSERT TO authenticated
-    WITH CHECK (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR']));
-
-CREATE POLICY usage_update ON public.organization_usage
-    FOR UPDATE TO authenticated
-    USING (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR']))
-    WITH CHECK (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR']));
-
--- POLICIES: domain_event_outbox
+-- POLICIES: domain_event_outbox (System-write-only: inserted via submit_quick_complete_atomic, updated via service_role dispatcher)
 CREATE POLICY outbox_select ON public.domain_event_outbox
-    FOR SELECT TO authenticated
-    USING (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR']));
-
-CREATE POLICY outbox_insert ON public.domain_event_outbox
-    FOR INSERT TO authenticated
-    WITH CHECK (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR']));
-
-CREATE POLICY outbox_update ON public.domain_event_outbox
-    FOR UPDATE TO authenticated
-    USING (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR']))
-    WITH CHECK (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR']));
-
--- POLICIES: audit_events
-CREATE POLICY audit_select ON public.audit_events
     FOR SELECT TO authenticated
     USING (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR', 'VIEWER']));
 
-CREATE POLICY audit_insert ON public.audit_events
-    FOR INSERT TO authenticated
-    WITH CHECK (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR']));
+-- POLICIES: audit_events (System-write-only: recorded via trusted server / service_role)
+CREATE POLICY audit_select ON public.audit_events
+    FOR SELECT TO authenticated
+    USING (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR', 'VIEWER']));
 
 -- SECURITY DEFINER PRIVILEGE HARDENING (Prompt Correction 3)
 REVOKE ALL ON FUNCTION public.user_org_ids FROM PUBLIC, anon;

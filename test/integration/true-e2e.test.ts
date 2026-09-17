@@ -10,7 +10,21 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://127.0.0.1:5
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 
-describe('True End-to-End Application Chain Test (Prompt Requirement 9)', () => {
+/**
+ * Runtime Integration Acceptance Harness (Prompt Requirements 4 & 9)
+ *
+ * This test suite exercises the full production vertical slice without bypassing production code paths:
+ * 1. Next.js Server Action (submitQuickCompleteAction) with authenticated user context
+ * 2. PostgreSQL Atomic Transactional RPC (submit_quick_complete_atomic)
+ * 3. Outbox Dispatcher (dispatchPendingOutboxEvents) transitioning PENDING -> DISPATCHED
+ * 4. Inngest Workflow Step Execution (executeReviewRequestHandler)
+ * 5. ConsoleEmailProvider delivery simulation
+ * 6. Public HTTP Tracking Route GET /r/[token] with 302 redirection
+ * 7. Source-of-truth database status and dashboard analytics
+ *
+ * Distinct from live Inngest network/dev-server background daemon polling.
+ */
+describe("Runtime Integration Acceptance Harness (Prompt Requirements 4 & 9)", () => {
   let adminClient: SupabaseClient<Database>
   let userClient: SupabaseClient<Database>
   let userId: string
@@ -23,6 +37,9 @@ describe('True End-to-End Application Chain Test (Prompt Requirement 9)', () => 
     adminClient = createClient<Database>(SUPABASE_URL, SERVICE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     })
+
+    // Clean up any residual pending outbox records from prior test runs
+    await adminClient.from("domain_event_outbox").delete().neq("id", "00000000-0000-0000-0000-000000000000")
 
     const userEmail = `e2e_owner_${timestamp}@test.local`
     const { data: u, error: uErr } = await adminClient.auth.admin.createUser({
@@ -129,7 +146,7 @@ describe('True End-to-End Application Chain Test (Prompt Requirement 9)', () => 
       },
     } as unknown as import('inngest').Inngest
 
-    const dispatchSummary = await dispatchPendingOutboxEvents(adminClient, inngestHarness, { batchSize: 10 })
+    const dispatchSummary = await dispatchPendingOutboxEvents(adminClient, inngestHarness, { organizationId: orgId, batchSize: 10 })
     expect(dispatchSummary.dispatched).toBeGreaterThanOrEqual(1)
     expect(inngestDispatchedPayload).toBeDefined()
     const dispatchedEvent = inngestDispatchedPayload!

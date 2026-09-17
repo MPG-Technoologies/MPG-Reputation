@@ -127,8 +127,8 @@ describe.skipIf(!isDbAvailable)('V0.1 Vertical Slice Runtime Proof & Idempotency
     expect(cceErr).toBeNull()
     expect(completionEvent?.id).toBeDefined()
 
-    // 2. Persist in transactional domain event outbox
-    const { data: outbox, error: outboxErr } = await userClient
+    // 2. Persist in transactional domain event outbox (via system/admin authority)
+    const { data: outbox, error: outboxErr } = await adminClient
       .from('domain_event_outbox')
       .insert({
         organization_id: orgId,

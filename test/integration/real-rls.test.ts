@@ -15,11 +15,13 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
   let userBClient: ReturnType<typeof createClient<Database>>
   let viewerClient: ReturnType<typeof createClient<Database>>
   let operatorClient: ReturnType<typeof createClient<Database>>
+  let adminUserClient: ReturnType<typeof createClient<Database>>
 
   let userAId: string
   let userBId: string
   let userViewerId: string
   let userOperatorId: string
+  let adminUserId: string
 
   let orgAId: string
   let orgBId: string
@@ -36,6 +38,7 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
     const emailB = `userb_${timestamp}@test.local`
     const emailV = `viewer_${timestamp}@test.local`
     const emailO = `operator_${timestamp}@test.local`
+    const emailAdmin = `admin_${timestamp}@test.local`
 
     // 1. Create test users
     const { data: uA, error: errA } = await adminClient.auth.admin.createUser({
@@ -69,6 +72,14 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
     })
     if (errO || !uO.user) throw new Error(`Failed to create operator: ${errO?.message}`)
     userOperatorId = uO.user.id
+
+    const { data: uAdmin, error: errAdmin } = await adminClient.auth.admin.createUser({
+      email: emailAdmin,
+      password: "Password123!",
+      email_confirm: true,
+    })
+    if (errAdmin || !uAdmin.user) throw new Error(`Failed to create admin user: ${errAdmin?.message}`)
+    adminUserId = uAdmin.user.id
 
     // 2. Initialize authenticated clients
     userAClient = createClient<Database>(SUPABASE_URL, ANON_KEY, {
@@ -107,6 +118,15 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
     })
     if (signErrO) throw new Error(`Operator signin failed: ${signErrO.message}`)
 
+    adminUserClient = createClient<Database>(SUPABASE_URL, ANON_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+    const { error: signErrAdmin } = await adminUserClient.auth.signInWithPassword({
+      email: emailAdmin,
+      password: "Password123!",
+    })
+    if (signErrAdmin) throw new Error(`Admin user signin failed: ${signErrAdmin.message}`)
+
     // 3. Create Org A with User A as OWNER via atomic onboarding RPC
     const { data: resA, error: rpcErrA } = await userAClient.rpc('create_org_with_owner_and_location', {
       p_org_name: `Northstar Dental ${Date.now()}`,
@@ -133,6 +153,7 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
 
     // 5. Add VIEWER and OPERATOR to Org A
     await adminClient.from('organization_users').insert([
+      { organization_id: orgAId, user_id: adminUserId, role: 'ADMIN' },
       { organization_id: orgAId, user_id: userViewerId, role: 'VIEWER' },
       { organization_id: orgAId, user_id: userOperatorId, role: 'OPERATOR' },
     ])
@@ -146,6 +167,7 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
       if (userBId) await adminClient.auth.admin.deleteUser(userBId)
       if (userViewerId) await adminClient.auth.admin.deleteUser(userViewerId)
       if (userOperatorId) await adminClient.auth.admin.deleteUser(userOperatorId)
+      if (adminUserId) await adminClient.auth.admin.deleteUser(adminUserId)
     }
   })
 
@@ -430,4 +452,235 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
     expect(meErr).not.toBeNull()
     expect(meErr?.message).toContain('fk_me_review_request')
   })
-})
+  it('proves ADMIN cannot insert OWNER or ADMIN, but can insert OPERATOR or VIEWER, and VIEWER/OPERATOR cannot insert any membership (Trust Boundary 1)', async () => {
+    // Create target synthetic users to invite
+    const uOwner = (await adminClient.auth.admin.createUser({ email: `target_owner_${Date.now()}@test.local`, password: 'Password123!', email_confirm: true })).data.user!.id
+    const uAdmin = (await adminClient.auth.admin.createUser({ email: `target_admin_${Date.now()}@test.local`, password: 'Password123!', email_confirm: true })).data.user!.id
+    const uOp = (await adminClient.auth.admin.createUser({ email: `target_op_${Date.now()}@test.local`, password: 'Password123!', email_confirm: true })).data.user!.id
+    const uVi = (await adminClient.auth.admin.createUser({ email: `target_vi_${Date.now()}@test.local`, password: 'Password123!', email_confirm: true })).data.user!.id
+    const uDenied = (await adminClient.auth.admin.createUser({ email: `target_denied_${Date.now()}@test.local`, password: 'Password123!', email_confirm: true })).data.user!.id
+
+    // ADMIN -> insert OWNER = denied
+    const { error: errOwner } = await adminUserClient.from('organization_users').insert({
+      organization_id: orgAId,
+      user_id: uOwner,
+      role: 'OWNER',
+    })
+    expect(errOwner).not.toBeNull()
+    expect(errOwner?.code).toBe('42501')
+
+    // ADMIN -> insert ADMIN = denied
+    const { error: errAdmin } = await adminUserClient.from('organization_users').insert({
+      organization_id: orgAId,
+      user_id: uAdmin,
+      role: 'ADMIN',
+    })
+    expect(errAdmin).not.toBeNull()
+    expect(errAdmin?.code).toBe('42501')
+
+    // ADMIN -> insert OPERATOR = allowed
+    const { data: opData, error: errOp } = await adminUserClient.from('organization_users').insert({
+      organization_id: orgAId,
+      user_id: uOp,
+      role: 'OPERATOR',
+    }).select('id, role').single()
+    expect(errOp).toBeNull()
+    expect(opData?.role).toBe('OPERATOR')
+
+    // ADMIN -> insert VIEWER = allowed
+    const { data: viData, error: errVi } = await adminUserClient.from('organization_users').insert({
+      organization_id: orgAId,
+      user_id: uVi,
+      role: 'VIEWER',
+    }).select('id, role').single()
+    expect(errVi).toBeNull()
+    expect(viData?.role).toBe('VIEWER')
+
+    // VIEWER -> insert membership = denied
+    const { error: errViDenied } = await viewerClient.from('organization_users').insert({
+      organization_id: orgAId,
+      user_id: uDenied,
+      role: 'VIEWER',
+    })
+    expect(errViDenied).not.toBeNull()
+    expect(errViDenied?.code).toBe('42501')
+
+    // OPERATOR -> insert membership = denied
+    const { error: errOpDenied } = await operatorClient.from('organization_users').insert({
+      organization_id: orgAId,
+      user_id: uDenied,
+      role: 'OPERATOR',
+    })
+    expect(errOpDenied).not.toBeNull()
+    expect(errOpDenied?.code).toBe('42501')
+
+    // Cleanup target users
+    await adminClient.auth.admin.deleteUser(uOwner)
+    await adminClient.auth.admin.deleteUser(uAdmin)
+    await adminClient.auth.admin.deleteUser(uOp)
+    await adminClient.auth.admin.deleteUser(uVi)
+    await adminClient.auth.admin.deleteUser(uDenied)
+  })
+
+  it('proves system-owned tables are system-write-only and cannot be mutated by tenant users (Trust Boundary 2)', async () => {
+    // 1. Setup real customer, completion event, and review request in Org A via adminClient
+    const { data: testCust } = await adminClient.from('customers').insert({
+      organization_id: orgAId,
+      location_id: locAId,
+      first_name: 'Trust',
+      last_name: 'Boundary',
+      email: `trust.boundary.${Date.now()}@example.test`,
+    }).select('id').single()
+
+    const { data: testCce } = await adminClient.from('customer_completion_events').insert({
+      organization_id: orgAId,
+      location_id: locAId,
+      customer_id: testCust!.id,
+      source: 'quick_complete',
+      source_event_id: `cce_tb_${Date.now()}`,
+      contact: { email: `trust.boundary.${Date.now()}@example.test` },
+      permission: { email: 'allowed' },
+    }).select('id').single()
+
+    const { data: testRr } = await adminClient.from('review_requests').insert({
+      organization_id: orgAId,
+      location_id: locAId,
+      customer_id: testCust!.id,
+      completion_event_id: testCce!.id,
+      channel: 'email',
+      status: 'SCHEDULED',
+      token: `token_tb_${Date.now()}`,
+      token_hash: `hash_tb_${Date.now()}`,
+    }).select('id').single()
+
+    // 2. OPERATOR cannot mark outbox DISPATCHED or insert outbox records
+    const { data: testOutbox } = await adminClient.from('domain_event_outbox').insert({
+      organization_id: orgAId,
+      event_type: 'customer.completed',
+      aggregate_type: 'customer',
+      aggregate_id: testCust!.id,
+      payload: { test: true },
+      status: 'PENDING',
+    }).select('id').single()
+
+    const { data: outboxUpdated } = await operatorClient.from('domain_event_outbox').update({
+      status: 'DISPATCHED',
+    }).eq('id', testOutbox!.id).select()
+    expect(outboxUpdated).toEqual([])
+
+    const { data: checkOutbox } = await adminClient.from('domain_event_outbox').select('status').eq('id', testOutbox!.id).single()
+    expect(checkOutbox?.status).toBe('PENDING')
+
+    const { error: outboxInsErr } = await operatorClient.from('domain_event_outbox').insert({
+      organization_id: orgAId,
+      event_type: 'customer.completed',
+      aggregate_type: 'customer',
+      aggregate_id: testCust!.id,
+      payload: { test: true },
+      status: 'PENDING',
+    })
+    expect(outboxInsErr).not.toBeNull()
+    expect(outboxInsErr?.code).toBe('42501')
+
+    // 3. OPERATOR cannot change organization usage directly
+    const { error: usageInsErr } = await operatorClient.from('organization_usage').insert({
+      organization_id: orgAId,
+      period: '2026-09',
+      metric: 'review_requests_sent',
+      value: 9999,
+    })
+    expect(usageInsErr).not.toBeNull()
+    expect(usageInsErr?.code).toBe('42501')
+
+    const { data: usageUpdated } = await operatorClient.from('organization_usage').update({
+      value: 0,
+    }).eq('organization_id', orgAId).select()
+    expect(usageUpdated).toEqual([])
+
+    // 4. OPERATOR cannot forge audit_events
+    const { error: auditErr } = await operatorClient.from('audit_events').insert({
+      organization_id: orgAId,
+      actor_type: 'user',
+      entity_type: 'review_request',
+      entity_id: testRr!.id,
+      event_type: 'forged_audit_action',
+    })
+    expect(auditErr).not.toBeNull()
+    expect(auditErr?.code).toBe('42501')
+
+    // 5. OPERATOR cannot forge message_events
+    const { error: msgErr } = await operatorClient.from('message_events').insert({
+      organization_id: orgAId,
+      review_request_id: testRr!.id,
+      provider: 'console',
+      event_type: 'sent',
+      status: 'SENT',
+    })
+    expect(msgErr).not.toBeNull()
+    expect(msgErr?.code).toBe('42501')
+
+    // 6. OPERATOR cannot forge review_request_events
+    const { error: rreErr } = await operatorClient.from('review_request_events').insert({
+      organization_id: orgAId,
+      review_request_id: testRr!.id,
+      event_type: 'first_click',
+    })
+    expect(rreErr).not.toBeNull()
+    expect(rreErr?.code).toBe('42501')
+
+    // 7. OPERATOR cannot manually insert or set a review request to SENT or CLICKED
+    const { data: rrUpdated } = await operatorClient.from('review_requests').update({
+      status: 'SENT',
+    }).eq('id', testRr!.id).select()
+    expect(rrUpdated).toEqual([])
+
+    const { data: checkRr } = await adminClient.from('review_requests').select('status').eq('id', testRr!.id).single()
+    expect(checkRr?.status).toBe('SCHEDULED')
+
+    const { error: rrInsErr } = await operatorClient.from('review_requests').insert({
+      organization_id: orgAId,
+      location_id: locAId,
+      customer_id: testCust!.id,
+      completion_event_id: testCce!.id,
+      channel: 'email',
+      status: 'SENT',
+      token: `token_forged_${Date.now()}`,
+      token_hash: `hash_forged_${Date.now()}`,
+    })
+    expect(rrInsErr).not.toBeNull()
+    expect(rrInsErr?.code).toBe('42501')
+
+    // 8. Legitimate trusted server workflows (service_role) still succeed
+    const { data: updatedRr, error: adminRrErr } = await adminClient.from('review_requests').update({
+      status: 'SENT',
+      sent_at: new Date().toISOString(),
+    }).eq('id', testRr!.id).select('status').single()
+    expect(adminRrErr).toBeNull()
+    expect(updatedRr?.status).toBe('SENT')
+
+    const { error: adminRreErr } = await adminClient.from('review_request_events').insert({
+      organization_id: orgAId,
+      review_request_id: testRr!.id,
+      event_type: 'sent',
+    })
+    expect(adminRreErr).toBeNull()
+
+    const { error: adminMeErr } = await adminClient.from('message_events').insert({
+      organization_id: orgAId,
+      review_request_id: testRr!.id,
+      provider: 'console',
+      event_type: 'sent',
+      status: 'SENT',
+    })
+    expect(adminMeErr).toBeNull()
+
+    // 9. Authenticated dashboard SELECT queries continue to succeed
+    const { data: selRr, error: selRrErr } = await operatorClient.from('review_requests').select('id, status').eq('id', testRr!.id)
+    expect(selRrErr).toBeNull()
+    expect(selRr).toHaveLength(1)
+
+    const { data: selOutbox, error: selOutboxErr } = await operatorClient.from('domain_event_outbox').select('id, status').eq('id', testOutbox!.id)
+    expect(selOutboxErr).toBeNull()
+    expect(selOutbox).toHaveLength(1)
+  })
+});

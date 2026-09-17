@@ -17,6 +17,8 @@ export function QuickCompleteForm({
 }) {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<QuickCompleteResult | null>(null)
+  // Prompt Correction 8: Stable idempotency key across double-clicks and retries; fresh key after reset
+  const [sourceEventId, setSourceEventId] = useState(() => `qc_${crypto.randomUUID()}`)
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -30,6 +32,8 @@ export function QuickCompleteForm({
       if (res.success && !res.duplicate) {
         const form = e.target as HTMLFormElement
         form.reset()
+        // Generate new key for the next legitimate job completion
+        setSourceEventId(`qc_${crypto.randomUUID()}`)
       }
     } catch {
       setResult({ success: false, error: 'An unexpected error occurred while submitting.' })
@@ -49,6 +53,7 @@ export function QuickCompleteForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <input type="hidden" name="organizationId" value={organizationId} />
+      <input type="hidden" name="sourceEventId" value={sourceEventId} />
 
       {result && (
         <div

@@ -94,8 +94,8 @@ export function normalizeQuickCompleteInput(input: QuickCompleteInput): Normaliz
     completedAt = new Date().toISOString()
   }
 
-  // Stable source_event_id for idempotency
-  const sourceEventId = input.sourceEventId?.trim() || `qc_${input.locationId}_${encodeURIComponent(email!)}_${completedAt.slice(0, 10)}`
+  // Stable source_event_id for idempotency (Prompt 8: unique per submission intent, not derived solely from date)
+  const sourceEventId = input.sourceEventId?.trim() || `qc_${crypto.randomUUID()}`
 
   const canonical: CanonicalCompletionEvent = {
     organization_id: input.organizationId,

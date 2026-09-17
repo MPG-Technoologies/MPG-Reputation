@@ -51,4 +51,28 @@ describe('validateGoogleReviewUrl', () => {
     expect(result.valid).toBe(false)
     expect(result.error).toContain('placeid')
   })
+
+  it('rejects generic Google homepage and generic search (Prompt Correction 16)', () => {
+    const home1 = validateGoogleReviewUrl('https://www.google.com')
+    expect(home1.valid).toBe(false)
+    expect(home1.error).toContain('homepage')
+
+    const home2 = validateGoogleReviewUrl('https://google.com')
+    expect(home2.valid).toBe(false)
+    expect(home2.error).toContain('homepage')
+
+    const search1 = validateGoogleReviewUrl('https://maps.google.com/?q=dentist')
+    expect(search1.valid).toBe(false)
+    expect(search1.error).toContain('search')
+
+    const search2 = validateGoogleReviewUrl('https://www.google.com/maps/search/dentist')
+    expect(search2.valid).toBe(false)
+    expect(search2.error).toContain('search')
+  })
+
+  it('rejects arbitrary g.page paths without /review (Prompt Correction 16)', () => {
+    const arbitrary = validateGoogleReviewUrl('https://g.page/attacker')
+    expect(arbitrary.valid).toBe(false)
+    expect(arbitrary.error).toContain('review path')
+  })
 })

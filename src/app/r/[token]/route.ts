@@ -90,47 +90,41 @@ export async function GET(
   }
 
   // 5. Asynchronously record click (must not block customer redirect)
+  // Data Minimization (Prompt Correction 17): Do not store raw IP or unnecessary client headers.
+  // Click Idempotency (Prompt Correction 18): Atomic state transition guards first click from duplicate increments.
   try {
-    const isFirstClick = reviewRequest.status !== 'CLICKED'
+    const { data: updatedRequest } = await supabase
+      .from('review_requests')
+      .update({
+        status: 'CLICKED',
+        clicked_at: new Date().toISOString(),
+      })
+      .eq('id', reviewRequest.id)
+      .neq('status', 'CLICKED')
+      .select('id')
+      .maybeSingle()
 
-    if (isFirstClick) {
-      await supabase
-        .from('review_requests')
-        .update({
-          status: 'CLICKED',
-          clicked_at: new Date().toISOString(),
-        })
-        .eq('id', reviewRequest.id)
-
+    if (updatedRequest) {
+      // Record first-click event without raw IP (privacy-first data minimization)
       await supabase.from('review_request_events').insert({
         organization_id: reviewRequest.organization_id,
         review_request_id: reviewRequest.id,
-        event_type: 'clicked',
+        event_type: 'first_click',
         metadata: {
-          userAgent: request.headers.get('user-agent'),
-          ip: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown',
+          timestamp: new Date().toISOString(),
         },
       })
 
+      // Atomic usage increment
       const period = new Date().toISOString().slice(0, 7)
-      const { data: usageRow } = await supabase
-        .from('organization_usage')
-        .select('value')
-        .eq('organization_id', reviewRequest.organization_id)
-        .eq('period', period)
-        .eq('metric', 'link_clicks')
-        .maybeSingle()
-
-      const currentVal = usageRow?.value ? Number(usageRow.value) : 0
-      await supabase.from('organization_usage').upsert({
-        organization_id: reviewRequest.organization_id,
-        period,
-        metric: 'link_clicks',
-        value: currentVal + 1,
+      await supabase.rpc('increment_organization_usage', {
+        p_org_id: reviewRequest.organization_id,
+        p_period: period,
+        p_metric: 'link_clicks',
+        p_amount: 1,
       })
     }
   } catch (err) {
-    // Non-blocking: failure to record click should not trap customer
     console.error('Failed to record review request click analytics:', err)
   }
 

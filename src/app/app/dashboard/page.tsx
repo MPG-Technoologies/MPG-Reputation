@@ -77,16 +77,37 @@ export default async function DashboardPage() {
     (loc) => !confirmedLocationIds.has(loc.id)
   )
 
+  // Derive truthful readiness status (Prompt Correction 20)
+  let systemStatus: 'SETUP_REQUIRED' | 'READY_FOR_SYNTHETIC_TEST' | 'RUNNING' | 'NEEDS_ATTENTION' = 'SETUP_REQUIRED'
+  let statusDescription = ''
+
+  if (!locations || locations.length === 0) {
+    systemStatus = 'SETUP_REQUIRED'
+    statusDescription = 'Initial setup required: No active locations configured.'
+  } else if (locationsNeedingDestination.length > 0) {
+    systemStatus = 'SETUP_REQUIRED'
+    statusDescription = `${locationsNeedingDestination.length} location(s) require a confirmed Google review destination.`
+  } else if (failedCount && failedCount > 0) {
+    systemStatus = 'NEEDS_ATTENTION'
+    statusDescription = `${failedCount} review request dispatch(es) recorded failures.`
+  } else if ((sentCount ?? 0) === 0) {
+    systemStatus = 'READY_FOR_SYNTHETIC_TEST'
+    statusDescription = 'All locations configured with confirmed destinations. Ready for synthetic validation.'
+  } else {
+    systemStatus = 'RUNNING'
+    statusDescription = 'Review request workflow actively processing completions.'
+  }
+
   // 3. Recent activity list
   const { data: recentRequests } = await supabase
     .from('review_requests')
-    .select('id, status, created_at, sent_at, clicked_at, channel, customer_id')
+    .select('id, customer_id, channel, status, created_at, sent_at, clicked_at')
     .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
     .limit(10)
 
-  const customerIds = (recentRequests || []).map((r) => r.customer_id)
-  const customerMap: Record<string, { first_name: string; last_name: string | null; email: string | null }> = {}
+  const customerIds = Array.from(new Set((recentRequests || []).map((r) => r.customer_id)))
+  let customerMap: Record<string, { first_name: string; last_name: string | null; email: string | null }> = {}
 
   if (customerIds.length > 0) {
     const { data: customers } = await supabase
@@ -94,19 +115,19 @@ export default async function DashboardPage() {
       .select('id, first_name, last_name, email')
       .in('id', customerIds)
 
-    ;(customers || []).forEach((c) => {
-      customerMap[c.id] = c
-    })
+    if (customers) {
+      customerMap = Object.fromEntries(customers.map((c) => [c.id, c]))
+    }
   }
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight">{orgName} Dashboard</h1>
           <p className="text-sm text-slate-400 mt-1">
-            Truthful activity and automation metrics for the current period.
+            Truthful activity and automation metrics for V0.1 implementation baseline.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -119,26 +140,42 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Needs Attention Banner */}
-      {locationsNeedingDestination.length > 0 && (
-        <div className="bg-amber-950/40 border border-amber-800/60 p-4 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <span className="text-amber-400 font-bold text-lg">⚠️</span>
-            <div>
-              <h3 className="text-sm font-semibold text-amber-200">Needs Attention: Destination Missing</h3>
-              <p className="text-xs text-amber-300/80 mt-0.5">
-                {locationsNeedingDestination.length} location(s) require a confirmed Google review destination URL before review requests can be delivered.
-              </p>
+      {/* Truthful System Readiness Status Banner (Prompt Correction 20) */}
+      <div className={`p-4 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+        systemStatus === 'SETUP_REQUIRED'
+          ? 'bg-amber-950/40 border-amber-800/60'
+          : systemStatus === 'NEEDS_ATTENTION'
+          ? 'bg-rose-950/40 border-rose-800/60'
+          : systemStatus === 'READY_FOR_SYNTHETIC_TEST'
+          ? 'bg-blue-950/40 border-blue-800/60'
+          : 'bg-emerald-950/40 border-emerald-800/60'
+      }`}>
+        <div className="flex items-start gap-3">
+          <span className="text-lg">
+            {systemStatus === 'SETUP_REQUIRED' && '⚙️'}
+            {systemStatus === 'NEEDS_ATTENTION' && '⚠️'}
+            {systemStatus === 'READY_FOR_SYNTHETIC_TEST' && '🧪'}
+            {systemStatus === 'RUNNING' && '✅'}
+          </span>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs uppercase tracking-wider font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700">
+                {systemStatus}
+              </span>
+              <span className="text-xs text-slate-400">Internal V0.1 Baseline</span>
             </div>
+            <p className="text-xs text-slate-300 mt-1">{statusDescription}</p>
           </div>
+        </div>
+        {locationsNeedingDestination.length > 0 && (
           <Link
             href="/app/settings/review-destination"
             className="text-xs font-medium bg-amber-800 hover:bg-amber-700 text-amber-100 px-3 py-1.5 rounded transition-colors whitespace-nowrap"
           >
             Configure Destination →
           </Link>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Metric Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -167,9 +204,9 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* System Status Summary */}
+      {/* System Integrity Check */}
       <div className="bg-slate-900 border border-slate-800 rounded-lg p-6">
-        <h2 className="text-base font-semibold text-white mb-4">Automation &amp; Integrity Status</h2>
+        <h2 className="text-base font-semibold text-white mb-4">Automation &amp; Integrity Invariants</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
           <div className="flex items-center gap-3">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>

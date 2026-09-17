@@ -22,59 +22,38 @@ export async function createOrganizationAndLocation(formData: FormData): Promise
 
   const slug = orgName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `org-${Date.now()}`
 
-  // Create organization
-  const { data: org, error: orgError } = await supabase
-    .from('organizations')
-    .insert({
-      name: orgName,
-      slug,
-      status: 'ACTIVE',
-    })
-    .select('id')
-    .single()
-
-  if (orgError || !org) {
-    redirect(`/onboarding?error=${encodeURIComponent(orgError?.message || 'Failed to create organization')}`)
-  }
-
-  // Link user as OWNER in organization_users
-  const adminClient = createAdminClient()
-  const { error: memberError } = await adminClient
-    .from('organization_users')
-    .insert({
-      organization_id: org.id,
-      user_id: user.id,
-      role: 'OWNER',
-    })
-
-  if (memberError) {
-    redirect(`/onboarding?error=${encodeURIComponent(memberError.message)}`)
-  }
-
-  // Create primary location
-  const { error: locError } = await supabase
-    .from('locations')
-    .insert({
-      organization_id: org.id,
-      name: locName,
-      address,
-      status: 'ACTIVE',
-    })
-
-  if (locError) {
-    redirect(`/onboarding?error=${encodeURIComponent(locError.message)}`)
-  }
-
-  // Record audit
-  await adminClient.from('audit_events').insert({
-    organization_id: org.id,
-    actor_type: 'user',
-    actor_id: user.id,
-    event_type: 'organization.created',
-    entity_type: 'organization',
-    entity_id: org.id,
-    metadata: { name: orgName, slug },
+  // Atomic server-side RPC (Prompt Correction 4)
+  // Executes organization creation, owner membership, and primary location creation in a single transaction
+  const { data: rawResult, error: rpcError } = await supabase.rpc('create_org_with_owner_and_location', {
+    p_org_name: orgName,
+    p_slug: slug,
+    p_loc_name: locName,
+    p_address: address,
   })
+
+  const rpcResult = rawResult as { organization_id: string; location_id: string } | null
+
+  if (rpcError || !rpcResult) {
+    redirect(`/onboarding?error=${encodeURIComponent(rpcError?.message || 'Failed to initialize organization')}`)
+  }
+
+  const orgId = rpcResult.organization_id
+
+  // Record audit event
+  try {
+    const adminClient = createAdminClient()
+    await adminClient.from('audit_events').insert({
+      organization_id: orgId,
+      actor_type: 'user',
+      actor_id: user.id,
+      event_type: 'organization.created',
+      entity_type: 'organization',
+      entity_id: orgId,
+      metadata: { name: orgName, slug, location_id: rpcResult.location_id },
+    })
+  } catch (auditErr) {
+    console.error('Audit event record warning:', auditErr)
+  }
 
   redirect('/app/settings/review-destination')
 }

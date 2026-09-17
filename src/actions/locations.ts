@@ -19,6 +19,18 @@ export async function createLocation(formData: FormData): Promise<void> {
     redirect('/login')
   }
 
+  // Strict role check: Only OWNER and ADMIN can create locations
+  const { data: membership, error: memError } = await supabase
+    .from('organization_users')
+    .select('role')
+    .eq('organization_id', organizationId)
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (memError || !membership || !['OWNER', 'ADMIN'].includes(membership.role)) {
+    redirect('/app/settings/location?error=Access%20denied%3A%20Only%20owners%20and%20administrators%20can%20create%20locations')
+  }
+
   const { data: loc, error } = await supabase
     .from('locations')
     .insert({

@@ -32,10 +32,22 @@ export async function saveAndConfirmDestination(formData: FormData): Promise<Des
     .select('role')
     .eq('organization_id', organizationId)
     .eq('user_id', user.id)
-    .single()
+    .maybeSingle()
 
   if (memError || !membership || !['OWNER', 'ADMIN'].includes(membership.role)) {
     return { success: false, error: 'Only owners and administrators can configure review destinations' }
+  }
+
+  // Cross-tenant integrity check: location must belong to organization
+  const { data: loc } = await supabase
+    .from('locations')
+    .select('id')
+    .eq('id', locationId)
+    .eq('organization_id', organizationId)
+    .maybeSingle()
+
+  if (!loc) {
+    return { success: false, error: 'Location does not belong to this organization' }
   }
 
   // Validate URL against Google strict rules

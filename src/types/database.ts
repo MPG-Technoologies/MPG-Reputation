@@ -426,6 +426,48 @@ export interface Database {
         }
         Relationships: []
       }
+      domain_event_outbox: {
+        Row: {
+          id: string
+          organization_id: string
+          event_type: string
+          aggregate_type: string
+          aggregate_id: string
+          payload: Json
+          status: 'PENDING' | 'DISPATCHED' | 'FAILED'
+          attempt_count: number
+          last_error: string | null
+          created_at: string
+          dispatched_at: string | null
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          event_type: string
+          aggregate_type: string
+          aggregate_id: string
+          payload: Json
+          status?: 'PENDING' | 'DISPATCHED' | 'FAILED'
+          attempt_count?: number
+          last_error?: string | null
+          created_at?: string
+          dispatched_at?: string | null
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          event_type?: string
+          aggregate_type?: string
+          aggregate_id?: string
+          payload?: Json
+          status?: 'PENDING' | 'DISPATCHED' | 'FAILED'
+          attempt_count?: number
+          last_error?: string | null
+          created_at?: string
+          dispatched_at?: string | null
+        }
+        Relationships: []
+      }
       audit_events: {
         Row: {
           id: string
@@ -464,7 +506,45 @@ export interface Database {
       }
     }
     Views: Record<string, never>
-    Functions: Record<string, never>
+    Functions: {
+      create_org_with_owner_and_location: {
+        Args: {
+          p_org_name: string
+          p_slug: string
+          p_loc_name: string
+          p_address?: string | null
+          p_country?: string
+          p_timezone?: string
+        }
+        Returns: Json
+      }
+      increment_organization_usage: {
+        Args: {
+          p_org_id: string
+          p_period: string
+          p_metric: string
+          p_amount?: number
+        }
+        Returns: number
+      }
+      user_org_ids: {
+        Args: Record<string, never>
+        Returns: string[]
+      }
+      user_has_role: {
+        Args: {
+          org_id: string
+          allowed_roles: string[]
+        }
+        Returns: boolean
+      }
+      user_role: {
+        Args: {
+          org_id: string
+        }
+        Returns: string
+      }
+    }
     Enums: Record<string, never>
     CompositeTypes: Record<string, never>
   }

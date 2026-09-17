@@ -176,38 +176,42 @@ CREATE TABLE IF NOT EXISTS public.review_requests (
     CONSTRAINT fk_rr_completion_event FOREIGN KEY (completion_event_id, organization_id)
         REFERENCES public.customer_completion_events(id, organization_id) ON DELETE CASCADE,
     CONSTRAINT fk_rr_destination FOREIGN KEY (destination_id, organization_id)
-        REFERENCES public.review_destinations(id, organization_id) ON DELETE SET NULL
+        REFERENCES public.review_destinations(id, organization_id) ON DELETE RESTRICT
 );
 CREATE INDEX IF NOT EXISTS idx_rr_org_id ON public.review_requests(organization_id);
 CREATE INDEX IF NOT EXISTS idx_rr_token ON public.review_requests(token);
 CREATE INDEX IF NOT EXISTS idx_rr_token_hash ON public.review_requests(token_hash);
 CREATE INDEX IF NOT EXISTS idx_rr_status ON public.review_requests(organization_id, status);
 
--- 8. review_request_events
+-- 8. review_request_events (Prompt 6: Composite FK enforces cross-tenant integrity)
 CREATE TABLE IF NOT EXISTS public.review_request_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
-    review_request_id UUID NOT NULL REFERENCES public.review_requests(id) ON DELETE CASCADE,
+    review_request_id UUID NOT NULL,
     event_type TEXT NOT NULL,
     idempotency_key TEXT,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT fk_rre_review_request FOREIGN KEY (review_request_id, organization_id)
+        REFERENCES public.review_requests(id, organization_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_rre_org_id ON public.review_request_events(organization_id);
 CREATE INDEX IF NOT EXISTS idx_rre_req_id ON public.review_request_events(review_request_id);
 
--- 9. message_events
+-- 9. message_events (Prompt 6: Composite FK enforces cross-tenant integrity)
 CREATE TABLE IF NOT EXISTS public.message_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
-    review_request_id UUID NOT NULL REFERENCES public.review_requests(id) ON DELETE CASCADE,
+    review_request_id UUID NOT NULL,
     provider TEXT NOT NULL,
     provider_message_id TEXT,
     event_type TEXT NOT NULL,
     status TEXT NOT NULL,
     sanitized_error TEXT,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT fk_me_review_request FOREIGN KEY (review_request_id, organization_id)
+        REFERENCES public.review_requests(id, organization_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_me_org_id ON public.message_events(organization_id);
 CREATE INDEX IF NOT EXISTS idx_me_req_id ON public.message_events(review_request_id);
@@ -236,7 +240,7 @@ CREATE TABLE IF NOT EXISTS public.organization_usage (
 );
 CREATE INDEX IF NOT EXISTS idx_usage_org_id ON public.organization_usage(organization_id);
 
--- 12. domain_event_outbox (Prompt Correction 9: Transactional Outbox)
+-- 12. domain_event_outbox
 CREATE TABLE IF NOT EXISTS public.domain_event_outbox (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
@@ -266,7 +270,7 @@ CREATE TABLE IF NOT EXISTS public.audit_events (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_org_id ON public.audit_events(organization_id);
 
--- ATOMIC STORED PROCEDURES (Prompt Corrections 4 & 19)
+-- ATOMIC STORED PROCEDURES (Prompt Corrections 1, 3, 4, 19)
 
 -- Atomic Organization Onboarding Procedure
 CREATE OR REPLACE FUNCTION public.create_org_with_owner_and_location(
@@ -315,6 +319,137 @@ BEGIN
 END;
 $$;
 
+-- Atomic Quick Complete Procedure (Prompt Correction 1: Transactional Outbox)
+CREATE OR REPLACE FUNCTION public.submit_quick_complete_atomic(
+    p_org_id UUID,
+    p_loc_id UUID,
+    p_first_name TEXT,
+    p_last_name TEXT DEFAULT NULL,
+    p_email TEXT DEFAULT NULL,
+    p_phone TEXT DEFAULT NULL,
+    p_permission_email TEXT DEFAULT 'unknown',
+    p_permission_sms TEXT DEFAULT 'unknown',
+    p_permission_source TEXT DEFAULT 'quick_complete',
+    p_source TEXT DEFAULT 'quick_complete',
+    p_source_event_id TEXT DEFAULT NULL,
+    p_source_customer_id TEXT DEFAULT NULL,
+    p_source_transaction_id TEXT DEFAULT NULL,
+    p_country VARCHAR(2) DEFAULT 'CA'
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_user_id UUID;
+    v_customer_id UUID;
+    v_completion_event_id UUID;
+    v_outbox_id UUID;
+    v_source_event_id TEXT;
+    v_completed_at TIMESTAMPTZ := now();
+    v_loc_org_id UUID;
+    v_clean_email TEXT;
+BEGIN
+    v_user_id := auth.uid();
+    IF v_user_id IS NULL THEN
+        RAISE EXCEPTION 'Authentication required';
+    END IF;
+
+    -- Verify caller has operational role in this organization
+    IF NOT public.user_has_role(p_org_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR']) THEN
+        RAISE EXCEPTION 'Access denied: caller does not have operational permissions';
+    END IF;
+
+    -- Verify location belongs to organization (cross-tenant check)
+    SELECT organization_id INTO v_loc_org_id
+    FROM public.locations
+    WHERE id = p_loc_id AND organization_id = p_org_id;
+
+    IF v_loc_org_id IS NULL THEN
+        RAISE EXCEPTION 'Location does not belong to specified organization';
+    END IF;
+
+    -- Resolve source_event_id if not provided
+    v_source_event_id := COALESCE(NULLIF(TRIM(p_source_event_id), ''), 'qc_' || gen_random_uuid()::text);
+    v_clean_email := NULLIF(TRIM(LOWER(p_email)), '');
+
+    -- Check if customer exists in this org
+    IF v_clean_email IS NOT NULL THEN
+        SELECT id INTO v_customer_id
+        FROM public.customers
+        WHERE organization_id = p_org_id AND email = v_clean_email
+        LIMIT 1;
+    END IF;
+
+    IF v_customer_id IS NULL THEN
+        INSERT INTO public.customers (
+            organization_id, location_id, first_name, last_name, email, phone,
+            permission_email, permission_sms, permission_source
+        ) VALUES (
+            p_org_id, p_loc_id, TRIM(p_first_name), NULLIF(TRIM(p_last_name), ''),
+            v_clean_email, NULLIF(TRIM(p_phone), ''),
+            p_permission_email, p_permission_sms, p_permission_source
+        )
+        RETURNING id INTO v_customer_id;
+    ELSE
+        IF p_permission_email <> 'unknown' THEN
+            UPDATE public.customers
+            SET location_id = p_loc_id,
+                first_name = COALESCE(NULLIF(TRIM(p_first_name), ''), first_name),
+                last_name = COALESCE(NULLIF(TRIM(p_last_name), ''), last_name),
+                permission_email = p_permission_email,
+                permission_source = p_permission_source,
+                updated_at = now()
+            WHERE id = v_customer_id;
+        END IF;
+    END IF;
+
+    -- Insert completion event (guarded by UNIQUE (organization_id, source, source_event_id))
+    INSERT INTO public.customer_completion_events (
+        organization_id, location_id, customer_id, source, source_event_id,
+        source_customer_id, source_transaction_id, completed_at, country, contact, permission
+    ) VALUES (
+        p_org_id, p_loc_id, v_customer_id, p_source, v_source_event_id,
+        p_source_customer_id, p_source_transaction_id, v_completed_at, p_country,
+        jsonb_build_object('email', v_clean_email, 'phone', NULLIF(TRIM(p_phone), ''), 'firstName', TRIM(p_first_name), 'lastName', NULLIF(TRIM(p_last_name), '')),
+        jsonb_build_object('email', p_permission_email, 'sms', p_permission_sms, 'source', p_permission_source)
+    )
+    RETURNING id INTO v_completion_event_id;
+
+    -- Insert transactional outbox record
+    INSERT INTO public.domain_event_outbox (
+        organization_id, event_type, aggregate_type, aggregate_id, payload, status
+    ) VALUES (
+        p_org_id,
+        'customer.completed',
+        'customer_completion_event',
+        v_completion_event_id,
+        jsonb_build_object(
+            'eventId', v_completion_event_id,
+            'organizationId', p_org_id,
+            'locationId', p_loc_id,
+            'customerId', v_customer_id,
+            'completedAt', v_completed_at,
+            'country', p_country,
+            'contact', jsonb_build_object('email', v_clean_email, 'phone', NULLIF(TRIM(p_phone), ''), 'firstName', TRIM(p_first_name), 'lastName', NULLIF(TRIM(p_last_name), '')),
+            'permission', jsonb_build_object('email', p_permission_email, 'sms', p_permission_sms, 'source', p_permission_source),
+            'source', p_source,
+            'sourceEventId', v_source_event_id
+        ),
+        'PENDING'
+    )
+    RETURNING id INTO v_outbox_id;
+
+    RETURN jsonb_build_object(
+        'customer_id', v_customer_id,
+        'completion_event_id', v_completion_event_id,
+        'outbox_id', v_outbox_id,
+        'source_event_id', v_source_event_id
+    );
+END;
+$$;
+
 -- Atomic Organization Usage Increment Procedure
 CREATE OR REPLACE FUNCTION public.increment_organization_usage(
     p_org_id UUID,
@@ -357,14 +492,10 @@ ALTER TABLE public.organization_usage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.domain_event_outbox ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_events ENABLE ROW LEVEL SECURITY;
 
--- POLICIES: organizations
+-- POLICIES: organizations (Prompt Correction 4: Direct INSERT denied for authenticated; must use onboarding RPC)
 CREATE POLICY orgs_select ON public.organizations
     FOR SELECT TO authenticated
     USING (id IN (SELECT public.user_org_ids()));
-
-CREATE POLICY orgs_insert ON public.organizations
-    FOR INSERT TO authenticated
-    WITH CHECK (auth.uid() IS NOT NULL);
 
 CREATE POLICY orgs_update ON public.organizations
     FOR UPDATE TO authenticated
@@ -375,7 +506,7 @@ CREATE POLICY orgs_delete ON public.organizations
     FOR DELETE TO authenticated
     USING (public.user_has_role(id, ARRAY['OWNER']));
 
--- POLICIES: organization_users (Prompt Corrections 2 & 3)
+-- POLICIES: organization_users
 CREATE POLICY org_users_select ON public.organization_users
     FOR SELECT TO authenticated
     USING (user_id = auth.uid() OR public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR', 'VIEWER']));
@@ -546,3 +677,18 @@ CREATE POLICY audit_select ON public.audit_events
 CREATE POLICY audit_insert ON public.audit_events
     FOR INSERT TO authenticated
     WITH CHECK (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN', 'OPERATOR']));
+
+-- SECURITY DEFINER PRIVILEGE HARDENING (Prompt Correction 3)
+REVOKE ALL ON FUNCTION public.user_org_ids FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.user_has_role FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.user_role FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.create_org_with_owner_and_location FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.increment_organization_usage FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.submit_quick_complete_atomic FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION public.user_org_ids TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.user_has_role TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.user_role TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.create_org_with_owner_and_location TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.increment_organization_usage TO service_role;
+GRANT EXECUTE ON FUNCTION public.submit_quick_complete_atomic TO authenticated, service_role;

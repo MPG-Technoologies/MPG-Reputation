@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { normalizeQuickCompleteInput, type PermissionState } from '@/domain/completion'
+import { normalizeQuickCompleteInput, PermissionState } from '@/domain/completion'
 import { inngest } from '@/inngest/client'
 
 export interface QuickCompleteResult {
@@ -80,7 +80,7 @@ export async function submitQuickComplete(formData: FormData): Promise<QuickComp
     return { success: false, fieldErrors: norm.errors || {}, error: 'Validation failed' }
   }
 
-  const { canonical, customerPayload } = norm
+  const { canonical } = norm
 
   // Check for duplicate completion event to enforce strict idempotency
   const { data: existingEvent } = await supabase
@@ -100,135 +100,81 @@ export async function submitQuickComplete(formData: FormData): Promise<QuickComp
     }
   }
 
-  // Create or resolve customer
-  const { data: existingCustomer } = await supabase
-    .from('customers')
-    .select('id')
-    .eq('organization_id', organizationId)
-    .eq('email', customerPayload.email)
-    .maybeSingle()
+  // Prompt 1: Transactional Outbox via PostgreSQL RPC
+  // Atomically resolves customer, creates completion event, and records outbox entry
+  const { data: atomicResult, error: atomicErr } = await supabase.rpc('submit_quick_complete_atomic', {
+    p_org_id: organizationId,
+    p_loc_id: locationId,
+    p_first_name: firstName,
+    p_last_name: lastName,
+    p_email: email,
+    p_phone: phone,
+    p_permission_email: permissionEmail,
+    p_permission_sms: 'unknown',
+    p_permission_source: 'quick_complete',
+    p_source: canonical.source,
+    p_source_event_id: canonical.source_event_id,
+    p_country: canonical.country,
+  })
 
-  let customerId = existingCustomer?.id
-
-  if (!customerId) {
-    const { data: newCust, error: custError } = await supabase
-      .from('customers')
-      .insert(customerPayload)
-      .select('id')
-      .single()
-
-    if (custError || !newCust) {
-      return { success: false, error: `Failed to persist customer: ${custError?.message || 'unknown'}` }
-    }
-    customerId = newCust.id
-  } else {
-    // Update permission if explicitly recorded
-    if (permissionEmail !== 'unknown') {
-      await supabase
-        .from('customers')
-        .update({
-          permission_email: permissionEmail,
-          permission_source: 'quick_complete',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', customerId)
-    }
+  if (atomicErr || !atomicResult) {
+    return { success: false, error: `Failed to record completion transactionally: ${atomicErr?.message || 'unknown error'}` }
   }
 
-  // Insert canonical completion event
-  const { data: insertedEvent, error: eventError } = await supabase
-    .from('customer_completion_events')
-    .insert({
-      organization_id: organizationId,
-      location_id: locationId,
-      customer_id: customerId,
-      source: canonical.source,
-      source_event_id: canonical.source_event_id,
-      source_customer_id: canonical.source_customer_id,
-      source_transaction_id: canonical.source_transaction_id,
-      completed_at: canonical.completed_at,
-      country: canonical.country,
-      contact: canonical.contact,
-      permission: canonical.permission,
-    })
-    .select('id')
-    .single()
-
-  if (eventError || !insertedEvent) {
-    return { success: false, error: `Failed to persist completion event: ${eventError?.message || 'unknown'}` }
+  const atomicData = atomicResult as {
+    customer_id: string
+    completion_event_id: string
+    outbox_id: string
+    source_event_id: string
   }
 
+  const customerId = atomicData.customer_id
   const eventPayload = {
-    eventId: insertedEvent.id,
+    eventId: atomicData.completion_event_id,
     organizationId,
     locationId,
     customerId,
-    sourceEventId: canonical.source_event_id,
+    sourceEventId: atomicData.source_event_id,
     completedAt: canonical.completed_at,
     country: canonical.country,
     contact: canonical.contact,
     permission: canonical.permission,
   }
 
-  // Transactional Outbox (Prompt Correction 9):
-  // Persist domain event in outbox so it cannot be lost if Inngest is temporarily unavailable
-  const { data: outboxEntry, error: outboxErr } = await supabase
-    .from('domain_event_outbox')
-    .insert({
-      organization_id: organizationId,
-      event_type: 'customer.completed',
-      aggregate_type: 'customer_completion_event',
-      aggregate_id: insertedEvent.id,
-      payload: eventPayload,
-      status: 'PENDING',
-      attempt_count: 0,
-    })
-    .select('id')
-    .single()
-
-  if (outboxErr) {
-    console.error('Failed to record domain event in outbox:', outboxErr)
-  }
-
-  // Attempt dispatch to Inngest
-  let dispatchSuccess = false
+  // Attempt immediate Inngest dispatch using stable domain-event identifier
   try {
     await inngest.send({
+      id: atomicData.outbox_id,
       name: 'customer.completed',
       data: eventPayload,
     })
-    dispatchSuccess = true
-  } catch (inngestErr) {
-    console.error('Inngest immediate dispatch failure (retained in outbox):', inngestErr)
+
+    await supabase
+      .from('domain_event_outbox')
+      .update({
+        status: 'DISPATCHED',
+        dispatched_at: new Date().toISOString(),
+        attempt_count: 1,
+      })
+      .eq('id', atomicData.outbox_id)
+  } catch (inngestErr: unknown) {
+    const errorMsg = inngestErr instanceof Error ? inngestErr.message : 'Inngest send failed'
+    console.error('Inngest immediate dispatch failure (durable event safely in outbox):', inngestErr)
+    await supabase
+      .from('domain_event_outbox')
+      .update({
+        status: 'PENDING',
+        attempt_count: 1,
+        last_error: errorMsg.slice(0, 500),
+      })
+      .eq('id', atomicData.outbox_id)
   }
 
-  // Update outbox status accordingly
-  if (outboxEntry) {
-    if (dispatchSuccess) {
-      await supabase
-        .from('domain_event_outbox')
-        .update({
-          status: 'DISPATCHED',
-          dispatched_at: new Date().toISOString(),
-          attempt_count: 1,
-        })
-        .eq('id', outboxEntry.id)
-    } else {
-      await supabase
-        .from('domain_event_outbox')
-        .update({
-          status: 'PENDING',
-          attempt_count: 1,
-          last_error: 'Inngest immediate send failed; queued for background dispatch',
-        })
-        .eq('id', outboxEntry.id)
-    }
-  }
-
-  // Atomic usage counter increment (Prompt Correction 19)
+  // Atomic usage counter increment via Admin Client (service_role only)
   const period = new Date().toISOString().slice(0, 7)
   try {
-    await supabase.rpc('increment_organization_usage', {
+    const admin = createAdminClient()
+    await admin.rpc('increment_organization_usage', {
       p_org_id: organizationId,
       p_period: period,
       p_metric: 'completed_customers',
@@ -247,8 +193,8 @@ export async function submitQuickComplete(formData: FormData): Promise<QuickComp
       actor_id: user.id,
       event_type: 'customer.completed',
       entity_type: 'customer_completion_event',
-      entity_id: insertedEvent.id,
-      metadata: { source_event_id: canonical.source_event_id, customer_id: customerId },
+      entity_id: atomicData.completion_event_id,
+      metadata: { source_event_id: atomicData.source_event_id, customer_id: customerId },
     })
   } catch (auditErr) {
     console.error('Audit event warning:', auditErr)

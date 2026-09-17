@@ -544,6 +544,30 @@ export interface Database {
         }
         Returns: string
       }
+      submit_quick_complete_atomic: {
+        Args: {
+          p_org_id: string
+          p_loc_id: string
+          p_first_name: string
+          p_last_name?: string | null
+          p_email?: string | null
+          p_phone?: string | null
+          p_permission_email?: string
+          p_permission_sms?: string
+          p_permission_source?: string
+          p_source?: string
+          p_source_event_id?: string | null
+          p_source_customer_id?: string | null
+          p_source_transaction_id?: string | null
+          p_country?: string
+        }
+        Returns: {
+          customer_id: string
+          completion_event_id: string
+          outbox_id: string
+          source_event_id: string
+        }
+      }
     }
     Enums: Record<string, never>
     CompositeTypes: Record<string, never>

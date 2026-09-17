@@ -2,7 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { normalizeQuickCompleteInput } from '@/domain/completion'
+import { normalizeQuickCompleteInput, type PermissionState } from '@/domain/completion'
 import { inngest } from '@/inngest/client'
 
 export interface QuickCompleteResult {
@@ -23,6 +23,10 @@ export async function submitQuickComplete(formData: FormData): Promise<QuickComp
   const phone = (formData.get('phone') as string) || null
   const completedAt = (formData.get('completedAt') as string) || null
   const sourceEventId = (formData.get('sourceEventId') as string) || undefined
+  const permissionEmailRaw = (formData.get('permissionEmail') as string) || 'unknown'
+  const permissionEmail: PermissionState = ['allowed', 'unknown', 'denied'].includes(permissionEmailRaw)
+    ? (permissionEmailRaw as PermissionState)
+    : 'unknown'
 
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -31,7 +35,7 @@ export async function submitQuickComplete(formData: FormData): Promise<QuickComp
     return { success: false, error: 'Authentication required' }
   }
 
-  // Verify user is a member of this organization
+  // Verify user is a member and has an operational role (OWNER, ADMIN, OPERATOR)
   const { data: membership, error: memError } = await supabase
     .from('organization_users')
     .select('role')
@@ -43,7 +47,23 @@ export async function submitQuickComplete(formData: FormData): Promise<QuickComp
     return { success: false, error: 'Access denied: You are not a member of this organization' }
   }
 
-  // Normalize inputs
+  if (membership.role === 'VIEWER') {
+    return { success: false, error: 'Access denied: Viewers have read-only permissions' }
+  }
+
+  // Cross-tenant integrity: verify location belongs to organization
+  const { data: loc } = await supabase
+    .from('locations')
+    .select('id')
+    .eq('id', locationId)
+    .eq('organization_id', organizationId)
+    .maybeSingle()
+
+  if (!loc) {
+    return { success: false, error: 'Location does not belong to this organization' }
+  }
+
+  // Normalize inputs with explicit conservative permission
   const norm = normalizeQuickCompleteInput({
     organizationId,
     locationId,
@@ -53,6 +73,7 @@ export async function submitQuickComplete(formData: FormData): Promise<QuickComp
     phone,
     completedAt,
     sourceEventId,
+    permissionEmail,
   })
 
   if (!norm.valid || !norm.canonical || !norm.customerPayload) {
@@ -100,6 +121,18 @@ export async function submitQuickComplete(formData: FormData): Promise<QuickComp
       return { success: false, error: `Failed to persist customer: ${custError?.message || 'unknown'}` }
     }
     customerId = newCust.id
+  } else {
+    // Update permission if explicitly recorded
+    if (permissionEmail !== 'unknown') {
+      await supabase
+        .from('customers')
+        .update({
+          permission_email: permissionEmail,
+          permission_source: 'quick_complete',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', customerId)
+    }
   }
 
   // Insert canonical completion event
@@ -125,55 +158,101 @@ export async function submitQuickComplete(formData: FormData): Promise<QuickComp
     return { success: false, error: `Failed to persist completion event: ${eventError?.message || 'unknown'}` }
   }
 
-  // Emit Inngest durable event
+  const eventPayload = {
+    eventId: insertedEvent.id,
+    organizationId,
+    locationId,
+    customerId,
+    sourceEventId: canonical.source_event_id,
+    completedAt: canonical.completed_at,
+    country: canonical.country,
+    contact: canonical.contact,
+    permission: canonical.permission,
+  }
+
+  // Transactional Outbox (Prompt Correction 9):
+  // Persist domain event in outbox so it cannot be lost if Inngest is temporarily unavailable
+  const { data: outboxEntry, error: outboxErr } = await supabase
+    .from('domain_event_outbox')
+    .insert({
+      organization_id: organizationId,
+      event_type: 'customer.completed',
+      aggregate_type: 'customer_completion_event',
+      aggregate_id: insertedEvent.id,
+      payload: eventPayload,
+      status: 'PENDING',
+      attempt_count: 0,
+    })
+    .select('id')
+    .single()
+
+  if (outboxErr) {
+    console.error('Failed to record domain event in outbox:', outboxErr)
+  }
+
+  // Attempt dispatch to Inngest
+  let dispatchSuccess = false
   try {
     await inngest.send({
       name: 'customer.completed',
-      data: {
-        eventId: insertedEvent.id,
-        organizationId,
-        locationId,
-        customerId,
-        sourceEventId: canonical.source_event_id,
-        completedAt: canonical.completed_at,
-        country: canonical.country,
-        contact: canonical.contact,
-        permission: canonical.permission,
-      },
+      data: eventPayload,
     })
+    dispatchSuccess = true
   } catch (inngestErr) {
-    console.error('Inngest event dispatch warning:', inngestErr)
+    console.error('Inngest immediate dispatch failure (retained in outbox):', inngestErr)
   }
 
-  // Update usage counter
-  const adminClient = createAdminClient()
-  const period = new Date().toISOString().slice(0, 7)
-  const { data: usageRow } = await supabase
-    .from('organization_usage')
-    .select('value')
-    .eq('organization_id', organizationId)
-    .eq('period', period)
-    .eq('metric', 'completed_customers')
-    .maybeSingle()
+  // Update outbox status accordingly
+  if (outboxEntry) {
+    if (dispatchSuccess) {
+      await supabase
+        .from('domain_event_outbox')
+        .update({
+          status: 'DISPATCHED',
+          dispatched_at: new Date().toISOString(),
+          attempt_count: 1,
+        })
+        .eq('id', outboxEntry.id)
+    } else {
+      await supabase
+        .from('domain_event_outbox')
+        .update({
+          status: 'PENDING',
+          attempt_count: 1,
+          last_error: 'Inngest immediate send failed; queued for background dispatch',
+        })
+        .eq('id', outboxEntry.id)
+    }
+  }
 
-  const currentVal = usageRow?.value ? Number(usageRow.value) : 0
-  await adminClient.from('organization_usage').upsert({
-    organization_id: organizationId,
-    period,
-    metric: 'completed_customers',
-    value: currentVal + 1,
-  })
+  // Atomic usage counter increment (Prompt Correction 19)
+  const period = new Date().toISOString().slice(0, 7)
+  try {
+    await supabase.rpc('increment_organization_usage', {
+      p_org_id: organizationId,
+      p_period: period,
+      p_metric: 'completed_customers',
+      p_amount: 1,
+    })
+  } catch (usageErr) {
+    console.error('Usage counter increment warning:', usageErr)
+  }
 
   // Audit event
-  await adminClient.from('audit_events').insert({
-    organization_id: organizationId,
-    actor_type: 'user',
-    actor_id: user.id,
-    event_type: 'customer.completed',
-    entity_type: 'customer_completion_event',
-    entity_id: insertedEvent.id,
-    metadata: { source_event_id: canonical.source_event_id, customer_id: customerId },
-  })
+  try {
+    const adminClient = createAdminClient()
+    await adminClient.from('audit_events').insert({
+      organization_id: organizationId,
+      actor_type: 'user',
+      actor_id: user.id,
+      event_type: 'customer.completed',
+      entity_type: 'customer_completion_event',
+      entity_id: insertedEvent.id,
+      metadata: { source_event_id: canonical.source_event_id, customer_id: customerId },
+    })
+  } catch (auditErr) {
+    console.error('Audit event warning:', auditErr)
+  }
 
   return {
     success: true,

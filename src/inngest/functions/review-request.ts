@@ -2,51 +2,29 @@ import { inngest } from '../client'
 import { evaluateReviewEligibility } from '@/domain/eligibility'
 import { generateTrackingToken, buildTrackedReviewUrl } from '@/domain/tracking'
 import { getEmailProvider } from '@/providers/email'
+import { hashSuppressionContact } from '@/domain/suppression'
 import { createAdminClient } from '@/lib/supabase/admin'
-
-export interface CustomerCompletedPayload {
-  organizationId: string
-  locationId: string
-  customerId: string
-  sourceEventId: string
-  completedAt?: string
-  country?: string
-  contact: {
-    email: string
-    phone?: string | null
-  }
-  permission?: {
-    email: 'allowed' | 'unknown' | 'denied'
-    sms?: 'allowed' | 'unknown' | 'denied'
-    source: string
-  }
-}
-
-export interface EligibilityStepOutput {
-  eligible: boolean
-  reason: string
-  decision: string
-  businessName: string | null
-  locationName: string | null
-  customerName: string | null
-  customerEmail: string | null
-  destinationId: string | null
-}
 
 export const processReviewRequestWorkflow = inngest.createFunction(
   {
-    id: 'process-review-request-workflow',
-    name: 'Process Review Request Workflow',
+    id: 'process-customer-completion',
+    name: 'Process Customer Completion & Trigger Review Solicitation',
     retries: 2,
     triggers: [{ event: 'customer.completed' }],
   },
   async ({ event, step }) => {
-    const data = event.data as CustomerCompletedPayload
-    const { organizationId, locationId, customerId, sourceEventId } = data
+    const {
+      eventId,
+      organizationId,
+      locationId,
+      customerId,
+      sourceEventId,
+    } = event.data
+
     const supabase = createAdminClient()
 
-    // Step 1: Evaluate initial eligibility
-    const eligibilityCheck = await step.run('evaluate-initial-eligibility', async (): Promise<EligibilityStepOutput> => {
+    // Helper to evaluate current eligibility from database
+    async function checkEligibility() {
       // 1. Fetch Organization
       const { data: org } = await supabase
         .from('organizations')
@@ -54,12 +32,12 @@ export const processReviewRequestWorkflow = inngest.createFunction(
         .eq('id', organizationId)
         .single()
 
-      if (!org) {
+      if (!org || org.status !== 'ACTIVE') {
         return {
           eligible: false,
-          reason: 'Organization not found',
-          decision: 'ORGANIZATION_INACTIVE',
-          businessName: null,
+          reason: `Organization status is ${org?.status || 'NOT_FOUND'}`,
+          decision: 'ORGANIZATION_INACTIVE' as const,
+          businessName: org?.name || null,
           locationName: null,
           customerName: null,
           customerEmail: null,
@@ -74,11 +52,11 @@ export const processReviewRequestWorkflow = inngest.createFunction(
         .eq('id', locationId)
         .single()
 
-      if (!loc) {
+      if (!loc || loc.status !== 'ACTIVE') {
         return {
           eligible: false,
-          reason: 'Location not found',
-          decision: 'LOCATION_INACTIVE',
+          reason: `Location status is ${loc?.status || 'NOT_FOUND'}`,
+          decision: 'LOCATION_INACTIVE' as const,
           businessName: org.name,
           locationName: null,
           customerName: null,
@@ -98,7 +76,7 @@ export const processReviewRequestWorkflow = inngest.createFunction(
         return {
           eligible: false,
           reason: 'Customer not found',
-          decision: 'NO_CONTACT',
+          decision: 'NO_CONTACT' as const,
           businessName: org.name,
           locationName: loc.name,
           customerName: null,
@@ -116,13 +94,15 @@ export const processReviewRequestWorkflow = inngest.createFunction(
         .eq('status', 'CONFIRMED')
         .maybeSingle()
 
-      // 5. Check Suppressions
+      // 5. Check Suppressions using standardized SHA-256 hash (Prompt Correction 10)
       const email = cust.email?.trim().toLowerCase() || ''
+      const suppressionHash = hashSuppressionContact('email', email)
       const { data: suppression } = await supabase
         .from('suppressions')
         .select('id')
         .eq('organization_id', organizationId)
-        .eq('contact_hash', email)
+        .eq('channel', 'email')
+        .eq('contact_hash', suppressionHash)
         .maybeSingle()
 
       // 6. Check Recent Request (within 30 days)
@@ -135,14 +115,14 @@ export const processReviewRequestWorkflow = inngest.createFunction(
         .maybeSingle()
 
       const decision = evaluateReviewEligibility({
-        organization: { id: org.id, status: org.status },
-        location: { id: loc.id, status: loc.status },
+        organization: { id: org.id, status: org.status as 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' },
+        location: { id: loc.id, status: loc.status as 'ACTIVE' | 'INACTIVE' },
         customer: {
           id: cust.id,
           email: cust.email,
-          permission_email: cust.permission_email,
+          permission_email: cust.permission_email as 'allowed' | 'unknown' | 'denied',
         },
-        destination: dest ? { id: dest.id, status: dest.status, canonical_url: dest.canonical_url } : null,
+        destination: dest ? { id: dest.id, status: dest.status as 'PENDING_CONFIRMATION' | 'CONFIRMED' | 'INACTIVE', canonical_url: dest.canonical_url } : null,
         isSuppressed: !!suppression,
         hasRecentRequestWithinWindow: !!recentRequest,
       })
@@ -157,9 +137,14 @@ export const processReviewRequestWorkflow = inngest.createFunction(
         customerEmail: cust.email,
         destinationId: dest?.id || null,
       }
+    }
+
+    // Step 1: Initial Eligibility Evaluation
+    const initialCheck = await step.run('evaluate-initial-eligibility', async () => {
+      return checkEligibility()
     })
 
-    if (!eligibilityCheck.eligible) {
+    if (!initialCheck.eligible) {
       await step.run('record-ineligible-audit', async () => {
         await supabase.from('audit_events').insert({
           organization_id: organizationId,
@@ -168,23 +153,52 @@ export const processReviewRequestWorkflow = inngest.createFunction(
           entity_type: 'customer',
           entity_id: customerId,
           metadata: {
-            reason: eligibilityCheck.reason,
-            decision: eligibilityCheck.decision,
+            eventId,
+            stage: 'initial',
+            reason: initialCheck.reason,
+            decision: initialCheck.decision,
             sourceEventId,
           },
         })
       })
 
-      return { processed: false, reason: eligibilityCheck.reason, decision: eligibilityCheck.decision }
+      return { processed: false, stage: 'initial', reason: initialCheck.reason, decision: initialCheck.decision }
     }
 
     // Step 2: Configurable Cooldown Delay
     const initialDelay = process.env.WORKFLOW_INITIAL_DELAY || '2s'
     await step.sleep('wait-for-request-delay', initialDelay)
 
-    // Step 3: Create Review Request and Tracking Token
+    // Step 3: Post-Delay Eligibility Recheck (Prompt Correction 7)
+    // Mandatory recheck immediately before message dispatch
+    const postDelayCheck = await step.run('evaluate-post-delay-eligibility', async () => {
+      return checkEligibility()
+    })
+
+    if (!postDelayCheck.eligible) {
+      await step.run('record-post-delay-ineligible-audit', async () => {
+        await supabase.from('audit_events').insert({
+          organization_id: organizationId,
+          actor_type: 'system',
+          event_type: 'review_request.ineligible',
+          entity_type: 'customer',
+          entity_id: customerId,
+          metadata: {
+            eventId,
+            stage: 'post_delay',
+            reason: postDelayCheck.reason,
+            decision: postDelayCheck.decision,
+            sourceEventId,
+          },
+        })
+      })
+
+      return { processed: false, stage: 'post_delay', reason: postDelayCheck.reason, decision: postDelayCheck.decision }
+    }
+
+    // Step 4: Create or Resolve Review Request and Tracking Token
     const reviewRequest = await step.run('create-or-resolve-review-request', async () => {
-      // Check if one already exists for this completion event to guarantee idempotency
+      // Find completion event id
       const { data: completionEvent } = await supabase
         .from('customer_completion_events')
         .select('id')
@@ -216,9 +230,9 @@ export const processReviewRequestWorkflow = inngest.createFunction(
           location_id: locationId,
           customer_id: customerId,
           completion_event_id: completionEventId!,
-          destination_id: eligibilityCheck.destinationId,
+          destination_id: postDelayCheck.destinationId,
           channel: 'email',
-          status: 'SENDING',
+          status: 'SCHEDULED',
           token,
           token_hash: tokenHash,
         })
@@ -229,29 +243,52 @@ export const processReviewRequestWorkflow = inngest.createFunction(
         throw new Error(`Failed to create review request: ${error?.message || 'unknown error'}`)
       }
 
-      return { id: created.id, token: created.token, isNew: true, status: 'SENDING' }
+      return { id: created.id, token: created.token, isNew: true, status: 'SCHEDULED' }
     })
 
-    // Step 4: Dispatch neutral email
+    // Step 5: Provider Send Guarded by Atomic State Transition (Prompt Correction 8)
+    // One completion event + channel = at most one initial customer send
     const sendResult = await step.run('dispatch-review-email', async () => {
+      // Atomic guard: atomically transition from SCHEDULED -> SENDING
+      const { data: claim } = await supabase
+        .from('review_requests')
+        .update({
+          status: 'SENDING',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', reviewRequest.id)
+        .eq('status', 'SCHEDULED')
+        .select('id')
+        .maybeSingle()
+
+      // If cannot claim SCHEDULED, another execution already sent or is sending
+      if (!claim) {
+        return {
+          success: true,
+          alreadySent: true,
+          provider: 'idempotent_skip',
+          messageId: 'skipped_duplicate_dispatch',
+        }
+      }
+
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
       const trackingUrl = buildTrackedReviewUrl(appUrl, reviewRequest.token)
       const emailProvider = getEmailProvider()
 
       const result = await emailProvider.send({
-        to: eligibilityCheck.customerEmail!,
-        recipientName: eligibilityCheck.customerName || 'there',
-        businessName: eligibilityCheck.businessName || 'our business',
+        to: postDelayCheck.customerEmail!,
+        recipientName: postDelayCheck.customerName || 'there',
+        businessName: postDelayCheck.businessName || 'our business',
         trackingUrl,
       })
 
-      // Update review request status
       if (result.success) {
         await supabase
           .from('review_requests')
           .update({
             status: 'SENT',
             sent_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
           })
           .eq('id', reviewRequest.id)
 
@@ -263,25 +300,16 @@ export const processReviewRequestWorkflow = inngest.createFunction(
           provider_message_id: result.messageId,
           event_type: 'sent',
           status: 'success',
-          metadata: { to: eligibilityCheck.customerEmail },
+          metadata: { to: postDelayCheck.customerEmail },
         })
 
-        // Increment usage
-        const period = new Date().toISOString().slice(0, 7) // e.g. 2026-09
-        const { data: usageRow } = await supabase
-          .from('organization_usage')
-          .select('value')
-          .eq('organization_id', organizationId)
-          .eq('period', period)
-          .eq('metric', 'review_requests_sent')
-          .maybeSingle()
-
-        const currentVal = usageRow?.value ? Number(usageRow.value) : 0
-        await supabase.from('organization_usage').upsert({
-          organization_id: organizationId,
-          period,
-          metric: 'review_requests_sent',
-          value: currentVal + 1,
+        // Atomic usage increment (Prompt Correction 19)
+        const period = new Date().toISOString().slice(0, 7)
+        await supabase.rpc('increment_organization_usage', {
+          p_org_id: organizationId,
+          p_period: period,
+          p_metric: 'review_requests_sent',
+          p_amount: 1,
         })
       } else {
         await supabase
@@ -290,6 +318,7 @@ export const processReviewRequestWorkflow = inngest.createFunction(
             status: 'FAILED',
             failed_at: new Date().toISOString(),
             error_message: result.error || 'Provider send failed',
+            updated_at: new Date().toISOString(),
           })
           .eq('id', reviewRequest.id)
       }

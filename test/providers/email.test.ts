@@ -45,6 +45,7 @@ describe('Email Providers', () => {
   it('getEmailProvider defaults to ConsoleEmailProvider', () => {
     delete process.env.EMAIL_PROVIDER
     delete process.env.RESEND_API_KEY
+    delete process.env.ENABLE_LIVE_EMAIL
 
     const provider = getEmailProvider()
     expect(provider.name).toBe('console')
@@ -53,14 +54,25 @@ describe('Email Providers', () => {
   it('getEmailProvider ignores resend if RESEND_API_KEY is not set', () => {
     process.env.EMAIL_PROVIDER = 'resend'
     delete process.env.RESEND_API_KEY
+    process.env.ENABLE_LIVE_EMAIL = 'true'
 
     const provider = getEmailProvider()
     expect(provider.name).toBe('console')
   })
 
-  it('getEmailProvider selects ResendEmailProvider when explicitly configured', () => {
+  it('getEmailProvider stays on Console if ENABLE_LIVE_EMAIL is missing (Prompt Correction 14)', () => {
     process.env.EMAIL_PROVIDER = 'resend'
     process.env.RESEND_API_KEY = 're_test_key_12345'
+    delete process.env.ENABLE_LIVE_EMAIL
+
+    const provider = getEmailProvider()
+    expect(provider.name).toBe('console')
+  })
+
+  it('getEmailProvider selects ResendEmailProvider only when explicitly enabled (Prompt Correction 14)', () => {
+    process.env.EMAIL_PROVIDER = 'resend'
+    process.env.RESEND_API_KEY = 're_test_key_12345'
+    process.env.ENABLE_LIVE_EMAIL = 'true'
 
     const provider = getEmailProvider()
     expect(provider.name).toBe('resend')

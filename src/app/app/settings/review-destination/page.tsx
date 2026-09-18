@@ -15,16 +15,18 @@ export default async function ReviewDestinationPage() {
   const orgId = userOrgs?.[0]?.organization_id
   if (!orgId) return <div>No organization found.</div>
 
-  const { data: locations } = await supabase
-    .from('locations')
-    .select('id, name')
-    .eq('organization_id', orgId)
-    .eq('status', 'ACTIVE')
-
-  const { data: destinations } = await supabase
-    .from('review_destinations')
-    .select('id, location_id, url, canonical_url, status, confirmed_at')
-    .eq('organization_id', orgId)
+  // Parallelize locations and destinations queries
+  const [{ data: locations }, { data: destinations }] = await Promise.all([
+    supabase
+      .from('locations')
+      .select('id, name')
+      .eq('organization_id', orgId)
+      .eq('status', 'ACTIVE'),
+    supabase
+      .from('review_destinations')
+      .select('id, location_id, url, canonical_url, status, confirmed_at')
+      .eq('organization_id', orgId),
+  ])
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">

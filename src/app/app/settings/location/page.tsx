@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createLocation } from '@/actions/locations'
+import { SubmitButton } from '@/components/ui/submit-button'
 
 export default async function LocationSettingsPage() {
   const supabase = await createClient()
@@ -89,12 +90,12 @@ export default async function LocationSettingsPage() {
               />
             </div>
 
-            <button
-              type="submit"
-              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors"
+            <SubmitButton
+              pendingText="Adding location…"
+              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
             >
               Add Location
-            </button>
+            </SubmitButton>
           </form>
         </div>
       )}

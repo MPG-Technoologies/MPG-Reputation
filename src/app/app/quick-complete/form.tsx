@@ -19,7 +19,7 @@ export function QuickCompleteForm({
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<QuickCompleteResult | null>(null)
-  // Prompt Correction 8: Stable idempotency key across double-clicks and retries; fresh key after reset
+  // Stable idempotency key across double-clicks and retries; fresh key after reset
   const [sourceEventId, setSourceEventId] = useState(() => `qc_${crypto.randomUUID()}`)
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -60,7 +60,8 @@ export function QuickCompleteForm({
 
       {result && (
         <div
-          className={`p-4 rounded-md border text-sm ${
+          role="status"
+          className={`p-4 rounded-md border text-sm animate-page-enter flex items-start gap-3 ${
             result.success
               ? result.duplicate
                 ? 'bg-amber-950/40 border-amber-800 text-amber-200'
@@ -69,17 +70,37 @@ export function QuickCompleteForm({
           }`}
         >
           {result.success ? (
-            <div>
-              <strong className="font-semibold">
-                {result.duplicate ? 'Duplicate Handled: ' : 'Success: '}
-              </strong>
-              {result.message}
-            </div>
+            <>
+              <svg
+                className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <div>
+                <strong className="font-semibold">
+                  {result.duplicate ? 'Duplicate Handled: ' : 'Success: '}
+                </strong>
+                {result.message}
+              </div>
+            </>
           ) : (
-            <div>
-              <strong className="font-semibold">Error: </strong>
-              {result.error}
-            </div>
+            <>
+              <svg
+                className="h-5 w-5 text-rose-400 shrink-0 mt-0.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              <div>
+                <strong className="font-semibold">Error: </strong>
+                {result.error}
+              </div>
+            </>
           )}
         </div>
       )}
@@ -162,7 +183,7 @@ export function QuickCompleteForm({
         </div>
       </div>
 
-      {/* Explicit Email Permission Selector (Prompt Correction 1) */}
+      {/* Explicit Email Permission Selector */}
       <div>
         <label className="block text-sm font-medium text-slate-300">
           Email Permission
@@ -190,9 +211,20 @@ export function QuickCompleteForm({
         <button
           type="submit"
           disabled={loading}
-          className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          aria-busy={loading}
+          className="inline-flex items-center justify-center gap-2 px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
         >
-          {loading ? 'Recording...' : 'Record Completion & Trigger'}
+          {loading ? (
+            <>
+              <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+              <span>Recording completion…</span>
+            </>
+          ) : (
+            'Record Completion & Trigger'
+          )}
         </button>
       </div>
     </form>

@@ -16,13 +16,14 @@ export default async function DashboardPage() {
 
   if (!user) return null
 
-  // Fetch user active organization
+  // Fetch user active organization and joined organization in one query
   const { data: memberships } = await supabase
     .from('organization_users')
-    .select('organization_id')
+    .select('organization_id, organizations(id, name)')
     .eq('user_id', user.id)
 
-  const orgId = memberships?.[0]?.organization_id
+  const activeMembership = memberships?.[0]
+  const orgId = activeMembership?.organization_id
   if (!orgId) {
     return (
       <div className="p-8 text-center text-slate-400">
@@ -35,71 +36,76 @@ export default async function DashboardPage() {
     )
   }
 
-  const { data: org } = await supabase
-    .from('organizations')
-    .select('id, name')
-    .eq('id', orgId)
-    .single()
+  const orgData = activeMembership.organizations as { id: string; name: string } | null
+  const orgName = orgData?.name || 'Organization'
 
-  const orgName = org?.name || 'Organization'
-
-  // 1. Fetch counts
-  const { count: completedCount } = await supabase
-    .from('customer_completion_events')
-    .select('id', { count: 'exact', head: true })
-    .eq('organization_id', orgId)
-
-  const { count: eligibleCount } = await supabase
-    .from('review_requests')
-    .select('id', { count: 'exact', head: true })
-    .eq('organization_id', orgId)
-
-  const { count: scheduledCount } = await supabase
-    .from('review_requests')
-    .select('id', { count: 'exact', head: true })
-    .eq('organization_id', orgId)
-    .eq('status', 'SCHEDULED')
-
-  const { count: sentCount } = await supabase
-    .from('review_requests')
-    .select('id', { count: 'exact', head: true })
-    .eq('organization_id', orgId)
-    .in('status', ['SENT', 'DELIVERED', 'CLICKED'])
-
-  const { count: clickedCount } = await supabase
-    .from('review_requests')
-    .select('id', { count: 'exact', head: true })
-    .eq('organization_id', orgId)
-    .eq('status', 'CLICKED')
-
-  const { count: failedCount } = await supabase
-    .from('review_requests')
-    .select('id', { count: 'exact', head: true })
-    .eq('organization_id', orgId)
-    .eq('status', 'FAILED')
-
-  const { count: outboxFailedCount } = await supabase
-    .from('domain_event_outbox')
-    .select('id', { count: 'exact', head: true })
-    .eq('organization_id', orgId)
-    .eq('status', 'FAILED')
-
-  const { count: ineligibleCount } = await supabase
-    .from('audit_events')
-    .select('id', { count: 'exact', head: true })
-    .eq('organization_id', orgId)
-    .eq('event_type', 'review_request.ineligible')
-
-  // 2. Fetch locations and review destinations
-  const { data: locations } = await supabase
-    .from('locations')
-    .select('id, name, status')
-    .eq('organization_id', orgId)
-
-  const { data: destinations } = await supabase
-    .from('review_destinations')
-    .select('id, location_id, status, canonical_url')
-    .eq('organization_id', orgId)
+  // Performance Optimization: Parallelize all independent count, location, destination, and activity queries
+  const [
+    { count: completedCount },
+    { count: eligibleCount },
+    { count: scheduledCount },
+    { count: sentCount },
+    { count: clickedCount },
+    { count: failedCount },
+    { count: outboxFailedCount },
+    { count: ineligibleCount },
+    { data: locations },
+    { data: destinations },
+    { data: recentRequests },
+  ] = await Promise.all([
+    supabase
+      .from('customer_completion_events')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId),
+    supabase
+      .from('review_requests')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId),
+    supabase
+      .from('review_requests')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .eq('status', 'SCHEDULED'),
+    supabase
+      .from('review_requests')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .in('status', ['SENT', 'DELIVERED', 'CLICKED']),
+    supabase
+      .from('review_requests')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .eq('status', 'CLICKED'),
+    supabase
+      .from('review_requests')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .eq('status', 'FAILED'),
+    supabase
+      .from('domain_event_outbox')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .eq('status', 'FAILED'),
+    supabase
+      .from('audit_events')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .eq('event_type', 'review_request.ineligible'),
+    supabase
+      .from('locations')
+      .select('id, name, status')
+      .eq('organization_id', orgId),
+    supabase
+      .from('review_destinations')
+      .select('id, location_id, status, canonical_url')
+      .eq('organization_id', orgId),
+    supabase
+      .from('review_requests')
+      .select('id, customer_id, channel, status, token, created_at, sent_at, clicked_at, error_message')
+      .eq('organization_id', orgId)
+      .order('created_at', { ascending: false })
+      .limit(10),
+  ])
 
   const confirmedLocationIds = new Set(
     (destinations || [])
@@ -197,14 +203,7 @@ export default async function DashboardPage() {
     })
   }
 
-  // 3. Recent activity list - including token
-  const { data: recentRequests } = await supabase
-    .from('review_requests')
-    .select('id, customer_id, channel, status, token, created_at, sent_at, clicked_at, error_message')
-    .eq('organization_id', orgId)
-    .order('created_at', { ascending: false })
-    .limit(10)
-
+  // 3. Customer map for recent activity list
   const customerIds = Array.from(new Set((recentRequests || []).map((r) => r.customer_id)))
   let customerMap: Record<string, { first_name: string; last_name: string | null; email: string | null }> = {}
 
@@ -276,7 +275,7 @@ export default async function DashboardPage() {
         )}
       </div>
 
-      {/* Needs Attention Section (Section 9) */}
+      {/* Needs Attention Section */}
       {attentionItems.length > 0 && (
         <div className="bg-slate-900 border border-slate-800 rounded-lg p-6 space-y-4">
           <div className="flex items-center justify-between">
@@ -318,7 +317,7 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {/* Activity Metric Cards (Section 8) */}
+      {/* Activity Metric Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="bg-slate-900 border border-slate-800 p-5 rounded-lg">
           <span className="text-xs font-medium text-slate-400">Completed Customers</span>
@@ -339,20 +338,20 @@ export default async function DashboardPage() {
         </div>
 
         <div className="bg-slate-900 border border-slate-800 p-5 rounded-lg">
-          <span className="text-xs font-medium text-slate-400">Requests Sent</span>
+          <span className="text-xs font-medium text-slate-400">Invitations Sent</span>
           <div className="mt-2 text-2xl font-bold text-white">{sentCount ?? 0}</div>
-          <span className="text-xs text-slate-500 mt-1 block">Neutral emails dispatched</span>
+          <span className="text-xs text-slate-500 mt-1 block">Email dispatches</span>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 p-5 rounded-lg">
-          <span className="text-xs font-medium text-slate-400">Review Links Clicked</span>
+          <span className="text-xs font-medium text-slate-400">Feedback Link Clicks</span>
           <div className="mt-2 text-2xl font-bold text-white">{clickedCount ?? 0}</div>
-          <span className="text-xs text-slate-500 mt-1 block">Verified 302 redirects</span>
+          <span className="text-xs text-slate-500 mt-1 block">Tracked link visits</span>
         </div>
       </div>
 
-      {/* System Invariants Guard Card */}
-      <div className="bg-slate-900 border border-slate-800 rounded-lg p-6">
+      {/* Invariant Truth Status */}
+      <div className="bg-slate-900 border border-slate-800 p-6 rounded-lg">
         <h2 className="text-base font-semibold text-white mb-4">Automation &amp; Integrity Invariants</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
           <div className="flex items-center gap-3">
@@ -450,7 +449,7 @@ export default async function DashboardPage() {
                     </div>
                   </div>
 
-                  {/* Inline Development Email Representation (Section 6 & Section 7) */}
+                  {/* Inline Development Email Representation */}
                   {req.token && (
                     <details className="mt-4 text-xs group">
                       <summary className="cursor-pointer text-slate-400 hover:text-slate-200 select-none flex items-center gap-1.5">

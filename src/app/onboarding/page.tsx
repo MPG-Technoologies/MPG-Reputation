@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createOrganizationAndLocation } from '@/actions/onboarding'
+import { SubmitButton } from '@/components/ui/submit-button'
 
 export default async function OnboardingPage(props: {
   searchParams: Promise<{ error?: string }>
@@ -109,12 +110,12 @@ export default async function OnboardingPage(props: {
             </div>
 
             <div>
-              <button
-                type="submit"
-                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors cursor-pointer"
+              <SubmitButton
+                pendingText="Creating workspace…"
+                className="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 cursor-pointer"
               >
                 Continue to Review Setup
-              </button>
+              </SubmitButton>
             </div>
           </form>
         </div>

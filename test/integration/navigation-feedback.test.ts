@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+﻿import { describe, it, expect, vi } from 'vitest'
 import fs from 'fs'
 import path from 'path'
 import React from 'react'
@@ -21,7 +21,6 @@ vi.mock('next/navigation', () => ({
 }))
 
 import { SubmitButton } from '../../src/components/ui/submit-button'
-import { TopProgressBar } from '../../src/app/app/progress-bar'
 import AppTemplate from '../../src/app/app/template'
 import DashboardLoading from '../../src/app/app/dashboard/loading'
 import QuickCompleteLoading from '../../src/app/app/quick-complete/loading'
@@ -53,7 +52,7 @@ describe('Navigation Feedback, Loading Skeletons & Transitions (Section 10)', ()
     it('renders idle text and enabled state when not pending', () => {
       mockFormStatus = { pending: false, action: null }
       const html = renderToString(
-        React.createElement(SubmitButton, { pendingText: 'Saving…', children: 'Save Settings' })
+        React.createElement(SubmitButton, { pendingText: 'Saving…' }, 'Save Settings')
       )
 
       expect(html).toContain('Save Settings')
@@ -66,7 +65,7 @@ describe('Navigation Feedback, Loading Skeletons & Transitions (Section 10)', ()
     it('renders spinner, pending text, and disabled attribute when pending', () => {
       mockFormStatus = { pending: true, action: null }
       const html = renderToString(
-        React.createElement(SubmitButton, { pendingText: 'Saving…', children: 'Save Settings' })
+        React.createElement(SubmitButton, { pendingText: 'Saving…' }, 'Save Settings')
       )
 
       expect(html).toContain('Saving…')
@@ -79,7 +78,7 @@ describe('Navigation Feedback, Loading Skeletons & Transitions (Section 10)', ()
   describe('3. App Template Page Transition Wrapper', () => {
     it('wraps route content in animate-page-enter class for smooth route transitions', () => {
       const html = renderToString(
-        React.createElement(AppTemplate, { children: React.createElement('p', null, 'Route Content') })
+        React.createElement(AppTemplate, null, React.createElement('p', null, 'Route Content'))
       )
 
       expect(html).toContain('animate-page-enter')

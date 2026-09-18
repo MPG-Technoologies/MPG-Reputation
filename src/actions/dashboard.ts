@@ -1,6 +1,6 @@
-import Link from 'next/link'
+'use server'
+
 import { createClient } from '@/lib/supabase/server'
-import { LiveDashboard } from './live-dashboard'
 import type {
   DashboardSnapshot,
   AttentionItem,
@@ -8,38 +8,31 @@ import type {
   ActivityRequestItem,
 } from '@/lib/dashboard/realtime-types'
 
-export default async function DashboardPage() {
+export async function getDashboardSnapshot(
+  organizationId: string
+): Promise<DashboardSnapshot | null> {
   const supabase = await createClient()
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser()
 
-  if (!user) return null
-
-  // Fetch user active organization and joined organization in one query
-  const { data: memberships } = await supabase
-    .from('organization_users')
-    .select('organization_id, organizations(id, name)')
-    .eq('user_id', user.id)
-
-  const activeMembership = memberships?.[0]
-  const orgId = activeMembership?.organization_id
-  if (!orgId) {
-    return (
-      <div className="p-8 text-center text-slate-400">
-        No active organization found. Complete{' '}
-        <Link href="/onboarding" className="text-blue-400 underline">
-          onboarding
-        </Link>{' '}
-        to get started.
-      </div>
-    )
+  if (authError || !user) {
+    return null
   }
 
-  const orgData = activeMembership.organizations as { id: string; name: string } | null
-  const orgName = orgData?.name || 'Organization'
+  // Tenant authorization: verify user is a member of the organization
+  const { data: membership } = await supabase
+    .from('organization_users')
+    .select('role')
+    .eq('organization_id', organizationId)
+    .eq('user_id', user.id)
+    .maybeSingle()
 
-  // Performance Optimization: Parallelize all independent count, location, destination, and activity queries
+  if (!membership) {
+    return null
+  }
+
   const [
     { count: completedCount },
     { count: eligibleCount },
@@ -56,53 +49,53 @@ export default async function DashboardPage() {
     supabase
       .from('customer_completion_events')
       .select('id', { count: 'exact', head: true })
-      .eq('organization_id', orgId),
+      .eq('organization_id', organizationId),
     supabase
       .from('review_requests')
       .select('id', { count: 'exact', head: true })
-      .eq('organization_id', orgId),
+      .eq('organization_id', organizationId),
     supabase
       .from('review_requests')
       .select('id', { count: 'exact', head: true })
-      .eq('organization_id', orgId)
+      .eq('organization_id', organizationId)
       .eq('status', 'SCHEDULED'),
     supabase
       .from('review_requests')
       .select('id', { count: 'exact', head: true })
-      .eq('organization_id', orgId)
+      .eq('organization_id', organizationId)
       .in('status', ['SENT', 'DELIVERED', 'CLICKED']),
     supabase
       .from('review_requests')
       .select('id', { count: 'exact', head: true })
-      .eq('organization_id', orgId)
+      .eq('organization_id', organizationId)
       .eq('status', 'CLICKED'),
     supabase
       .from('review_requests')
       .select('id', { count: 'exact', head: true })
-      .eq('organization_id', orgId)
+      .eq('organization_id', organizationId)
       .eq('status', 'FAILED'),
     supabase
       .from('domain_event_outbox')
       .select('id', { count: 'exact', head: true })
-      .eq('organization_id', orgId)
+      .eq('organization_id', organizationId)
       .eq('status', 'FAILED'),
     supabase
       .from('audit_events')
       .select('id', { count: 'exact', head: true })
-      .eq('organization_id', orgId)
+      .eq('organization_id', organizationId)
       .eq('event_type', 'review_request.ineligible'),
     supabase
       .from('locations')
       .select('id, name, status')
-      .eq('organization_id', orgId),
+      .eq('organization_id', organizationId),
     supabase
       .from('review_destinations')
       .select('id, location_id, status, canonical_url')
-      .eq('organization_id', orgId),
+      .eq('organization_id', organizationId),
     supabase
       .from('review_requests')
       .select('id, customer_id, channel, status, token, created_at, sent_at, clicked_at, error_message')
-      .eq('organization_id', orgId)
+      .eq('organization_id', organizationId)
       .order('created_at', { ascending: false })
       .limit(10),
   ])
@@ -119,7 +112,6 @@ export default async function DashboardPage() {
 
   const inactiveLocations = (locations || []).filter((loc) => loc.status !== 'ACTIVE')
 
-  // Derive truthful readiness status
   let systemStatus: SystemStatus = 'SETUP_REQUIRED'
   let statusDescription = ''
 
@@ -141,7 +133,6 @@ export default async function DashboardPage() {
     statusDescription = 'Review request workflow actively processing completions.'
   }
 
-  // Build Needs Attention items
   const attentionItems: AttentionItem[] = []
 
   if (!locations || locations.length === 0) {
@@ -203,7 +194,6 @@ export default async function DashboardPage() {
     })
   }
 
-  // 3. Customer map for recent activity list
   const customerIds = Array.from(new Set((recentRequests || []).map((r) => r.customer_id)))
   let customerMap: Record<
     string,
@@ -238,7 +228,7 @@ export default async function DashboardPage() {
     }
   })
 
-  const initialSnapshot: DashboardSnapshot = {
+  return {
     kpis: {
       completedCount: completedCount ?? 0,
       eligibleCount: eligibleCount ?? 0,
@@ -255,12 +245,47 @@ export default async function DashboardPage() {
     attentionItems,
     locationsNeedingDestinationCount: locationsNeedingDestination.length,
   }
+}
 
-  return (
-    <LiveDashboard
-      initialSnapshot={initialSnapshot}
-      orgId={orgId}
-      orgName={orgName}
-    />
-  )
+export async function getActivityRowProjection(
+  organizationId: string,
+  requestId: string
+): Promise<{ customerName: string; recipientEmail: string; token: string } | null> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+
+  if (authError || !user) return null
+
+  const { data: membership } = await supabase
+    .from('organization_users')
+    .select('role')
+    .eq('organization_id', organizationId)
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (!membership) return null
+
+  const { data: req } = await supabase
+    .from('review_requests')
+    .select('customer_id, token')
+    .eq('id', requestId)
+    .eq('organization_id', organizationId)
+    .maybeSingle()
+
+  if (!req) return null
+
+  const { data: cust } = await supabase
+    .from('customers')
+    .select('first_name, last_name, email')
+    .eq('id', req.customer_id)
+    .maybeSingle()
+
+  return {
+    customerName: cust ? `${cust.first_name} ${cust.last_name || ''}`.trim() : 'Customer',
+    recipientEmail: cust?.email || 'unknown',
+    token: req.token,
+  }
 }

@@ -47,10 +47,20 @@ export interface ReviewRequestUpdatedEvent {
   updatedAt: string
 }
 
+export interface ReviewRequestIneligibleEvent {
+  id?: string
+  eventId?: string
+  type: 'review_request.ineligible'
+  organizationId: string
+  auditEventId: string
+  createdAt: string
+}
+
 export type DashboardRealtimeEvent =
   | CustomerCompletedEvent
   | ReviewRequestCreatedEvent
   | ReviewRequestUpdatedEvent
+  | ReviewRequestIneligibleEvent
 
 export interface DashboardKpis {
   completedCount: number

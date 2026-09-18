@@ -13,6 +13,7 @@ import type {
   CustomerCompletedEvent,
   ReviewRequestCreatedEvent,
   ReviewRequestUpdatedEvent,
+  ReviewRequestIneligibleEvent,
 } from '@/lib/dashboard/realtime-types'
 import { RealtimeStatus } from './realtime-status'
 import { DashboardKpis } from './dashboard-kpis'
@@ -131,6 +132,15 @@ export function LiveDashboard({
           'broadcast',
           { event: 'review_request.updated' },
           (msg: { payload: ReviewRequestUpdatedEvent }) => {
+            if (msg.payload) {
+              dispatch({ type: 'EVENT_RECEIVED', event: msg.payload })
+            }
+          }
+        )
+        .on(
+          'broadcast',
+          { event: 'review_request.ineligible' },
+          (msg: { payload: ReviewRequestIneligibleEvent }) => {
             if (msg.payload) {
               dispatch({ type: 'EVENT_RECEIVED', event: msg.payload })
             }

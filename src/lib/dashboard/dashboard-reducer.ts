@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   DashboardState,
   DashboardRealtimeEvent,
   DashboardSnapshot,
@@ -129,8 +129,11 @@ export function dashboardReducer(
         return state
       }
 
-      // 2. Event deduplication via eventId or id
-      const eventId = event.eventId || event.id
+      // 2. Event deduplication via eventId, id, or auditEventId
+      const eventId =
+        event.eventId ||
+        event.id ||
+        ('auditEventId' in event ? event.auditEventId : undefined)
       if (eventId && state.processedEventIds.includes(eventId)) {
         return state
       }
@@ -336,6 +339,40 @@ export function dashboardReducer(
           highlightedKpiKey,
           highlightedRowId: event.requestId,
           announcement,
+          processedEventIds: nextEventIds,
+        }
+      }
+
+      // D. Review Request Ineligible / Policy Bypass Event
+      if (event.type === 'review_request.ineligible') {
+        const nextIneligibleCount = (state.kpis.ineligibleCount ?? 0) + 1
+        const newKpis: DashboardKpis = {
+          ...state.kpis,
+          ineligibleCount: nextIneligibleCount,
+        }
+
+        let nextAttentionItems: AttentionItem[] = [...state.attentionItems]
+        const ineligibleIdx = nextAttentionItems.findIndex((i) => i.id === 'ineligible-suppressed')
+        const ineligibleItem: AttentionItem = {
+          id: 'ineligible-suppressed',
+          severity: 'info',
+          title: 'Completions Bypassed by Policy',
+          description: `${nextIneligibleCount} customer completion(s) were safely bypassed due to missing customer consent, recent request cooldown, or suppression.`,
+        }
+
+        if (ineligibleIdx >= 0) {
+          nextAttentionItems[ineligibleIdx] = ineligibleItem
+        } else {
+          nextAttentionItems = [...nextAttentionItems, ineligibleItem]
+        }
+
+        return {
+          ...state,
+          kpis: newKpis,
+          attentionItems: nextAttentionItems,
+          highlightedKpiKey: 'ineligibleCount',
+          highlightedRowId: null,
+          announcement: `Completions bypassed by policy increased to ${nextIneligibleCount}.`,
           processedEventIds: nextEventIds,
         }
       }

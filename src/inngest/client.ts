@@ -28,4 +28,5 @@ export type InngestEvents = {
 
 export const inngest = new Inngest({
   id: 'mpg-reputation',
+  isDev: process.env.NODE_ENV !== 'production',
 })

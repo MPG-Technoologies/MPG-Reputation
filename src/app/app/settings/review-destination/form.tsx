@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { saveAndConfirmDestination, DestinationResult } from '@/actions/destinations'
 import { validateGoogleReviewUrl } from '@/domain/destination'
 
@@ -27,6 +28,7 @@ export function DestinationForm({
   locations: LocationItem[]
   destinations: DestinationItem[]
 }) {
+  const router = useRouter()
   const [selectedLocationId, setSelectedLocationId] = useState(locations[0]?.id || '')
   const [inputUrl, setInputUrl] = useState('')
   const [loading, setLoading] = useState(false)
@@ -52,6 +54,9 @@ export function DestinationForm({
     try {
       const res = await saveAndConfirmDestination(formData)
       setResult(res)
+      if (res.success) {
+        router.refresh()
+      }
     } catch {
       setResult({ success: false, error: 'Unexpected error occurred while saving destination.' })
     } finally {

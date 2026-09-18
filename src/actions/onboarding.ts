@@ -1,6 +1,7 @@
 'use server'
 
 import { redirect } from 'next/navigation'
+import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -55,5 +56,8 @@ export async function createOrganizationAndLocation(formData: FormData): Promise
     console.error('Audit event record warning:', auditErr)
   }
 
+  revalidatePath('/app', 'layout')
+  revalidatePath('/app/settings/review-destination')
+  revalidatePath('/onboarding')
   redirect('/app/settings/review-destination')
 }

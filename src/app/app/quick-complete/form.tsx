@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { submitQuickComplete, QuickCompleteResult } from '@/actions/quick-complete'
 
 interface LocationItem {
@@ -15,6 +16,7 @@ export function QuickCompleteForm({
   organizationId: string
   locations: LocationItem[]
 }) {
+  const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<QuickCompleteResult | null>(null)
   // Prompt Correction 8: Stable idempotency key across double-clicks and retries; fresh key after reset
@@ -34,6 +36,7 @@ export function QuickCompleteForm({
         form.reset()
         // Generate new key for the next legitimate job completion
         setSourceEventId(`qc_${crypto.randomUUID()}`)
+        router.refresh()
       }
     } catch {
       setResult({ success: false, error: 'An unexpected error occurred while submitting.' })

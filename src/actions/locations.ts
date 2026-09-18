@@ -1,6 +1,7 @@
 'use server'
 
 import { redirect } from 'next/navigation'
+import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -57,5 +58,9 @@ export async function createLocation(formData: FormData): Promise<void> {
     metadata: { name },
   })
 
+  revalidatePath('/app/settings/location')
+  revalidatePath('/app/settings/review-destination')
+  revalidatePath('/app/quick-complete')
+  revalidatePath('/app', 'layout')
   redirect('/app/settings/location?success=Location%20created')
 }

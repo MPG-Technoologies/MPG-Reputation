@@ -1,5 +1,6 @@
 'use server'
 
+import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { normalizeQuickCompleteInput, PermissionState } from '@/domain/completion'
@@ -199,6 +200,8 @@ export async function submitQuickComplete(formData: FormData): Promise<QuickComp
   } catch (auditErr) {
     console.error('Audit event warning:', auditErr)
   }
+
+  revalidatePath('/app/dashboard')
 
   return {
     success: true,

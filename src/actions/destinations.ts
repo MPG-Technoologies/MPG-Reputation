@@ -1,5 +1,6 @@
 'use server'
 
+import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { validateGoogleReviewUrl } from '@/domain/destination'
@@ -118,6 +119,9 @@ export async function saveAndConfirmDestination(formData: FormData): Promise<Des
     entity_id: destinationId,
     metadata: { canonical_url: validation.canonicalUrl },
   })
+
+  revalidatePath('/app/settings/review-destination')
+  revalidatePath('/app/dashboard')
 
   return {
     success: true,

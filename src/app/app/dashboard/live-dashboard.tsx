@@ -35,6 +35,7 @@ export function LiveDashboard({
     (snap) => createInitialState(orgId, snap)
   )
 
+  const isSubscribedRef = useRef(false)
   const hasConnectedOnce = useRef(false)
   const lastReconciledAt = useRef(0)
   const hiddenAt = useRef<number | null>(null)
@@ -46,89 +47,125 @@ export function LiveDashboard({
       const snapshot = await getDashboardSnapshot(orgId)
       if (snapshot) {
         dispatch({ type: 'SNAPSHOT_RECONCILED', snapshot })
+        if (isSubscribedRef.current) {
+          dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'LIVE' })
+        } else {
+          dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'RECONNECTING' })
+        }
+      } else {
+        // Failed snapshot fetch: retain existing data, show non-live state
+        dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'RECONNECTING' })
       }
     } catch {
-      // Gracefully continue; existing state is retained
+      // Failed: retain existing state, do not falsely claim LIVE
+      dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'RECONNECTING' })
     } finally {
-      dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'LIVE' })
       lastReconciledAt.current = Date.now()
     }
   }, [orgId])
 
-  // Single organization-scoped Realtime channel subscription
+  // Single organization-scoped Realtime channel subscription with explicit setAuth bootstrap
   useEffect(() => {
     const supabase = createClient()
-    const topic = `organization:${orgId}:dashboard`
+    let isMounted = true
+    let activeChannel: ReturnType<typeof supabase.channel> | null = null
 
-    const channel = supabase.channel(topic, {
-      config: {
-        private: true,
-        broadcast: { ack: false },
-      },
-    })
+    const initRealtime = async () => {
+      try {
+        // Explicitly initialize Realtime authorization using the authenticated client
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        await supabase.realtime.setAuth(session?.access_token ?? undefined)
+      } catch {
+        // Fall back gracefully to client defaults
+      }
 
-    channel
-      .on(
-        'broadcast',
-        { event: 'customer.completed' },
-        (msg: { payload: CustomerCompletedEvent }) => {
-          if (msg.payload) {
-            dispatch({ type: 'EVENT_RECEIVED', event: msg.payload })
-          }
-        }
-      )
-      .on(
-        'broadcast',
-        { event: 'review_request.created' },
-        async (msg: { payload: ReviewRequestCreatedEvent }) => {
-          if (msg.payload) {
-            dispatch({ type: 'EVENT_RECEIVED', event: msg.payload })
+      if (!isMounted) return
 
-            // Asynchronously populate customer display projection for new row
-            try {
-              const proj = await getActivityRowProjection(orgId, msg.payload.requestId)
-              if (proj) {
-                dispatch({
-                  type: 'SET_SINGLE_ROW_CUSTOMER',
-                  requestId: msg.payload.requestId,
-                  customerName: proj.customerName,
-                  recipientEmail: proj.recipientEmail,
-                  token: proj.token,
-                })
-              }
-            } catch {
-              // Gracefully keep fallback labels
+      const topic = `organization:${orgId}:dashboard`
+      const channel = supabase.channel(topic, {
+        config: {
+          private: true,
+          broadcast: { ack: false },
+        },
+      })
+      activeChannel = channel
+
+      channel
+        .on(
+          'broadcast',
+          { event: 'customer.completed' },
+          (msg: { payload: CustomerCompletedEvent }) => {
+            if (msg.payload) {
+              dispatch({ type: 'EVENT_RECEIVED', event: msg.payload })
             }
           }
-        }
-      )
-      .on(
-        'broadcast',
-        { event: 'review_request.updated' },
-        (msg: { payload: ReviewRequestUpdatedEvent }) => {
-          if (msg.payload) {
-            dispatch({ type: 'EVENT_RECEIVED', event: msg.payload })
+        )
+        .on(
+          'broadcast',
+          { event: 'review_request.created' },
+          async (msg: { payload: ReviewRequestCreatedEvent }) => {
+            if (msg.payload) {
+              dispatch({ type: 'EVENT_RECEIVED', event: msg.payload })
+
+              // Asynchronously populate customer display projection for new row
+              try {
+                const proj = await getActivityRowProjection(orgId, msg.payload.requestId)
+                if (proj && isMounted) {
+                  dispatch({
+                    type: 'SET_SINGLE_ROW_CUSTOMER',
+                    requestId: msg.payload.requestId,
+                    customerName: proj.customerName,
+                    recipientEmail: proj.recipientEmail,
+                    token: proj.token,
+                  })
+                }
+              } catch {
+                // Gracefully keep fallback labels
+              }
+            }
           }
-        }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'LIVE' })
-          if (hasConnectedOnce.current) {
-            // Reconnection event: reconcile once
-            reconcile()
-          } else {
-            hasConnectedOnce.current = true
+        )
+        .on(
+          'broadcast',
+          { event: 'review_request.updated' },
+          (msg: { payload: ReviewRequestUpdatedEvent }) => {
+            if (msg.payload) {
+              dispatch({ type: 'EVENT_RECEIVED', event: msg.payload })
+            }
           }
-        } else if (status === 'TIMED_OUT' || status === 'CHANNEL_ERROR') {
-          dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'RECONNECTING' })
-        } else if (status === 'CLOSED') {
-          dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'OFFLINE' })
-        }
-      })
+        )
+        .subscribe((status) => {
+          if (!isMounted) return
+
+          if (status === 'SUBSCRIBED') {
+            isSubscribedRef.current = true
+            dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'LIVE' })
+            if (hasConnectedOnce.current) {
+              // Reconnection event: reconcile once
+              reconcile()
+            } else {
+              hasConnectedOnce.current = true
+            }
+          } else if (status === 'TIMED_OUT' || status === 'CHANNEL_ERROR') {
+            isSubscribedRef.current = false
+            dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'RECONNECTING' })
+          } else if (status === 'CLOSED') {
+            isSubscribedRef.current = false
+            dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'OFFLINE' })
+          }
+        })
+    }
+
+    initRealtime()
 
     return () => {
-      supabase.removeChannel(channel)
+      isMounted = false
+      isSubscribedRef.current = false
+      if (activeChannel) {
+        supabase.removeChannel(activeChannel)
+      }
     }
   }, [orgId, reconcile])
 

@@ -1,10 +1,12 @@
-import type {
+﻿import type {
   DashboardState,
   DashboardRealtimeEvent,
   DashboardSnapshot,
   ConnectionState,
   ActivityRequestItem,
   DashboardKpis,
+  AttentionItem,
+  SystemStatus,
 } from './realtime-types'
 
 export type DashboardAction =
@@ -20,6 +22,28 @@ export type DashboardAction =
       token: string
     }
 
+const SCHEDULED_SET = new Set(['SCHEDULED'])
+const SENT_SET = new Set(['SENT', 'DELIVERED', 'CLICKED'])
+const CLICKED_SET = new Set(['CLICKED'])
+const FAILED_SET = new Set(['FAILED'])
+
+function transitionCount(
+  current: number,
+  prev: string,
+  next: string,
+  set: Set<string>
+): number {
+  const wasIn = set.has(prev)
+  const isIn = set.has(next)
+  if (wasIn && !isIn) {
+    return Math.max(0, current - 1)
+  }
+  if (!wasIn && isIn) {
+    return current + 1
+  }
+  return current
+}
+
 export function createInitialState(
   organizationId: string,
   snapshot: DashboardSnapshot
@@ -27,15 +51,16 @@ export function createInitialState(
   return {
     organizationId,
     kpis: { ...snapshot.kpis },
-    recentRequests: [...snapshot.recentRequests],
+    recentRequests: snapshot.recentRequests.map((r) => ({ ...r })),
     systemStatus: snapshot.systemStatus,
     statusDescription: snapshot.statusDescription,
-    attentionItems: [...snapshot.attentionItems],
+    attentionItems: snapshot.attentionItems.map((i) => ({ ...i })),
     connectionState: 'OFFLINE',
     highlightedKpiKey: null,
     highlightedRowId: null,
     announcement: null,
     processedEventIds: [],
+    processedCompletionEventIds: [],
   }
 }
 
@@ -104,17 +129,34 @@ export function dashboardReducer(
         return state
       }
 
-      // 2. Event deduplication via event ID
-      if (event.id && state.processedEventIds.includes(event.id)) {
+      // 2. Event deduplication via eventId or id
+      const eventId = event.eventId || event.id
+      if (eventId && state.processedEventIds.includes(eventId)) {
         return state
       }
 
-      const nextEventIds = event.id
-        ? [event.id, ...state.processedEventIds.slice(0, 49)]
+      const nextEventIds = eventId
+        ? [eventId, ...state.processedEventIds.slice(0, 49)]
         : state.processedEventIds
 
+      // A. Customer Completed Event
       if (event.type === 'customer.completed') {
+        // Guard against duplicate completion event
+        if (
+          event.completionEventId &&
+          state.processedCompletionEventIds.includes(event.completionEventId)
+        ) {
+          return {
+            ...state,
+            processedEventIds: nextEventIds,
+          }
+        }
+
         const nextCompletedCount = state.kpis.completedCount + 1
+        const nextCompletionEventIds = event.completionEventId
+          ? [event.completionEventId, ...state.processedCompletionEventIds.slice(0, 49)]
+          : state.processedCompletionEventIds
+
         return {
           ...state,
           kpis: {
@@ -125,10 +167,21 @@ export function dashboardReducer(
           highlightedRowId: null,
           announcement: `Completed Customers increased to ${nextCompletedCount}.`,
           processedEventIds: nextEventIds,
+          processedCompletionEventIds: nextCompletionEventIds,
         }
       }
 
+      // B. Review Request Created Event
       if (event.type === 'review_request.created') {
+        const existingIdx = state.recentRequests.findIndex((r) => r.id === event.requestId)
+        if (existingIdx !== -1) {
+          // Already present, ignore duplicate creation
+          return {
+            ...state,
+            processedEventIds: nextEventIds,
+          }
+        }
+
         const nextEligibleCount = state.kpis.eligibleCount + 1
         const newKpis: DashboardKpis = {
           ...state.kpis,
@@ -142,30 +195,26 @@ export function dashboardReducer(
           newKpis.scheduledCount = state.kpis.scheduledCount + 1
           highlightedKpiKey = 'scheduledCount'
           announcement = 'New review request scheduled.'
-        } else if (['SENT', 'DELIVERED', 'CLICKED'].includes(event.status)) {
+        } else if (SENT_SET.has(event.status)) {
           newKpis.sentCount = state.kpis.sentCount + 1
           highlightedKpiKey = 'sentCount'
           announcement = 'New review request sent.'
         }
 
-        // Prepend placeholder row if not already in recentRequests
-        let nextRecentRequests = state.recentRequests
-        const existingIdx = state.recentRequests.findIndex((r) => r.id === event.requestId)
-        if (existingIdx === -1) {
-          const newRow: ActivityRequestItem = {
-            id: event.requestId,
-            customer_id: event.customerId,
-            channel: event.channel,
-            status: event.status,
-            token: '',
-            created_at: event.createdAt,
-            sent_at: null,
-            clicked_at: null,
-            customerName: 'Customer',
-            recipientEmail: 'unknown',
-          }
-          nextRecentRequests = [newRow, ...state.recentRequests].slice(0, 10)
+        // Prepend placeholder row
+        const newRow: ActivityRequestItem = {
+          id: event.requestId,
+          customer_id: event.customerId,
+          channel: event.channel,
+          status: event.status,
+          token: '',
+          created_at: event.createdAt,
+          sent_at: null,
+          clicked_at: null,
+          customerName: 'Customer',
+          recipientEmail: 'unknown',
         }
+        const nextRecentRequests = [newRow, ...state.recentRequests].slice(0, 10)
 
         return {
           ...state,
@@ -178,54 +227,44 @@ export function dashboardReducer(
         }
       }
 
+      // C. Review Request Updated Event
       if (event.type === 'review_request.updated') {
         const prev = event.previousStatus
         const next = event.status
 
-        // Idempotency: If request already in recent list with same status, ignore duplicate
+        // Idempotency: If existing row already has the target status, ignore duplicate update
         const existingRow = state.recentRequests.find((r) => r.id === event.requestId)
         if (existingRow && existingRow.status === next) {
-          // If already in target status (e.g. repeated click event), do not double-increment
           return {
             ...state,
             processedEventIds: nextEventIds,
           }
         }
 
-        const newKpis: DashboardKpis = { ...state.kpis }
+        // Generic transition model
+        const newKpis: DashboardKpis = {
+          ...state.kpis,
+          scheduledCount: transitionCount(state.kpis.scheduledCount, prev, next, SCHEDULED_SET),
+          sentCount: transitionCount(state.kpis.sentCount, prev, next, SENT_SET),
+          clickedCount: transitionCount(state.kpis.clickedCount, prev, next, CLICKED_SET),
+          failedCount: transitionCount(state.kpis.failedCount, prev, next, FAILED_SET),
+        }
+
         let highlightedKpiKey: keyof DashboardKpis | null = null
         let announcement = `Review request updated to ${next}.`
 
-        // Update scheduledCount
-        if (prev === 'SCHEDULED' && next !== 'SCHEDULED') {
-          newKpis.scheduledCount = Math.max(0, newKpis.scheduledCount - 1)
-        } else if (prev !== 'SCHEDULED' && next === 'SCHEDULED') {
-          newKpis.scheduledCount = newKpis.scheduledCount + 1
-          highlightedKpiKey = 'scheduledCount'
-        }
-
-        // Update sentCount: IN ('SENT', 'DELIVERED', 'CLICKED')
-        const wasInSent = ['SENT', 'DELIVERED', 'CLICKED'].includes(prev)
-        const isInSent = ['SENT', 'DELIVERED', 'CLICKED'].includes(next)
-        if (!wasInSent && isInSent) {
-          newKpis.sentCount = newKpis.sentCount + 1
-          highlightedKpiKey = 'sentCount'
-        } else if (wasInSent && !isInSent) {
-          newKpis.sentCount = Math.max(0, newKpis.sentCount - 1)
-        }
-
-        // Update clickedCount
-        if (prev !== 'CLICKED' && next === 'CLICKED') {
-          newKpis.clickedCount = newKpis.clickedCount + 1
+        if (newKpis.clickedCount > state.kpis.clickedCount) {
           highlightedKpiKey = 'clickedCount'
           announcement = 'Review request marked clicked.'
-        }
-
-        // Update failedCount
-        if (prev !== 'FAILED' && next === 'FAILED') {
-          newKpis.failedCount = newKpis.failedCount + 1
+        } else if (newKpis.failedCount > state.kpis.failedCount) {
           highlightedKpiKey = 'failedCount'
           announcement = 'Review request dispatch failed.'
+        } else if (newKpis.sentCount > state.kpis.sentCount) {
+          highlightedKpiKey = 'sentCount'
+          announcement = 'Review request sent.'
+        } else if (newKpis.scheduledCount > state.kpis.scheduledCount) {
+          highlightedKpiKey = 'scheduledCount'
+          announcement = 'Review request scheduled.'
         }
 
         // Update recentRequests row
@@ -242,36 +281,58 @@ export function dashboardReducer(
           })
         }
 
-        // System status adjustment if failures or sent count changed
-        let systemStatus = state.systemStatus
-        let statusDescription = state.statusDescription
+        // Needs Attention & System Status consistency
+        let nextSystemStatus: SystemStatus = state.systemStatus
+        let nextStatusDescription = state.statusDescription
+        let nextAttentionItems: AttentionItem[] = [...state.attentionItems]
+
         if (newKpis.failedCount > 0) {
-          systemStatus = 'NEEDS_ATTENTION'
-          statusDescription = 'Operational issues detected in recent dispatches or outbox.'
-        } else if (
-          state.systemStatus === 'NEEDS_ATTENTION' &&
-          newKpis.failedCount === 0 &&
-          (newKpis.outboxFailedCount ?? 0) === 0
-        ) {
-          if (newKpis.sentCount > 0) {
-            systemStatus = 'RUNNING'
-            statusDescription = 'Review request workflow actively processing completions.'
-          } else {
-            systemStatus = 'READY_FOR_SYNTHETIC_TEST'
-            statusDescription =
-              'All locations configured with confirmed review destinations. Ready for synthetic validation.'
+          nextSystemStatus = 'NEEDS_ATTENTION'
+          nextStatusDescription = 'Operational issues detected in recent dispatches or outbox.'
+
+          const failedIdx = nextAttentionItems.findIndex((i) => i.id === 'failed-requests')
+          const failedItem: AttentionItem = {
+            id: 'failed-requests',
+            severity: 'error',
+            title: 'Workflow Dispatch Failed',
+            description: `${newKpis.failedCount} review request dispatch(es) recorded delivery failures. Please check email provider logs.`,
           }
-        } else if (state.systemStatus === 'READY_FOR_SYNTHETIC_TEST' && newKpis.sentCount > 0) {
-          systemStatus = 'RUNNING'
-          statusDescription = 'Review request workflow actively processing completions.'
+          if (failedIdx >= 0) {
+            nextAttentionItems[failedIdx] = failedItem
+          } else {
+            nextAttentionItems = [failedItem, ...nextAttentionItems]
+          }
+        } else {
+          // failedCount === 0: remove failed-requests attention item
+          nextAttentionItems = nextAttentionItems.filter((i) => i.id !== 'failed-requests')
+
+          const hasErrors = nextAttentionItems.some((i) => i.severity === 'error')
+          if (hasErrors || (newKpis.outboxFailedCount ?? 0) > 0) {
+            nextSystemStatus = 'NEEDS_ATTENTION'
+            nextStatusDescription = 'Operational issues detected in recent dispatches or outbox.'
+          } else {
+            // No failure conditions: return to authoritative status
+            if (nextAttentionItems.some((i) => i.id === 'missing-location' || i.id === 'missing-destination')) {
+              nextSystemStatus = 'SETUP_REQUIRED'
+              nextStatusDescription = 'Initial setup required before requests can be dispatched.'
+            } else if (newKpis.sentCount > 0) {
+              nextSystemStatus = 'RUNNING'
+              nextStatusDescription = 'Review request workflow actively processing completions.'
+            } else {
+              nextSystemStatus = 'READY_FOR_SYNTHETIC_TEST'
+              nextStatusDescription =
+                'All locations configured with confirmed review destinations. Ready for synthetic validation.'
+            }
+          }
         }
 
         return {
           ...state,
           kpis: newKpis,
           recentRequests: nextRecentRequests,
-          systemStatus,
-          statusDescription,
+          systemStatus: nextSystemStatus,
+          statusDescription: nextStatusDescription,
+          attentionItems: nextAttentionItems,
           highlightedKpiKey,
           highlightedRowId: event.requestId,
           announcement,

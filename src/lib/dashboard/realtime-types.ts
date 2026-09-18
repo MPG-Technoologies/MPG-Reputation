@@ -10,6 +10,7 @@ export type ReviewRequestStatus =
 
 export interface CustomerCompletedEvent {
   id?: string
+  eventId?: string
   type: 'customer.completed'
   organizationId: string
   completionEventId: string
@@ -19,6 +20,7 @@ export interface CustomerCompletedEvent {
 
 export interface ReviewRequestCreatedEvent {
   id?: string
+  eventId?: string
   type: 'review_request.created'
   organizationId: string
   requestId: string
@@ -31,6 +33,7 @@ export interface ReviewRequestCreatedEvent {
 
 export interface ReviewRequestUpdatedEvent {
   id?: string
+  eventId?: string
   type: 'review_request.updated'
   organizationId: string
   requestId: string
@@ -116,4 +119,5 @@ export interface DashboardState {
   highlightedRowId: string | null
   announcement: string | null
   processedEventIds: string[]
+  processedCompletionEventIds: string[]
 }

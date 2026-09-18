@@ -20,6 +20,9 @@ import { RealtimeStatus } from './realtime-status'
 import { DashboardKpis } from './dashboard-kpis'
 import { LiveActivity } from './live-activity'
 import { RecentActivity } from './recent-activity'
+import { SystemStatusCard } from './system-status-card'
+import { NeedsAttentionCard } from './needs-attention-card'
+import { QuickLinksCard } from './quick-links-card'
 
 interface LiveDashboardProps {
   initialSnapshot: DashboardSnapshot
@@ -257,144 +260,68 @@ export function LiveDashboard({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-white tracking-tight">{orgName} Dashboard</h1>
+            <h1 className="text-2xl font-bold text-white tracking-tight">Dashboard</h1>
             <RealtimeStatus status={state.connectionState} />
           </div>
-          <p className="text-sm text-slate-400 mt-1">
-            Truthful activity, automation state, and operational metrics for V0.2 Controlled Staging.
+          <p className="text-xs sm:text-sm text-slate-400 mt-1">
+            Realtime activity, automation state, and operational metrics.
           </p>
         </div>
         <div className="flex items-center gap-3">
           <Link
             href="/app/quick-complete"
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-transparent rounded-md shadow-sm text-xs sm:text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 transition-colors"
           >
             + Quick Complete
           </Link>
         </div>
       </div>
 
-      {/* Truthful System Readiness Status Banner */}
-      <div
-        className={`p-4 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors ${
-          state.systemStatus === 'SETUP_REQUIRED'
-            ? 'bg-amber-950/40 border-amber-800/60'
-            : state.systemStatus === 'NEEDS_ATTENTION'
-            ? 'bg-rose-950/40 border-rose-800/60'
-            : state.systemStatus === 'READY_FOR_SYNTHETIC_TEST'
-            ? 'bg-blue-950/40 border-blue-800/60'
-            : 'bg-emerald-950/40 border-emerald-800/60'
-        }`}
-      >
-        <div className="flex items-start gap-3">
-          <span className="text-lg">
-            {state.systemStatus === 'SETUP_REQUIRED' && '⚙️'}
-            {state.systemStatus === 'NEEDS_ATTENTION' && '⚠️'}
-            {state.systemStatus === 'READY_FOR_SYNTHETIC_TEST' && '🧪'}
-            {state.systemStatus === 'RUNNING' && '✅'}
-          </span>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-wider font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700">
-                {state.systemStatus}
-              </span>
-              <span className="text-xs text-slate-400">V0.2 Controlled Staging</span>
-            </div>
-            <p className="text-xs text-slate-300 mt-1">{state.statusDescription}</p>
-          </div>
-        </div>
-        {initialSnapshot.locationsNeedingDestinationCount > 0 && (
-          <Link
-            href="/app/settings/review-destination"
-            className="text-xs font-medium bg-amber-800 hover:bg-amber-700 text-amber-100 px-3 py-1.5 rounded transition-colors whitespace-nowrap"
-          >
-            Configure Destination →
-          </Link>
-        )}
-      </div>
-
-      {/* Needs Attention Section */}
-      {state.attentionItems.length > 0 && (
-        <div className="bg-slate-900 border border-slate-800 rounded-lg p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-white flex items-center gap-2">
-              <span>⚠️</span> Needs Attention
-            </h2>
-            <span className="text-xs text-slate-500">{state.attentionItems.length} condition(s) detected</span>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {state.attentionItems.map((item) => (
-              <div
-                key={item.id}
-                className={`p-4 rounded-md border text-sm flex flex-col justify-between ${
-                  item.severity === 'error'
-                    ? 'bg-rose-950/30 border-rose-800/60 text-rose-200'
-                    : item.severity === 'warning'
-                    ? 'bg-amber-950/30 border-amber-800/60 text-amber-200'
-                    : 'bg-blue-950/30 border-blue-800/60 text-blue-200'
-                }`}
-              >
-                <div>
-                  <div className="font-semibold text-white mb-1">{item.title}</div>
-                  <p className="text-xs opacity-90 leading-relaxed">{item.description}</p>
-                </div>
-                {item.actionHref && item.actionLabel && (
-                  <div className="mt-3">
-                    <Link
-                      href={item.actionHref}
-                      className="text-xs font-medium underline hover:text-white transition-colors"
-                    >
-                      {item.actionLabel}
-                    </Link>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Activity Metric Cards with Live Realtime Updates */}
+      {/* KPI Metric Row — Primary Scannable Metrics */}
       <DashboardKpis kpis={state.kpis} highlightedKey={state.highlightedKpiKey} />
 
-      {/* Automation & Integrity Invariants */}
-      <div className="bg-slate-900 border border-slate-800 rounded-lg p-6">
-        <h2 className="text-base font-semibold text-white mb-4">Automation &amp; Integrity Invariants</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-          <div className="flex items-center gap-3">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-            <span className="text-slate-300">Neutral Solicitation: <strong className="text-white">Active</strong></span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-            <span className="text-slate-300">Review Gating: <strong className="text-white">Disabled (Strict)</strong></span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span
-              className={`w-2.5 h-2.5 rounded-full ${
-                state.kpis.failedCount > 0 ? 'bg-rose-500' : 'bg-emerald-500'
-              }`}
-            ></span>
-            <span className="text-slate-300">
-              Failed Dispatches: <strong className="text-white">{state.kpis.failedCount}</strong>
-            </span>
+      {/* Main Two-Column Operational Area */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-6 items-start">
+        {/* Left / Primary Column on Desktop */}
+        <div className="order-1 lg:order-1 lg:col-start-1 lg:row-start-1 space-y-6 min-w-0">
+          <LiveActivity activities={state.liveActivity} />
+          <div className="hidden lg:block">
+            <RecentActivity
+              requests={state.recentRequests}
+              orgName={orgName}
+              highlightedRowId={state.highlightedRowId}
+            />
           </div>
         </div>
-        <p className="text-xs text-slate-500 mt-4">
-          Truthful Guarantee: MPG Reputation never fabricates reviews received, star ratings, or ROI metrics. A tracked click is recorded only as a link click.
-        </p>
+
+        {/* Right / Secondary Sidebar on Desktop (Mobile Order 2 & 3) */}
+        <div className="order-2 lg:order-2 lg:col-start-2 lg:row-start-1 space-y-6">
+          <SystemStatusCard
+            status={state.systemStatus}
+            statusDescription={state.statusDescription}
+            failedCount={state.kpis.failedCount}
+            locationsNeedingDestinationCount={initialSnapshot.locationsNeedingDestinationCount}
+          />
+          <NeedsAttentionCard items={state.attentionItems} />
+          <div className="hidden lg:block">
+            <QuickLinksCard />
+          </div>
+        </div>
+
+        {/* Mobile-only Order 5: Recent Review Solicitations */}
+        <div className="order-3 lg:hidden min-w-0">
+          <RecentActivity
+            requests={state.recentRequests}
+            orgName={orgName}
+            highlightedRowId={state.highlightedRowId}
+          />
+        </div>
+
+        {/* Mobile-only Order 6: Quick Links */}
+        <div className="order-4 lg:hidden">
+          <QuickLinksCard />
+        </div>
       </div>
-
-      {/* Live Activity Section */}
-      <LiveActivity activities={state.liveActivity} />
-
-      {/* Recent Activity Table with Live Updates */}
-      <RecentActivity
-        requests={state.recentRequests}
-        orgName={orgName}
-        highlightedRowId={state.highlightedRowId}
-      />
     </div>
   )
 }

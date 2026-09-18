@@ -39,7 +39,7 @@ export default async function AppLayout({
       <TopProgressBar />
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
         <header className="border-b border-slate-800 bg-slate-900 sticky top-0 z-20">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div className="flex items-center gap-8">
               <Link href="/app/dashboard" className="flex items-center gap-2">
                 <span className="font-bold text-lg text-white bg-blue-600 px-2 py-0.5 rounded">
@@ -68,7 +68,7 @@ export default async function AppLayout({
           </div>
         </header>
 
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <main className="flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {children}
         </main>
 

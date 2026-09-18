@@ -19,6 +19,9 @@ import { LiveActivity } from '../../src/app/app/dashboard/live-activity'
 import { RealtimeStatus } from '../../src/app/app/dashboard/realtime-status'
 import { DashboardKpis } from '../../src/app/app/dashboard/dashboard-kpis'
 import { RecentActivity } from '../../src/app/app/dashboard/recent-activity'
+import { SystemStatusCard } from '../../src/app/app/dashboard/system-status-card'
+import { NeedsAttentionCard } from '../../src/app/app/dashboard/needs-attention-card'
+import { QuickLinksCard } from '../../src/app/app/dashboard/quick-links-card'
 
 const dummySnapshot: DashboardSnapshot = {
   kpis: {
@@ -1453,6 +1456,202 @@ describe('Dashboard Realtime Synchronization Engine (Hardening Pass)', () => {
       expect(css).toContain('.animate-status-crossfade')
       expect(css).toContain('.animate-checkmark-in')
       expect(css).toContain('@media (prefers-reduced-motion: reduce)')
+    })
+  })
+
+  describe('K. Reorganized Dashboard Layout & Sidebar Cards', () => {
+    it('1. KPI cards render all five real metrics with zero fabricated trend indicators', () => {
+      const html = renderToString(
+        React.createElement(DashboardKpis, {
+          kpis: dummySnapshot.kpis,
+          highlightedKey: null,
+        })
+      )
+
+      // All 5 real metrics:
+      expect(html).toContain('Completed Customers')
+      expect(html).toContain('Eligible Requests')
+      expect(html).toContain('Requests Scheduled')
+      expect(html).toContain('Invitations Sent')
+      expect(html).toContain('Feedback Link Clicks')
+
+      // Zero fabricated metrics:
+      expect(html).not.toContain('+ today')
+      expect(html).not.toContain('+2 today')
+      expect(html).not.toContain('growth')
+      expect(html).not.toContain('conversion')
+      expect(html).not.toContain('ROI')
+      expect(html).not.toContain('star rating')
+    })
+
+    it('2. System status card maps all four status states correctly and renders failed count', () => {
+      // 1. RUNNING
+      const runningHtml = renderToString(
+        React.createElement(SystemStatusCard, {
+          status: 'RUNNING',
+          statusDescription: 'Review request workflow actively processing completions.',
+          failedCount: 0,
+        })
+      )
+      expect(runningHtml).toContain('Running')
+      expect(runningHtml).toContain('bg-emerald-950')
+      expect(runningHtml).toContain('Failed dispatches')
+      expect(runningHtml).toContain('Neutral solicitation')
+      expect(runningHtml).toContain('Review gating')
+      expect(runningHtml).toContain('Truthful Guarantee')
+
+      // 2. READY_FOR_SYNTHETIC_TEST
+      const readyHtml = renderToString(
+        React.createElement(SystemStatusCard, {
+          status: 'READY_FOR_SYNTHETIC_TEST',
+          statusDescription: 'Ready for synthetic validation.',
+          failedCount: 0,
+        })
+      )
+      expect(readyHtml).toContain('Ready for Test')
+      expect(readyHtml).toContain('bg-blue-950')
+
+      // 3. SETUP_REQUIRED
+      const setupHtml = renderToString(
+        React.createElement(SystemStatusCard, {
+          status: 'SETUP_REQUIRED',
+          statusDescription: 'No locations configured.',
+          failedCount: 0,
+          locationsNeedingDestinationCount: 2,
+        })
+      )
+      expect(setupHtml).toContain('Setup Required')
+      expect(setupHtml).toContain('bg-amber-950')
+      expect(setupHtml).toContain('Configure Review Destination →')
+
+      // 4. NEEDS_ATTENTION with failedCount > 0
+      const attentionHtml = renderToString(
+        React.createElement(SystemStatusCard, {
+          status: 'NEEDS_ATTENTION',
+          statusDescription: 'Operational issues detected.',
+          failedCount: 3,
+        })
+      )
+      expect(attentionHtml).toContain('Needs Attention')
+      expect(attentionHtml).toContain('bg-rose-950')
+      expect(attentionHtml).toContain('text-rose-400')
+      expect(attentionHtml).toContain('3')
+    })
+
+    it('3. Informational bypass does not masquerade as failed system status in NeedsAttentionCard', () => {
+      // Empty state
+      const emptyHtml = renderToString(React.createElement(NeedsAttentionCard, { items: [] }))
+      expect(emptyHtml).toContain('Needs Attention')
+      expect(emptyHtml).toContain('No operational issues detected.')
+
+      // Only info item
+      const infoHtml = renderToString(
+        React.createElement(NeedsAttentionCard, {
+          items: [
+            {
+              id: 'ineligible-suppressed',
+              severity: 'info',
+              title: 'Completions Bypassed by Policy',
+              description: '2 customer completion(s) were safely bypassed.',
+            },
+          ],
+        })
+      )
+      expect(infoHtml).toContain('Completions Bypassed by Policy')
+      expect(infoHtml).toContain('1 condition')
+      expect(infoHtml).not.toContain('border-rose-900') // Not error styled
+      expect(infoHtml).toContain('bg-slate-800')
+    })
+
+    it('4. QuickLinksCard links exclusively to valid active application routes', () => {
+      const html = renderToString(React.createElement(QuickLinksCard))
+      expect(html).toContain('Quick Links')
+      expect(html).toContain('/app/quick-complete')
+      expect(html).toContain('/app/settings/location')
+      expect(html).toContain('/app/settings/review-destination')
+
+      // Ensure no fictional settings routes
+      expect(html).not.toContain('href="/app/settings"')
+      expect(html).not.toContain('href="/app/settings/general"')
+    })
+
+    it('5. RecentActivity renders compact desktop table and mobile stacked cards with test links', () => {
+      const html = renderToString(
+        React.createElement(RecentActivity, {
+          requests: dummySnapshot.recentRequests,
+          orgName: 'Northstar Clinic',
+          highlightedRowId: null,
+        })
+      )
+
+      // Desktop table elements
+      expect(html).toContain('<table')
+      expect(html).toContain('<thead')
+      expect(html).toContain('Customer')
+      expect(html).toContain('Channel')
+      expect(html).toContain('Status')
+      expect(html).toContain('Created')
+      expect(html).toContain('Clicked')
+      expect(html).toContain('Actions')
+
+      // Data rendering
+      expect(html).toContain('Alice Smith')
+      expect(html).toContain('alice@example.test')
+      expect(html).toContain('SENT')
+      expect(html).toContain('Test Link ↗')
+      expect(html).toContain('Preview')
+
+      // Mobile responsive elements
+      expect(html).toContain('md:hidden')
+      expect(html).toContain('hidden md:block')
+    })
+
+    it('6. LiveActivity renders 3-column desktop layout and mobile stacked layout', () => {
+      const html = renderToString(
+        React.createElement(LiveActivity, {
+          activities: [
+            {
+              completionEventId: 'comp-col-test',
+              customerName: 'Marcus Holloway',
+              stage: 'CHECKING',
+              createdAt: '2026-09-19T02:00:00Z',
+              updatedAt: '2026-09-19T02:00:01Z',
+            },
+          ],
+        })
+      )
+
+      // Desktop 3-column layout classes
+      expect(html).toContain('hidden md:grid md:grid-cols-[200px_1fr_210px]')
+      // Mobile stacked layout classes
+      expect(html).toContain('md:hidden')
+      expect(html).toContain('Marcus Holloway')
+      expect(html).toContain('Checking eligibility and safeguards')
+      expect(html).toContain('1 in this session')
+    })
+
+    it('7. verifies live-dashboard.tsx layout places operational content above secondary navigation', () => {
+      const componentPath = path.resolve(
+        __dirname,
+        '../../src/app/app/dashboard/live-dashboard.tsx'
+      )
+      const code = fs.readFileSync(componentPath, 'utf8')
+
+      // Grid definition
+      expect(code).toContain('lg:grid-cols-[minmax(0,1fr)_320px]')
+
+      // Live Activity in primary column
+      expect(code).toContain('<LiveActivity')
+      expect(code).toContain('<RecentActivity')
+
+      // Sidebar components
+      expect(code).toContain('<SystemStatusCard')
+      expect(code).toContain('<NeedsAttentionCard')
+      expect(code).toContain('<QuickLinksCard')
+
+      // Header simplification
+      expect(code).toContain('<h1 className="text-2xl font-bold text-white tracking-tight">Dashboard</h1>')
+      expect(code).not.toContain('{orgName} Dashboard')
     })
   })
 })

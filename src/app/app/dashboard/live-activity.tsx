@@ -29,12 +29,13 @@ export const LiveActivity = React.memo(function LiveActivity({
   activities,
 }: LiveActivityProps) {
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-6">
+    <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+      {/* Header */}
       <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <h2 className="text-base font-semibold text-white">Live Activity</h2>
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800/50">
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800/50">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 motion-safe:animate-pulse motion-reduce:animate-none" />
               Realtime Workflow
             </span>
@@ -43,13 +44,14 @@ export const LiveActivity = React.memo(function LiveActivity({
             Realtime workflow progress for newly completed customers.
           </p>
         </div>
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-slate-500 font-medium">
           {activities.length > 0 ? `${activities.length} in this session` : 'Session monitor'}
         </span>
       </div>
 
+      {/* Rows */}
       {!activities || activities.length === 0 ? (
-        <div className="p-6 text-center text-slate-500 text-sm">
+        <div className="p-8 text-center text-slate-500 text-sm">
           No live workflow activity recorded in this session.
           <div className="mt-1 text-xs text-slate-400">
             Submit a customer via Quick Complete to watch stage-by-stage progression in realtime.
@@ -66,36 +68,69 @@ export const LiveActivity = React.memo(function LiveActivity({
                 key={act.completionEventId}
                 className="p-5 hover:bg-slate-800/30 transition-colors duration-300 motion-reduce:transition-none"
               >
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  {/* Left Column: Customer & Status copy */}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      <span className="font-semibold text-white text-base truncate">
-                        {act.customerName}
-                      </span>
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border ${badgeStyle}`}
-                      >
-                        {act.stage}
-                      </span>
+                {/* Desktop: 3-column row (Identity | Centered Rail | Terminal State) */}
+                <div className="hidden md:grid md:grid-cols-[200px_1fr_210px] items-center gap-6">
+                  {/* Left: Customer Identity */}
+                  <div className="min-w-0">
+                    <div className="font-semibold text-white text-base truncate">
+                      {act.customerName}
                     </div>
-                    <div className="text-xs text-slate-400 mt-1 flex items-center gap-2">
-                      <span
-                        key={act.stage}
-                        className="text-slate-300 inline-block animate-status-crossfade motion-reduce:animate-none"
-                      >
-                        {copy}
-                      </span>
-                      <span className="text-slate-600">•</span>
-                      <span className="text-slate-500">
-                        {new Date(act.updatedAt).toLocaleTimeString()}
-                      </span>
-                    </div>
+                    <span className="text-xs text-slate-500 block mt-0.5">
+                      Session completion
+                    </span>
                   </div>
 
-                  {/* Right Column: Visual Progress Rail */}
-                  <div className="shrink-0">
+                  {/* Center: Progress Rail */}
+                  <div className="flex justify-center">
                     <ProgressRail stage={act.stage} />
+                  </div>
+
+                  {/* Right: Terminal/Current State */}
+                  <div className="text-right flex flex-col items-end">
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border ${badgeStyle}`}
+                    >
+                      {act.stage}
+                    </span>
+                    <span
+                      key={act.stage}
+                      className="text-xs text-slate-300 mt-1 inline-block animate-status-crossfade motion-reduce:animate-none font-medium truncate max-w-full"
+                    >
+                      {copy}
+                    </span>
+                    <span className="text-[11px] text-slate-500 mt-0.5">
+                      {new Date(act.updatedAt).toLocaleTimeString()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Mobile: Clean Stacked Layout */}
+                <div className="md:hidden space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-white text-base truncate">
+                      {act.customerName}
+                    </span>
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold border ${badgeStyle}`}
+                    >
+                      {act.stage}
+                    </span>
+                  </div>
+
+                  <div className="py-1 overflow-x-auto">
+                    <ProgressRail stage={act.stage} />
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs text-slate-400 pt-1 border-t border-slate-800/60">
+                    <span
+                      key={act.stage}
+                      className="text-slate-300 inline-block animate-status-crossfade motion-reduce:animate-none font-medium"
+                    >
+                      {copy}
+                    </span>
+                    <span className="text-slate-500 text-[11px]">
+                      {new Date(act.updatedAt).toLocaleTimeString()}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -113,7 +148,7 @@ interface ProgressRailProps {
 
 function RailConnector({ isFilled }: { isFilled: boolean }) {
   return (
-    <div className="w-4 sm:w-6 h-[2px] bg-slate-800 rounded-full overflow-hidden shrink-0 mx-0.5 sm:mx-1">
+    <div className="w-3 sm:w-5 lg:w-6 h-[2px] bg-slate-800 rounded-full overflow-hidden shrink-0 mx-0.5 sm:mx-1">
       <div
         className={`h-full bg-emerald-500 transition-all duration-400 ease-out motion-reduce:transition-none ${
           isFilled ? 'w-full' : 'w-0'
@@ -222,7 +257,9 @@ function ProgressRail({ stage }: ProgressRailProps) {
               ) : (
                 <span className="w-2 h-2 rounded-full bg-slate-700" />
               )}
-              <span className={isCurrent ? 'font-semibold' : ''}>{st.label}</span>
+              <span className={isCurrent ? 'font-semibold text-white' : ''}>
+                {st.label}
+              </span>
             </span>
           </React.Fragment>
         )

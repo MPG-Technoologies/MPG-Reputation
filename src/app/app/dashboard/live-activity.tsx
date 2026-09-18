@@ -20,7 +20,7 @@ const STAGE_BADGE_STYLES: Record<LiveActivityStage, string> = {
   RECEIVED: 'bg-slate-800 text-slate-300 border-slate-700',
   CHECKING: 'bg-amber-950/60 text-amber-300 border-amber-800/80',
   PREPARING: 'bg-blue-950/60 text-blue-300 border-blue-800/80',
-  SENT: 'bg-emerald-950/60 text-emerald-300 border-emerald-800/80',
+  SENT: 'bg-emerald-950/60 text-emerald-300 border-emerald-800/80 transition-colors duration-300 motion-reduce:transition-none',
   BYPASSED: 'bg-slate-800/80 text-slate-400 border-slate-700',
   FAILED: 'bg-rose-950/60 text-rose-300 border-rose-800/80',
 }
@@ -44,7 +44,7 @@ export const LiveActivity = React.memo(function LiveActivity({
           </p>
         </div>
         <span className="text-xs text-slate-500">
-          {activities.length > 0 ? `${activities.length} active in session` : 'Session monitor'}
+          {activities.length > 0 ? `${activities.length} in this session` : 'Session monitor'}
         </span>
       </div>
 
@@ -80,7 +80,12 @@ export const LiveActivity = React.memo(function LiveActivity({
                       </span>
                     </div>
                     <div className="text-xs text-slate-400 mt-1 flex items-center gap-2">
-                      <span className="text-slate-300">{copy}</span>
+                      <span
+                        key={act.stage}
+                        className="text-slate-300 inline-block animate-status-crossfade motion-reduce:animate-none"
+                      >
+                        {copy}
+                      </span>
                       <span className="text-slate-600">•</span>
                       <span className="text-slate-500">
                         {new Date(act.updatedAt).toLocaleTimeString()}
@@ -106,19 +111,37 @@ interface ProgressRailProps {
   stage: LiveActivityStage
 }
 
+function RailConnector({ isFilled }: { isFilled: boolean }) {
+  return (
+    <div className="w-4 sm:w-6 h-[2px] bg-slate-800 rounded-full overflow-hidden shrink-0 mx-0.5 sm:mx-1">
+      <div
+        className={`h-full bg-emerald-500 transition-all duration-400 ease-out motion-reduce:transition-none ${
+          isFilled ? 'w-full' : 'w-0'
+        }`}
+      />
+    </div>
+  )
+}
+
 function ProgressRail({ stage }: ProgressRailProps) {
   if (stage === 'BYPASSED') {
     return (
-      <div className="flex items-center gap-2 text-xs">
-        <span className="flex items-center gap-1 text-slate-300">
-          <span className="text-emerald-400 font-bold">✓</span> Received
+      <div className="flex items-center gap-1 sm:gap-1.5 text-xs font-medium">
+        <span className="flex items-center gap-1.5 text-slate-200">
+          <span className="w-4 h-4 rounded-full bg-emerald-950 border border-emerald-700 text-emerald-400 flex items-center justify-center text-[10px] font-bold animate-checkmark-in motion-reduce:animate-none">
+            ✓
+          </span>
+          <span>Received</span>
         </span>
-        <span className="text-slate-600">───</span>
-        <span className="flex items-center gap-1 text-slate-300">
-          <span className="text-emerald-400 font-bold">✓</span> Checking
+        <RailConnector isFilled={true} />
+        <span className="flex items-center gap-1.5 text-slate-200">
+          <span className="w-4 h-4 rounded-full bg-emerald-950 border border-emerald-700 text-emerald-400 flex items-center justify-center text-[10px] font-bold animate-checkmark-in motion-reduce:animate-none">
+            ✓
+          </span>
+          <span>Checking</span>
         </span>
-        <span className="text-slate-600">───</span>
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-800 text-slate-400 border border-slate-700">
+        <RailConnector isFilled={true} />
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
           BYPASSED
         </span>
       </div>
@@ -127,16 +150,22 @@ function ProgressRail({ stage }: ProgressRailProps) {
 
   if (stage === 'FAILED') {
     return (
-      <div className="flex items-center gap-2 text-xs">
-        <span className="flex items-center gap-1 text-slate-300">
-          <span className="text-emerald-400 font-bold">✓</span> Received
+      <div className="flex items-center gap-1 sm:gap-1.5 text-xs font-medium">
+        <span className="flex items-center gap-1.5 text-slate-200">
+          <span className="w-4 h-4 rounded-full bg-emerald-950 border border-emerald-700 text-emerald-400 flex items-center justify-center text-[10px] font-bold animate-checkmark-in motion-reduce:animate-none">
+            ✓
+          </span>
+          <span>Received</span>
         </span>
-        <span className="text-slate-600">───</span>
-        <span className="flex items-center gap-1 text-slate-300">
-          <span className="text-emerald-400 font-bold">✓</span> Checking
+        <RailConnector isFilled={true} />
+        <span className="flex items-center gap-1.5 text-slate-200">
+          <span className="w-4 h-4 rounded-full bg-emerald-950 border border-emerald-700 text-emerald-400 flex items-center justify-center text-[10px] font-bold animate-checkmark-in motion-reduce:animate-none">
+            ✓
+          </span>
+          <span>Checking</span>
         </span>
-        <span className="text-slate-600">───</span>
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-rose-950/80 text-rose-300 border border-rose-800">
+        <RailConnector isFilled={true} />
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-950/80 text-rose-300 border border-rose-800">
           FAILED
         </span>
       </div>
@@ -163,23 +192,15 @@ function ProgressRail({ stage }: ProgressRailProps) {
   const activeIndex = stageIndices[stage]
 
   return (
-    <div className="flex items-center gap-1.5 sm:gap-2 text-xs font-medium">
+    <div className="flex items-center gap-1 sm:gap-1.5 text-xs font-medium">
       {stages.map((st, idx) => {
         const isCompleted = idx < activeIndex || (stage === 'SENT' && idx === 3)
         const isCurrent = idx === activeIndex && stage !== 'SENT'
-        // upcoming step
+        const isConnectorFilled = idx <= activeIndex || stage === 'SENT'
 
         return (
           <React.Fragment key={st.key}>
-            {idx > 0 && (
-              <span
-                className={`text-[10px] ${
-                  isCompleted || isCurrent ? 'text-slate-400' : 'text-slate-700'
-                }`}
-              >
-                ───
-              </span>
-            )}
+            {idx > 0 && <RailConnector isFilled={isConnectorFilled} />}
             <span
               className={`flex items-center gap-1.5 transition-colors duration-300 motion-reduce:transition-none ${
                 isCompleted
@@ -190,7 +211,7 @@ function ProgressRail({ stage }: ProgressRailProps) {
               }`}
             >
               {isCompleted ? (
-                <span className="w-4 h-4 rounded-full bg-emerald-950 border border-emerald-700 text-emerald-400 flex items-center justify-center text-[10px] font-bold">
+                <span className="w-4 h-4 rounded-full bg-emerald-950 border border-emerald-700 text-emerald-400 flex items-center justify-center text-[10px] font-bold animate-checkmark-in motion-reduce:animate-none">
                   ✓
                 </span>
               ) : isCurrent ? (

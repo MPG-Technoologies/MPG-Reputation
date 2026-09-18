@@ -13,7 +13,12 @@ import type {
 
 export type DashboardAction =
   | { type: 'EVENT_RECEIVED'; event: DashboardRealtimeEvent }
-  | { type: 'SNAPSHOT_RECONCILED'; snapshot: DashboardSnapshot }
+  | {
+      type: 'SNAPSHOT_RECONCILED'
+      snapshot: DashboardSnapshot
+      reason?: 'reconnect' | 'focus'
+      preserveLiveActivity?: boolean
+    }
   | { type: 'SET_CONNECTION_STATE'; connectionState: ConnectionState }
   | { type: 'CLEAR_HIGHLIGHTS' }
   | {
@@ -215,11 +220,13 @@ export function dashboardReducer(
     }
 
     case 'SNAPSHOT_RECONCILED': {
+      const shouldPreserve =
+        action.preserveLiveActivity ?? (action.reason === 'focus')
       return {
         ...state,
         kpis: { ...action.snapshot.kpis },
         recentRequests: action.snapshot.recentRequests.map((r) => ({ ...r })),
-        liveActivity: [], // Clear transient session activity on authoritative snapshot reconciliation
+        liveActivity: shouldPreserve ? state.liveActivity : [],
         systemStatus: action.snapshot.systemStatus,
         statusDescription: action.snapshot.statusDescription,
         attentionItems: action.snapshot.attentionItems.map((i) => ({ ...i })),
@@ -300,10 +307,19 @@ export function dashboardReducer(
 
       // C. Review Request Created Event
       if (event.type === 'review_request.created') {
-        // Deduplication: ignore if request already in recentRequests
+        // Live Activity evolves to PREPARING independently of recentRequests dedupe
+        const updatedLiveActivity = updateLiveActivityList(state.liveActivity, {
+          completionEventId: event.completionEventId,
+          requestId: event.requestId,
+          targetStage: 'PREPARING',
+          createdAt: event.createdAt,
+        })
+
+        // Deduplication: if request already in recentRequests, do not duplicate row or double-count KPIs
         if (state.recentRequests.some((r) => r.id === event.requestId)) {
           return {
             ...state,
+            liveActivity: updatedLiveActivity,
             processedEventIds: nextEventIds,
           }
         }
@@ -340,13 +356,7 @@ export function dashboardReducer(
         }
         const nextRecentRequests = [newRow, ...state.recentRequests].slice(0, 10)
 
-        // Live Activity evolves to PREPARING
-        const updatedLiveActivity = updateLiveActivityList(state.liveActivity, {
-          completionEventId: event.completionEventId,
-          requestId: event.requestId,
-          targetStage: 'PREPARING',
-          createdAt: event.createdAt,
-        })
+        // Live Activity already evolved to PREPARING above
 
         return {
           ...state,
@@ -365,11 +375,28 @@ export function dashboardReducer(
         const prev = event.previousStatus
         const next = event.status
 
-        // Idempotency: If existing row already has the target status, ignore duplicate update
+        // Live Activity stage determination occurs independently of recent-request dedupe
+        let liveStage: LiveActivityStage = 'PREPARING'
+        if (event.status === 'SENDING') {
+          liveStage = 'PREPARING'
+        } else if (SENT_SET.has(event.status)) {
+          liveStage = 'SENT'
+        } else if (FAILED_SET.has(event.status)) {
+          liveStage = 'FAILED'
+        }
+
+        const updatedLiveActivity = updateLiveActivityList(state.liveActivity, {
+          completionEventId: event.completionEventId,
+          requestId: event.requestId,
+          targetStage: liveStage,
+        })
+
+        // Idempotency: If existing row already has the target status, avoid duplicate row mutations or double counting KPIs
         const existingRow = state.recentRequests.find((r) => r.id === event.requestId)
         if (existingRow && existingRow.status === next) {
           return {
             ...state,
+            liveActivity: updatedLiveActivity,
             processedEventIds: nextEventIds,
           }
         }
@@ -414,21 +441,7 @@ export function dashboardReducer(
           })
         }
 
-        // Live Activity stage determination
-        let liveStage: LiveActivityStage = 'PREPARING'
-        if (event.status === 'SENDING') {
-          liveStage = 'PREPARING'
-        } else if (SENT_SET.has(event.status)) {
-          liveStage = 'SENT'
-        } else if (FAILED_SET.has(event.status)) {
-          liveStage = 'FAILED'
-        }
-
-        const updatedLiveActivity = updateLiveActivityList(state.liveActivity, {
-          completionEventId: event.completionEventId,
-          requestId: event.requestId,
-          targetStage: liveStage,
-        })
+        // Live Activity already updated to liveStage above
 
         // Needs Attention & System Status consistency
         let nextSystemStatus: SystemStatus = state.systemStatus

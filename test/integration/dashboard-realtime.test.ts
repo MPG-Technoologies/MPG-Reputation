@@ -1237,4 +1237,222 @@ describe('Dashboard Realtime Synchronization Engine (Hardening Pass)', () => {
       expect(populatedHtml).toContain('No request sent — policy rules applied')
     })
   })
+
+  describe('J. Live Activity Reconciliation & Hardening', () => {
+    it('1. focus reconciliation preserves liveActivity while updating snapshot data', () => {
+      const state = createInitialState(orgId, dummySnapshot)
+      state.liveActivity = [
+        {
+          completionEventId: 'comp-focus-1',
+          customerName: 'Claire Redfield',
+          stage: 'PREPARING',
+          createdAt: '2026-09-19T02:00:00Z',
+          updatedAt: '2026-09-19T02:00:05Z',
+        },
+      ]
+
+      const updatedSnapshot: DashboardSnapshot = {
+        ...dummySnapshot,
+        kpis: { ...dummySnapshot.kpis, completedCount: 10 },
+      }
+
+      const next = dashboardReducer(state, {
+        type: 'SNAPSHOT_RECONCILED',
+        snapshot: updatedSnapshot,
+        reason: 'focus',
+        preserveLiveActivity: true,
+      })
+
+      expect(next.kpis.completedCount).toBe(10)
+      expect(next.liveActivity.length).toBe(1)
+      expect(next.liveActivity[0].customerName).toBe('Claire Redfield')
+      expect(next.liveActivity[0].stage).toBe('PREPARING')
+    })
+
+    it('2. reconnect reconciliation follows truthful reset behavior (clears transient liveActivity)', () => {
+      const state = createInitialState(orgId, dummySnapshot)
+      state.liveActivity = [
+        {
+          completionEventId: 'comp-reconnect-1',
+          customerName: 'Leon Kennedy',
+          stage: 'CHECKING',
+          createdAt: '2026-09-19T02:00:00Z',
+          updatedAt: '2026-09-19T02:00:05Z',
+        },
+      ]
+
+      const updatedSnapshot: DashboardSnapshot = {
+        ...dummySnapshot,
+        kpis: { ...dummySnapshot.kpis, completedCount: 11 },
+      }
+
+      const next = dashboardReducer(state, {
+        type: 'SNAPSHOT_RECONCILED',
+        snapshot: updatedSnapshot,
+        reason: 'reconnect',
+        preserveLiveActivity: false,
+      })
+
+      expect(next.kpis.completedCount).toBe(11)
+      expect(next.liveActivity).toEqual([])
+    })
+
+    it('3. existing recentRequests row does not stop Live Activity progression and does not double-count KPIs', () => {
+      const state = createInitialState(orgId, {
+        ...dummySnapshot,
+        recentRequests: [
+          {
+            id: 'req-existing',
+            customer_id: 'cust-1',
+            channel: 'email',
+            status: 'SCHEDULED',
+            token: 'token-abc',
+            created_at: '2026-09-19T02:00:00Z',
+            sent_at: null,
+            clicked_at: null,
+            customerName: 'Jill Valentine',
+            recipientEmail: 'jill@example.test',
+          },
+        ],
+      })
+      state.liveActivity = [
+        {
+          completionEventId: 'comp-existing-1',
+          customerName: 'Jill Valentine',
+          stage: 'CHECKING',
+          createdAt: '2026-09-19T02:00:00Z',
+          updatedAt: '2026-09-19T02:00:01Z',
+        },
+      ]
+
+      const initialEligibleCount = state.kpis.eligibleCount
+      const initialScheduledCount = state.kpis.scheduledCount
+
+      const createdEvent: ReviewRequestCreatedEvent = {
+        id: 'evt-created-delayed',
+        eventId: 'evt-created-delayed',
+        type: 'review_request.created',
+        organizationId: orgId,
+        completionEventId: 'comp-existing-1',
+        requestId: 'req-existing',
+        customerId: 'cust-1',
+        channel: 'email',
+        status: 'SCHEDULED',
+        createdAt: '2026-09-19T02:00:00Z',
+        scheduledFor: '2026-09-19T02:05:00Z',
+      }
+
+      const next = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: createdEvent })
+
+      expect(next.liveActivity[0].stage).toBe('PREPARING')
+      expect(next.liveActivity[0].requestId).toBe('req-existing')
+      expect(next.recentRequests.length).toBe(1)
+      expect(next.kpis.eligibleCount).toBe(initialEligibleCount)
+      expect(next.kpis.scheduledCount).toBe(initialScheduledCount)
+    })
+
+    it('4. existing SENT row + delayed SENT event can still resolve Live Activity to SENT without KPI double counting', () => {
+      const state = createInitialState(orgId, {
+        ...dummySnapshot,
+        recentRequests: [
+          {
+            id: 'req-sent-1',
+            customer_id: 'cust-1',
+            channel: 'email',
+            status: 'SENT',
+            token: 'token-sent',
+            created_at: '2026-09-19T02:00:00Z',
+            sent_at: '2026-09-19T02:01:00Z',
+            clicked_at: null,
+            customerName: 'Chris Redfield',
+            recipientEmail: 'chris@example.test',
+          },
+        ],
+      })
+      state.liveActivity = [
+        {
+          completionEventId: 'comp-sent-delayed',
+          requestId: 'req-sent-1',
+          customerName: 'Chris Redfield',
+          stage: 'PREPARING',
+          createdAt: '2026-09-19T02:00:00Z',
+          updatedAt: '2026-09-19T02:00:05Z',
+        },
+      ]
+
+      const initialSentCount = state.kpis.sentCount
+
+      const updatedSentEvent: ReviewRequestUpdatedEvent = {
+        id: 'evt-updated-delayed-sent',
+        eventId: 'evt-updated-delayed-sent',
+        type: 'review_request.updated',
+        organizationId: orgId,
+        completionEventId: 'comp-sent-delayed',
+        requestId: 'req-sent-1',
+        customerId: 'cust-1',
+        channel: 'email',
+        previousStatus: 'SENDING',
+        status: 'SENT',
+        sentAt: '2026-09-19T02:01:00Z',
+        updatedAt: '2026-09-19T02:01:00Z',
+      }
+
+      const next = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: updatedSentEvent })
+
+      expect(next.liveActivity[0].stage).toBe('SENT')
+      expect(next.recentRequests.length).toBe(1)
+      expect(next.kpis.sentCount).toBe(initialSentCount)
+    })
+
+    it('5. renders LiveActivity header with corrected copy and includes animation & reduced-motion classes', () => {
+      const html = renderToString(
+        React.createElement(LiveActivity, {
+          activities: [
+            {
+              completionEventId: 'comp-anim-1',
+              customerName: 'Ada Wong',
+              stage: 'PREPARING',
+              createdAt: '2026-09-19T02:00:00Z',
+              updatedAt: '2026-09-19T02:00:02Z',
+            },
+          ],
+        })
+      )
+
+      expect(html).toContain('1 in this session')
+      expect(html).not.toContain('active in session')
+
+      expect(html).toContain('animate-status-crossfade')
+      expect(html).toContain('motion-reduce:animate-none')
+      expect(html).toContain('motion-reduce:transition-none')
+
+      const completedHtml = renderToString(
+        React.createElement(LiveActivity, {
+          activities: [
+            {
+              completionEventId: 'comp-anim-2',
+              customerName: 'Ada Wong',
+              stage: 'SENT',
+              createdAt: '2026-09-19T02:00:00Z',
+              updatedAt: '2026-09-19T02:01:00Z',
+            },
+          ],
+        })
+      )
+      expect(completedHtml).toContain('animate-checkmark-in')
+    })
+
+    it('6. verifies globals.css includes live-status-enter and checkmark-scale with reduced-motion overrides', () => {
+      const cssPath = path.resolve(__dirname, '../../src/app/globals.css')
+      const css = fs.readFileSync(cssPath, 'utf8')
+
+      expect(css).toContain('@keyframes live-status-enter')
+      expect(css).toContain('translateY(3px)')
+      expect(css).toContain('@keyframes checkmark-scale')
+      expect(css).toContain('scale(0.65)')
+      expect(css).toContain('.animate-status-crossfade')
+      expect(css).toContain('.animate-checkmark-in')
+      expect(css).toContain('@media (prefers-reduced-motion: reduce)')
+    })
+  })
 })

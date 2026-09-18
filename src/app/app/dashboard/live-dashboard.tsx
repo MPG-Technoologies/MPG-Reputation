@@ -44,12 +44,18 @@ export function LiveDashboard({
   const hiddenAt = useRef<number | null>(null)
 
   // Narrow authoritative reconciliation
-  const reconcile = useCallback(async () => {
-    dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'SYNCING' })
-    try {
-      const snapshot = await getDashboardSnapshot(orgId)
-      if (snapshot) {
-        dispatch({ type: 'SNAPSHOT_RECONCILED', snapshot })
+  const reconcile = useCallback(
+    async (reason: 'reconnect' | 'focus' = 'reconnect') => {
+      dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'SYNCING' })
+      try {
+        const snapshot = await getDashboardSnapshot(orgId)
+        if (snapshot) {
+          dispatch({
+            type: 'SNAPSHOT_RECONCILED',
+            snapshot,
+            reason,
+            preserveLiveActivity: reason === 'focus',
+          })
         if (isSubscribedRef.current) {
           dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'LIVE' })
         } else {
@@ -183,7 +189,7 @@ export function LiveDashboard({
             dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'LIVE' })
             if (hasConnectedOnce.current) {
               // Reconnection event: reconcile once
-              reconcile()
+              reconcile('reconnect')
             } else {
               hasConnectedOnce.current = true
             }
@@ -219,7 +225,7 @@ export function LiveDashboard({
 
         // Only reconcile if hidden for a meaningful period (>15s) and not reconciled in the last 10s
         if (wasHiddenDuration > 15_000 && Date.now() - lastReconciledAt.current > 10_000) {
-          reconcile()
+          reconcile('focus')
         }
       }
     }

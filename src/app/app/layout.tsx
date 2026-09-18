@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { signOut } from '@/actions/auth'
+import { AppNav } from './nav'
 
 export default async function AppLayout({
   children,
@@ -37,7 +38,7 @@ export default async function AppLayout({
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      <header className="border-b border-slate-800 bg-slate-900 sticky top-0 z-10">
+      <header className="border-b border-slate-800 bg-slate-900 sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-8">
             <Link href="/app/dashboard" className="flex items-center gap-2">
@@ -47,32 +48,7 @@ export default async function AppLayout({
               <span className="font-semibold text-slate-200">Reputation</span>
             </Link>
 
-            <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
-              <Link
-                href="/app/dashboard"
-                className="text-slate-300 hover:text-white transition-colors"
-              >
-                Dashboard
-              </Link>
-              <Link
-                href="/app/quick-complete"
-                className="text-slate-300 hover:text-white transition-colors"
-              >
-                Quick Complete
-              </Link>
-              <Link
-                href="/app/settings/location"
-                className="text-slate-300 hover:text-white transition-colors"
-              >
-                Locations
-              </Link>
-              <Link
-                href="/app/settings/review-destination"
-                className="text-slate-300 hover:text-white transition-colors"
-              >
-                Google Destination
-              </Link>
-            </nav>
+            <AppNav />
           </div>
 
           <div className="flex items-center gap-4">
@@ -83,7 +59,7 @@ export default async function AppLayout({
             <form action={signOut}>
               <button
                 type="submit"
-                className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded border border-slate-700 transition-colors"
+                className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded border border-slate-700 transition-colors cursor-pointer"
               >
                 Sign Out
               </button>
@@ -97,7 +73,7 @@ export default async function AppLayout({
       </main>
 
       <footer className="border-t border-slate-900 bg-slate-950 py-4 text-center text-xs text-slate-500">
-        MPG Reputation V0.1 — Stage 1 Bounded Track — Synthetic Test Data Only
+        MPG Reputation V0.2 — Controlled Staging &amp; Founder Experience — Synthetic Test Data Only
       </footer>
     </div>
   )

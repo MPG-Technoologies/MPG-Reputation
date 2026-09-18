@@ -289,3 +289,44 @@ export async function getActivityRowProjection(
     token: req.token,
   }
 }
+
+export async function getCompletionActivityProjection(
+  organizationId: string,
+  completionEventId: string
+): Promise<{ customerName: string } | null> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser()
+
+  if (authError || !user) return null
+
+  const { data: membership } = await supabase
+    .from('organization_users')
+    .select('role')
+    .eq('organization_id', organizationId)
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (!membership) return null
+
+  const { data: completion } = await supabase
+    .from('customer_completion_events')
+    .select('customer_id')
+    .eq('id', completionEventId)
+    .eq('organization_id', organizationId)
+    .maybeSingle()
+
+  if (!completion) return null
+
+  const { data: cust } = await supabase
+    .from('customers')
+    .select('first_name, last_name')
+    .eq('id', completion.customer_id)
+    .maybeSingle()
+
+  return {
+    customerName: cust ? `${cust.first_name} ${cust.last_name || ''}`.trim() : 'Customer',
+  }
+}

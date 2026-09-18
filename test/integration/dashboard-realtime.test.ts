@@ -1,4 +1,4 @@
-﻿import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { renderToString } from 'react-dom/server'
 import React from 'react'
 import fs from 'node:fs'
@@ -13,7 +13,9 @@ import type {
   ReviewRequestCreatedEvent,
   ReviewRequestUpdatedEvent,
   ReviewRequestIneligibleEvent,
+  ReviewRequestCheckingEvent,
 } from '../../src/lib/dashboard/realtime-types'
+import { LiveActivity } from '../../src/app/app/dashboard/live-activity'
 import { RealtimeStatus } from '../../src/app/app/dashboard/realtime-status'
 import { DashboardKpis } from '../../src/app/app/dashboard/dashboard-kpis'
 import { RecentActivity } from '../../src/app/app/dashboard/recent-activity'
@@ -738,6 +740,501 @@ describe('Dashboard Realtime Synchronization Engine (Hardening Pass)', () => {
       const code = fs.readFileSync(componentPath, 'utf8')
 
       expect(code).toContain("event: 'review_request.ineligible'")
+    })
+  })
+
+  describe('I. Live Activity Realtime Workflow UX', () => {
+    it('1. customer.completed creates RECEIVED activity with default Customer name', () => {
+      const state = createInitialState(orgId, dummySnapshot)
+      const event: CustomerCompletedEvent = {
+        id: 'evt-comp-1',
+        eventId: 'evt-comp-1',
+        type: 'customer.completed',
+        organizationId: orgId,
+        completionEventId: 'comp-100',
+        completedAt: '2026-09-19T02:00:00Z',
+        createdAt: '2026-09-19T02:00:00Z',
+      }
+      const next = dashboardReducer(state, { type: 'EVENT_RECEIVED', event })
+      expect(next.liveActivity.length).toBe(1)
+      expect(next.liveActivity[0].completionEventId).toBe('comp-100')
+      expect(next.liveActivity[0].stage).toBe('RECEIVED')
+      expect(next.liveActivity[0].customerName).toBe('Customer')
+      expect(next.announcement).toContain('Completion received.')
+    })
+
+    it('2. completedCount still increments on customer.completed', () => {
+      const state = createInitialState(orgId, dummySnapshot)
+      const event: CustomerCompletedEvent = {
+        id: 'evt-comp-count',
+        eventId: 'evt-comp-count',
+        type: 'customer.completed',
+        organizationId: orgId,
+        completionEventId: 'comp-count-1',
+        completedAt: '2026-09-19T02:00:00Z',
+        createdAt: '2026-09-19T02:00:00Z',
+      }
+      const next = dashboardReducer(state, { type: 'EVENT_RECEIVED', event })
+      expect(next.kpis.completedCount).toBe(dummySnapshot.kpis.completedCount + 1)
+    })
+
+    it('3. review_request.checking event moves RECEIVED -> CHECKING', () => {
+      const state = createInitialState(orgId, dummySnapshot)
+      const compEvent: CustomerCompletedEvent = {
+        id: 'evt-1',
+        eventId: 'evt-1',
+        type: 'customer.completed',
+        organizationId: orgId,
+        completionEventId: 'comp-101',
+        completedAt: '2026-09-19T02:00:00Z',
+        createdAt: '2026-09-19T02:00:00Z',
+      }
+      const s1 = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: compEvent })
+      expect(s1.liveActivity[0].stage).toBe('RECEIVED')
+
+      const checkEvent: ReviewRequestCheckingEvent = {
+        id: 'evt-2',
+        eventId: 'evt-2',
+        type: 'review_request.checking',
+        organizationId: orgId,
+        completionEventId: 'comp-101',
+        createdAt: '2026-09-19T02:00:01Z',
+      }
+      const s2 = dashboardReducer(s1, { type: 'EVENT_RECEIVED', event: checkEvent })
+      expect(s2.liveActivity[0].stage).toBe('CHECKING')
+      expect(s2.announcement).toBe('Checking review request eligibility.')
+      expect(s2.kpis).toEqual(s1.kpis)
+      expect(s2.recentRequests).toEqual(s1.recentRequests)
+    })
+
+    it('4. review_request.created moves CHECKING -> PREPARING and attaches requestId', () => {
+      const state = createInitialState(orgId, dummySnapshot)
+      const compEvent: CustomerCompletedEvent = {
+        id: 'c1',
+        eventId: 'c1',
+        type: 'customer.completed',
+        organizationId: orgId,
+        completionEventId: 'comp-102',
+        completedAt: '2026-09-19T02:00:00Z',
+        createdAt: '2026-09-19T02:00:00Z',
+      }
+      const s1 = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: compEvent })
+
+      const checkEvent: ReviewRequestCheckingEvent = {
+        id: 'c2',
+        eventId: 'c2',
+        type: 'review_request.checking',
+        organizationId: orgId,
+        completionEventId: 'comp-102',
+        createdAt: '2026-09-19T02:00:01Z',
+      }
+      const s2 = dashboardReducer(s1, { type: 'EVENT_RECEIVED', event: checkEvent })
+
+      const createdEvent: ReviewRequestCreatedEvent = {
+        id: 'c3',
+        eventId: 'c3',
+        type: 'review_request.created',
+        organizationId: orgId,
+        completionEventId: 'comp-102',
+        requestId: 'req-new-1',
+        customerId: 'cust-new-1',
+        channel: 'email',
+        status: 'SCHEDULED',
+        createdAt: '2026-09-19T02:00:02Z',
+        scheduledFor: '2026-09-19T02:05:00Z',
+      }
+      const s3 = dashboardReducer(s2, { type: 'EVENT_RECEIVED', event: createdEvent })
+      expect(s3.liveActivity[0].stage).toBe('PREPARING')
+      expect(s3.liveActivity[0].requestId).toBe('req-new-1')
+      expect(s3.recentRequests[0].id).toBe('req-new-1')
+    })
+
+    it('5. SENDING status remains PREPARING', () => {
+      const state = createInitialState(orgId, dummySnapshot)
+      const createdEvent: ReviewRequestCreatedEvent = {
+        id: 'c-prep',
+        eventId: 'c-prep',
+        type: 'review_request.created',
+        organizationId: orgId,
+        completionEventId: 'comp-103',
+        requestId: 'req-prep-1',
+        customerId: 'cust-1',
+        channel: 'email',
+        status: 'SCHEDULED',
+        createdAt: '2026-09-19T02:00:00Z',
+        scheduledFor: '2026-09-19T02:05:00Z',
+      }
+      const s1 = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: createdEvent })
+      expect(s1.liveActivity[0].stage).toBe('PREPARING')
+
+      const updatedSending: ReviewRequestUpdatedEvent = {
+        id: 'u-send',
+        eventId: 'u-send',
+        type: 'review_request.updated',
+        organizationId: orgId,
+        completionEventId: 'comp-103',
+        requestId: 'req-prep-1',
+        customerId: 'cust-1',
+        channel: 'email',
+        previousStatus: 'SCHEDULED',
+        status: 'SENDING',
+        updatedAt: '2026-09-19T02:01:00Z',
+      }
+      const s2 = dashboardReducer(s1, { type: 'EVENT_RECEIVED', event: updatedSending })
+      expect(s2.liveActivity[0].stage).toBe('PREPARING')
+    })
+
+    it('6. SENT moves PREPARING -> SENT', () => {
+      const state = createInitialState(orgId, dummySnapshot)
+      const createdEvent: ReviewRequestCreatedEvent = {
+        id: 'c-sent',
+        eventId: 'c-sent',
+        type: 'review_request.created',
+        organizationId: orgId,
+        completionEventId: 'comp-104',
+        requestId: 'req-sent-1',
+        customerId: 'cust-1',
+        channel: 'email',
+        status: 'SCHEDULED',
+        createdAt: '2026-09-19T02:00:00Z',
+        scheduledFor: '2026-09-19T02:05:00Z',
+      }
+      const s1 = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: createdEvent })
+
+      const updatedSent: ReviewRequestUpdatedEvent = {
+        id: 'u-sent',
+        eventId: 'u-sent',
+        type: 'review_request.updated',
+        organizationId: orgId,
+        completionEventId: 'comp-104',
+        requestId: 'req-sent-1',
+        customerId: 'cust-1',
+        channel: 'email',
+        previousStatus: 'SENDING',
+        status: 'SENT',
+        sentAt: '2026-09-19T02:01:00Z',
+        updatedAt: '2026-09-19T02:01:00Z',
+      }
+      const s2 = dashboardReducer(s1, { type: 'EVENT_RECEIVED', event: updatedSent })
+      expect(s2.liveActivity[0].stage).toBe('SENT')
+      expect(s2.announcement).toBe('Review invitation sent.')
+    })
+
+    it('7. DELIVERED and CLICKED do not regress SENT', () => {
+      const state = createInitialState(orgId, dummySnapshot)
+      const createdEvent: ReviewRequestCreatedEvent = {
+        id: 'c-clk',
+        eventId: 'c-clk',
+        type: 'review_request.created',
+        organizationId: orgId,
+        completionEventId: 'comp-105',
+        requestId: 'req-clk-1',
+        customerId: 'cust-1',
+        channel: 'email',
+        status: 'SENT',
+        createdAt: '2026-09-19T02:00:00Z',
+        scheduledFor: '2026-09-19T02:05:00Z',
+      }
+      const s1 = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: createdEvent })
+      const sSent = {
+        ...s1,
+        liveActivity: [{ ...s1.liveActivity[0], stage: 'SENT' as const }],
+      }
+
+      const updatedClicked: ReviewRequestUpdatedEvent = {
+        id: 'u-clk',
+        eventId: 'u-clk',
+        type: 'review_request.updated',
+        organizationId: orgId,
+        completionEventId: 'comp-105',
+        requestId: 'req-clk-1',
+        customerId: 'cust-1',
+        channel: 'email',
+        previousStatus: 'SENT',
+        status: 'CLICKED',
+        clickedAt: '2026-09-19T02:02:00Z',
+        updatedAt: '2026-09-19T02:02:00Z',
+      }
+      const s2 = dashboardReducer(sSent, { type: 'EVENT_RECEIVED', event: updatedClicked })
+      expect(s2.liveActivity[0].stage).toBe('SENT')
+    })
+
+    it('8. ineligible moves CHECKING -> BYPASSED', () => {
+      const state = createInitialState(orgId, dummySnapshot)
+      const checkEvent: ReviewRequestCheckingEvent = {
+        id: 'c-byp',
+        eventId: 'c-byp',
+        type: 'review_request.checking',
+        organizationId: orgId,
+        completionEventId: 'comp-106',
+        createdAt: '2026-09-19T02:00:00Z',
+      }
+      const s1 = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: checkEvent })
+      expect(s1.liveActivity[0].stage).toBe('CHECKING')
+
+      const ineligEvent: ReviewRequestIneligibleEvent = {
+        id: 'u-byp',
+        eventId: 'u-byp',
+        auditEventId: 'u-byp',
+        type: 'review_request.ineligible',
+        organizationId: orgId,
+        completionEventId: 'comp-106',
+        createdAt: '2026-09-19T02:00:02Z',
+      }
+      const s2 = dashboardReducer(s1, { type: 'EVENT_RECEIVED', event: ineligEvent })
+      expect(s2.liveActivity[0].stage).toBe('BYPASSED')
+      expect(s2.announcement).toContain('Completion bypassed by policy.')
+    })
+
+    it('9. ineligible does not add Recent Review Solicitation', () => {
+      const state = createInitialState(orgId, dummySnapshot)
+      const ineligEvent: ReviewRequestIneligibleEvent = {
+        id: 'u-no-row',
+        eventId: 'u-no-row',
+        auditEventId: 'u-no-row',
+        type: 'review_request.ineligible',
+        organizationId: orgId,
+        completionEventId: 'comp-107',
+        createdAt: '2026-09-19T02:00:02Z',
+      }
+      const next = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: ineligEvent })
+      expect(next.recentRequests.length).toBe(dummySnapshot.recentRequests.length)
+    })
+
+    it('10. FAILED moves PREPARING -> FAILED', () => {
+      const state = createInitialState(orgId, dummySnapshot)
+      const createdEvent: ReviewRequestCreatedEvent = {
+        id: 'c-fail',
+        eventId: 'c-fail',
+        type: 'review_request.created',
+        organizationId: orgId,
+        completionEventId: 'comp-108',
+        requestId: 'req-fail-1',
+        customerId: 'cust-1',
+        channel: 'email',
+        status: 'SCHEDULED',
+        createdAt: '2026-09-19T02:00:00Z',
+        scheduledFor: '2026-09-19T02:05:00Z',
+      }
+      const s1 = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: createdEvent })
+      expect(s1.liveActivity[0].stage).toBe('PREPARING')
+
+      const updatedFailed: ReviewRequestUpdatedEvent = {
+        id: 'u-fail',
+        eventId: 'u-fail',
+        type: 'review_request.updated',
+        organizationId: orgId,
+        completionEventId: 'comp-108',
+        requestId: 'req-fail-1',
+        customerId: 'cust-1',
+        channel: 'email',
+        previousStatus: 'SENDING',
+        status: 'FAILED',
+        failedAt: '2026-09-19T02:02:00Z',
+        updatedAt: '2026-09-19T02:02:00Z',
+      }
+      const s2 = dashboardReducer(s1, { type: 'EVENT_RECEIVED', event: updatedFailed })
+      expect(s2.liveActivity[0].stage).toBe('FAILED')
+      expect(s2.announcement).toBe('Review invitation dispatch failed.')
+    })
+
+    it('11. duplicate eventId does not duplicate or change counts', () => {
+      const state = createInitialState(orgId, dummySnapshot)
+      const event: CustomerCompletedEvent = {
+        id: 'dup-id-1',
+        eventId: 'dup-id-1',
+        type: 'customer.completed',
+        organizationId: orgId,
+        completionEventId: 'comp-dup',
+        completedAt: '2026-09-19T02:00:00Z',
+        createdAt: '2026-09-19T02:00:00Z',
+      }
+      const s1 = dashboardReducer(state, { type: 'EVENT_RECEIVED', event })
+      expect(s1.liveActivity.length).toBe(1)
+      expect(s1.kpis.completedCount).toBe(dummySnapshot.kpis.completedCount + 1)
+
+      const s2 = dashboardReducer(s1, { type: 'EVENT_RECEIVED', event })
+      expect(s2.liveActivity.length).toBe(1)
+      expect(s2.kpis.completedCount).toBe(dummySnapshot.kpis.completedCount + 1)
+      expect(s2).toBe(s1)
+    })
+
+    it('12. wrong organization is ignored', () => {
+      const state = createInitialState(orgId, dummySnapshot)
+      const event: ReviewRequestCheckingEvent = {
+        id: 'foreign-evt',
+        eventId: 'foreign-evt',
+        type: 'review_request.checking',
+        organizationId: '99999999-9999-9999-9999-999999999999',
+        completionEventId: 'comp-foreign',
+        createdAt: '2026-09-19T02:00:00Z',
+      }
+      const next = dashboardReducer(state, { type: 'EVENT_RECEIVED', event })
+      expect(next).toBe(state)
+      expect(next.liveActivity.length).toBe(0)
+    })
+
+    it('13. monotonic protection: late CHECKING cannot regress PREPARING', () => {
+      const state = createInitialState(orgId, dummySnapshot)
+      const createdEvent: ReviewRequestCreatedEvent = {
+        id: 'evt-prep',
+        eventId: 'evt-prep',
+        type: 'review_request.created',
+        organizationId: orgId,
+        completionEventId: 'comp-mono-1',
+        requestId: 'req-mono-1',
+        customerId: 'cust-1',
+        channel: 'email',
+        status: 'SCHEDULED',
+        createdAt: '2026-09-19T02:00:00Z',
+        scheduledFor: '2026-09-19T02:05:00Z',
+      }
+      const s1 = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: createdEvent })
+      expect(s1.liveActivity[0].stage).toBe('PREPARING')
+
+      const lateChecking: ReviewRequestCheckingEvent = {
+        id: 'evt-late-check',
+        eventId: 'evt-late-check',
+        type: 'review_request.checking',
+        organizationId: orgId,
+        completionEventId: 'comp-mono-1',
+        createdAt: '2026-09-19T02:00:01Z',
+      }
+      const s2 = dashboardReducer(s1, { type: 'EVENT_RECEIVED', event: lateChecking })
+      expect(s2.liveActivity[0].stage).toBe('PREPARING')
+    })
+
+    it('14. monotonic protection: late RECEIVED cannot regress SENT', () => {
+      const state = createInitialState(orgId, dummySnapshot)
+      const updatedSent: ReviewRequestUpdatedEvent = {
+        id: 'evt-sent',
+        eventId: 'evt-sent',
+        type: 'review_request.updated',
+        organizationId: orgId,
+        completionEventId: 'comp-mono-2',
+        requestId: 'req-mono-2',
+        customerId: 'cust-1',
+        channel: 'email',
+        previousStatus: 'SENDING',
+        status: 'SENT',
+        sentAt: '2026-09-19T02:01:00Z',
+        updatedAt: '2026-09-19T02:01:00Z',
+      }
+      const s1 = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: updatedSent })
+      expect(s1.liveActivity[0].stage).toBe('SENT')
+
+      const lateComp: CustomerCompletedEvent = {
+        id: 'evt-late-comp',
+        eventId: 'evt-late-comp',
+        type: 'customer.completed',
+        organizationId: orgId,
+        completionEventId: 'comp-mono-2',
+        completedAt: '2026-09-19T02:00:00Z',
+        createdAt: '2026-09-19T02:00:00Z',
+      }
+      const s2 = dashboardReducer(s1, { type: 'EVENT_RECEIVED', event: lateComp })
+      expect(s2.liveActivity[0].stage).toBe('SENT')
+    })
+
+    it('15. SET_LIVE_ACTIVITY_CUSTOMER updates customerName for the matching completion item', () => {
+      const state = createInitialState(orgId, dummySnapshot)
+      const compEvent: CustomerCompletedEvent = {
+        id: 'evt-named',
+        eventId: 'evt-named',
+        type: 'customer.completed',
+        organizationId: orgId,
+        completionEventId: 'comp-name-test',
+        completedAt: '2026-09-19T02:00:00Z',
+        createdAt: '2026-09-19T02:00:00Z',
+      }
+      const s1 = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: compEvent })
+      expect(s1.liveActivity[0].customerName).toBe('Customer')
+
+      const s2 = dashboardReducer(s1, {
+        type: 'SET_LIVE_ACTIVITY_CUSTOMER',
+        completionEventId: 'comp-name-test',
+        customerName: 'Sarah Connor',
+      })
+      expect(s2.liveActivity[0].customerName).toBe('Sarah Connor')
+    })
+
+    it('16. verifies additive migration contains no PII and correct broadcast calls', () => {
+      const migrationPath = path.resolve(
+        __dirname,
+        '../../supabase/migrations/20260919020000_dashboard_live_activity.sql'
+      )
+      const sql = fs.readFileSync(migrationPath, 'utf8')
+
+      expect(sql).toContain('review_request.checking')
+      expect(sql).toContain('NEW.completion_event_id')
+      expect(sql).not.toContain("'phone'")
+      expect(sql).not.toContain("'email'")
+      expect(sql).not.toContain("'token'")
+      expect(sql).not.toContain("'customer_name'")
+    })
+
+    it('17. verifies review_request created/updated payload includes completionEventId in migration', () => {
+      const migrationPath = path.resolve(
+        __dirname,
+        '../../supabase/migrations/20260919020000_dashboard_live_activity.sql'
+      )
+      const sql = fs.readFileSync(migrationPath, 'utf8')
+
+      expect(sql).toContain("'completionEventId', NEW.completion_event_id")
+    })
+
+    it('18. verifies ineligible payload includes completionEventId in migration', () => {
+      const migrationPath = path.resolve(
+        __dirname,
+        '../../supabase/migrations/20260919020000_dashboard_live_activity.sql'
+      )
+      const sql = fs.readFileSync(migrationPath, 'utf8')
+
+      expect(sql).toContain("'completionEventId', v_completion_event_id")
+    })
+
+    it('19. verifies checking payload includes completionEventId in migration', () => {
+      const migrationPath = path.resolve(
+        __dirname,
+        '../../supabase/migrations/20260919020000_dashboard_live_activity.sql'
+      )
+      const sql = fs.readFileSync(migrationPath, 'utf8')
+
+      expect(sql).toContain('broadcast_audit_checking')
+      expect(sql).toContain("'completionEventId', v_completion_event_id")
+    })
+
+    it('20. renders LiveActivity component across all stages and empty state', () => {
+      const emptyHtml = renderToString(React.createElement(LiveActivity, { activities: [] }))
+      expect(emptyHtml).toContain('Live Activity')
+      expect(emptyHtml).toContain('No live workflow activity recorded in this session.')
+
+      const populatedHtml = renderToString(
+        React.createElement(LiveActivity, {
+          activities: [
+            {
+              completionEventId: 'comp-1',
+              customerName: 'Alice Springs',
+              stage: 'CHECKING',
+              createdAt: '2026-09-19T02:00:00Z',
+              updatedAt: '2026-09-19T02:00:01Z',
+            },
+            {
+              completionEventId: 'comp-2',
+              customerName: 'Bob Vance',
+              stage: 'BYPASSED',
+              createdAt: '2026-09-19T02:00:00Z',
+              updatedAt: '2026-09-19T02:00:02Z',
+            },
+          ],
+        })
+      )
+      expect(populatedHtml).toContain('Alice Springs')
+      expect(populatedHtml).toContain('CHECKING')
+      expect(populatedHtml).toContain('Checking eligibility and safeguards')
+      expect(populatedHtml).toContain('Bob Vance')
+      expect(populatedHtml).toContain('BYPASSED')
+      expect(populatedHtml).toContain('No request sent — policy rules applied')
     })
   })
 })

@@ -18,11 +18,21 @@ export interface CustomerCompletedEvent {
   createdAt: string
 }
 
+export interface ReviewRequestCheckingEvent {
+  id?: string
+  eventId?: string
+  type: 'review_request.checking'
+  organizationId: string
+  completionEventId: string
+  createdAt: string
+}
+
 export interface ReviewRequestCreatedEvent {
   id?: string
   eventId?: string
   type: 'review_request.created'
   organizationId: string
+  completionEventId?: string
   requestId: string
   customerId: string
   channel: 'email' | 'sms'
@@ -36,6 +46,7 @@ export interface ReviewRequestUpdatedEvent {
   eventId?: string
   type: 'review_request.updated'
   organizationId: string
+  completionEventId?: string
   requestId: string
   customerId: string
   channel: 'email' | 'sms'
@@ -52,15 +63,34 @@ export interface ReviewRequestIneligibleEvent {
   eventId?: string
   type: 'review_request.ineligible'
   organizationId: string
+  completionEventId?: string
   auditEventId: string
   createdAt: string
 }
 
 export type DashboardRealtimeEvent =
   | CustomerCompletedEvent
+  | ReviewRequestCheckingEvent
   | ReviewRequestCreatedEvent
   | ReviewRequestUpdatedEvent
   | ReviewRequestIneligibleEvent
+
+export type LiveActivityStage =
+  | 'RECEIVED'
+  | 'CHECKING'
+  | 'PREPARING'
+  | 'SENT'
+  | 'BYPASSED'
+  | 'FAILED'
+
+export interface LiveActivityItem {
+  completionEventId: string
+  requestId?: string
+  customerName: string
+  stage: LiveActivityStage
+  createdAt: string
+  updatedAt: string
+}
 
 export interface DashboardKpis {
   completedCount: number
@@ -121,6 +151,7 @@ export interface DashboardState {
   organizationId: string
   kpis: DashboardKpis
   recentRequests: ActivityRequestItem[]
+  liveActivity: LiveActivityItem[]
   systemStatus: SystemStatus
   statusDescription: string
   attentionItems: AttentionItem[]

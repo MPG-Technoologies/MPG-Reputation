@@ -157,6 +157,21 @@ export async function executeReviewRequestHandler({
       }
     }
 
+    // Step 0: Record Eligibility Check Started Audit Event (Live Activity: CHECKING)
+    await step.run('record-eligibility-check-started', async () => {
+      await supabase.from('audit_events').insert({
+        organization_id: organizationId,
+        actor_type: 'system',
+        event_type: 'review_request.checking',
+        entity_type: 'customer_completion_event',
+        entity_id: eventId,
+        metadata: {
+          completionEventId: eventId,
+          sourceEventId,
+        },
+      })
+    })
+
     // Step 1: Initial Eligibility Evaluation
     const initialCheck = await step.run('evaluate-initial-eligibility', async () => {
       return checkEligibility()
@@ -172,6 +187,7 @@ export async function executeReviewRequestHandler({
           entity_id: customerId,
           metadata: {
             eventId,
+            completionEventId: eventId,
             stage: 'initial',
             reason: initialCheck.reason,
             decision: initialCheck.decision,
@@ -203,6 +219,7 @@ export async function executeReviewRequestHandler({
           entity_id: customerId,
           metadata: {
             eventId,
+            completionEventId: eventId,
             stage: 'post_delay',
             reason: postDelayCheck.reason,
             decision: postDelayCheck.decision,

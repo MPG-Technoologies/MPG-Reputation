@@ -3,7 +3,7 @@
 import React, { useEffect, useReducer, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { getDashboardSnapshot, getActivityRowProjection } from '@/actions/dashboard'
+import { getDashboardSnapshot, getActivityRowProjection, getCompletionActivityProjection } from '@/actions/dashboard'
 import {
   createInitialState,
   dashboardReducer,
@@ -14,9 +14,11 @@ import type {
   ReviewRequestCreatedEvent,
   ReviewRequestUpdatedEvent,
   ReviewRequestIneligibleEvent,
+  ReviewRequestCheckingEvent,
 } from '@/lib/dashboard/realtime-types'
 import { RealtimeStatus } from './realtime-status'
 import { DashboardKpis } from './dashboard-kpis'
+import { LiveActivity } from './live-activity'
 import { RecentActivity } from './recent-activity'
 
 interface LiveDashboardProps {
@@ -97,7 +99,34 @@ export function LiveDashboard({
         .on(
           'broadcast',
           { event: 'customer.completed' },
-          (msg: { payload: CustomerCompletedEvent }) => {
+          async (msg: { payload: CustomerCompletedEvent }) => {
+            if (msg.payload) {
+              dispatch({ type: 'EVENT_RECEIVED', event: msg.payload })
+
+              if (msg.payload.completionEventId) {
+                try {
+                  const proj = await getCompletionActivityProjection(
+                    orgId,
+                    msg.payload.completionEventId
+                  )
+                  if (proj && isMounted) {
+                    dispatch({
+                      type: 'SET_LIVE_ACTIVITY_CUSTOMER',
+                      completionEventId: msg.payload.completionEventId,
+                      customerName: proj.customerName,
+                    })
+                  }
+                } catch {
+                  // Gracefully keep fallback label
+                }
+              }
+            }
+          }
+        )
+        .on(
+          'broadcast',
+          { event: 'review_request.checking' },
+          (msg: { payload: ReviewRequestCheckingEvent }) => {
             if (msg.payload) {
               dispatch({ type: 'EVENT_RECEIVED', event: msg.payload })
             }
@@ -350,6 +379,9 @@ export function LiveDashboard({
           Truthful Guarantee: MPG Reputation never fabricates reviews received, star ratings, or ROI metrics. A tracked click is recorded only as a link click.
         </p>
       </div>
+
+      {/* Live Activity Section */}
+      <LiveActivity activities={state.liveActivity} />
 
       {/* Recent Activity Table with Live Updates */}
       <RecentActivity

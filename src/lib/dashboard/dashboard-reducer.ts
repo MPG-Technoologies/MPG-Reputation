@@ -7,6 +7,8 @@ import type {
   DashboardKpis,
   AttentionItem,
   SystemStatus,
+  LiveActivityItem,
+  LiveActivityStage,
 } from './realtime-types'
 
 export type DashboardAction =
@@ -21,11 +23,89 @@ export type DashboardAction =
       recipientEmail: string
       token: string
     }
+  | {
+      type: 'SET_LIVE_ACTIVITY_CUSTOMER'
+      completionEventId: string
+      customerName: string
+    }
 
 const SCHEDULED_SET = new Set(['SCHEDULED'])
 const SENT_SET = new Set(['SENT', 'DELIVERED', 'CLICKED'])
 const CLICKED_SET = new Set(['CLICKED'])
 const FAILED_SET = new Set(['FAILED'])
+
+const STAGE_RANK: Record<LiveActivityStage, number> = {
+  RECEIVED: 1,
+  CHECKING: 2,
+  PREPARING: 3,
+  SENT: 4,
+  BYPASSED: 99,
+  FAILED: 99,
+}
+
+function canAdvanceStage(current: LiveActivityStage, target: LiveActivityStage): boolean {
+  if (current === target) return true
+  if (current === 'BYPASSED' || current === 'SENT') return false
+  if (current === 'FAILED') {
+    return target === 'SENT' // Allow retry recovery to SENT if explicitly sent
+  }
+  if (target === 'BYPASSED' || target === 'FAILED') return true
+  return STAGE_RANK[target] > STAGE_RANK[current]
+}
+
+function updateLiveActivityList(
+  currentList: LiveActivityItem[],
+  params: {
+    completionEventId?: string
+    requestId?: string
+    targetStage: LiveActivityStage
+    customerName?: string
+    createdAt?: string
+  }
+): LiveActivityItem[] {
+  const { completionEventId, requestId, targetStage, customerName, createdAt } = params
+  const now = new Date().toISOString()
+
+  // Find existing item by completionEventId or requestId
+  const existingIdx = currentList.findIndex((item) => {
+    if (completionEventId && item.completionEventId === completionEventId) return true
+    if (requestId && item.requestId && item.requestId === requestId) return true
+    return false
+  })
+
+  if (existingIdx >= 0) {
+    const existingItem = currentList[existingIdx]
+    const shouldAdvance = canAdvanceStage(existingItem.stage, targetStage)
+    const updatedStage = shouldAdvance ? targetStage : existingItem.stage
+
+    const updatedItem: LiveActivityItem = {
+      ...existingItem,
+      stage: updatedStage,
+      requestId: requestId || existingItem.requestId,
+      customerName: customerName || existingItem.customerName,
+      updatedAt: now,
+    }
+
+    const nextList = [...currentList]
+    nextList[existingIdx] = updatedItem
+    return nextList
+  }
+
+  // If not found and we have completionEventId, create new item
+  if (completionEventId) {
+    const newItem: LiveActivityItem = {
+      completionEventId,
+      requestId,
+      customerName: customerName || 'Customer',
+      stage: targetStage,
+      createdAt: createdAt || now,
+      updatedAt: now,
+    }
+    return [newItem, ...currentList].slice(0, 5)
+  }
+
+  return currentList
+}
 
 function transitionCount(
   current: number,
@@ -52,6 +132,7 @@ export function createInitialState(
     organizationId,
     kpis: { ...snapshot.kpis },
     recentRequests: snapshot.recentRequests.map((r) => ({ ...r })),
+    liveActivity: [],
     systemStatus: snapshot.systemStatus,
     statusDescription: snapshot.statusDescription,
     attentionItems: snapshot.attentionItems.map((i) => ({ ...i })),
@@ -69,24 +150,67 @@ export function dashboardReducer(
   action: DashboardAction
 ): DashboardState {
   switch (action.type) {
-    case 'SET_CONNECTION_STATE': {
-      if (state.connectionState === action.connectionState) {
-        return state
-      }
+    case 'SET_CONNECTION_STATE':
       return {
         ...state,
         connectionState: action.connectionState,
       }
-    }
 
-    case 'CLEAR_HIGHLIGHTS': {
-      if (state.highlightedKpiKey === null && state.highlightedRowId === null) {
-        return state
-      }
+    case 'CLEAR_HIGHLIGHTS':
       return {
         ...state,
         highlightedKpiKey: null,
         highlightedRowId: null,
+        announcement: null,
+      }
+
+    case 'SET_SINGLE_ROW_CUSTOMER': {
+      const updatedRows = state.recentRequests.map((r) => {
+        if (r.id === action.requestId) {
+          return {
+            ...r,
+            customerName: action.customerName,
+            recipientEmail: action.recipientEmail,
+            token: action.token || r.token,
+          }
+        }
+        return r
+      })
+
+      // Also update customerName in liveActivity if matching requestId exists
+      const updatedLiveActivity = state.liveActivity.map((item) => {
+        if (item.requestId === action.requestId && item.customerName === 'Customer') {
+          return {
+            ...item,
+            customerName: action.customerName,
+            updatedAt: new Date().toISOString(),
+          }
+        }
+        return item
+      })
+
+      return {
+        ...state,
+        recentRequests: updatedRows,
+        liveActivity: updatedLiveActivity,
+      }
+    }
+
+    case 'SET_LIVE_ACTIVITY_CUSTOMER': {
+      const updatedLiveActivity = state.liveActivity.map((item) => {
+        if (item.completionEventId === action.completionEventId) {
+          return {
+            ...item,
+            customerName: action.customerName,
+            updatedAt: new Date().toISOString(),
+          }
+        }
+        return item
+      })
+
+      return {
+        ...state,
+        liveActivity: updatedLiveActivity,
       }
     }
 
@@ -94,38 +218,19 @@ export function dashboardReducer(
       return {
         ...state,
         kpis: { ...action.snapshot.kpis },
-        recentRequests: [...action.snapshot.recentRequests],
+        recentRequests: action.snapshot.recentRequests.map((r) => ({ ...r })),
+        liveActivity: [], // Clear transient session activity on authoritative snapshot reconciliation
         systemStatus: action.snapshot.systemStatus,
         statusDescription: action.snapshot.statusDescription,
-        attentionItems: [...action.snapshot.attentionItems],
-        highlightedKpiKey: null,
-        highlightedRowId: null,
-        announcement: 'Dashboard reconciled with latest data.',
-      }
-    }
-
-    case 'SET_SINGLE_ROW_CUSTOMER': {
-      const idx = state.recentRequests.findIndex((r) => r.id === action.requestId)
-      if (idx === -1) return state
-
-      const updated = [...state.recentRequests]
-      updated[idx] = {
-        ...updated[idx],
-        customerName: action.customerName,
-        recipientEmail: action.recipientEmail,
-        token: action.token,
-      }
-      return {
-        ...state,
-        recentRequests: updated,
+        attentionItems: action.snapshot.attentionItems.map((i) => ({ ...i })),
       }
     }
 
     case 'EVENT_RECEIVED': {
-      const event = action.event
+      const { event } = action
 
-      // 1. Organization boundary verification
-      if (!event || event.organizationId !== state.organizationId) {
+      // 1. Organization boundary enforcement
+      if (event.organizationId !== state.organizationId) {
         return state
       }
 
@@ -137,28 +242,30 @@ export function dashboardReducer(
       if (eventId && state.processedEventIds.includes(eventId)) {
         return state
       }
-
       const nextEventIds = eventId
-        ? [eventId, ...state.processedEventIds.slice(0, 49)]
+        ? [eventId, ...state.processedEventIds].slice(0, 100)
         : state.processedEventIds
 
       // A. Customer Completed Event
       if (event.type === 'customer.completed') {
-        // Guard against duplicate completion event
-        if (
-          event.completionEventId &&
-          state.processedCompletionEventIds.includes(event.completionEventId)
-        ) {
-          return {
-            ...state,
-            processedEventIds: nextEventIds,
-          }
-        }
+        const isDuplicateCompletion = state.processedCompletionEventIds.includes(
+          event.completionEventId
+        )
 
-        const nextCompletedCount = state.kpis.completedCount + 1
-        const nextCompletionEventIds = event.completionEventId
-          ? [event.completionEventId, ...state.processedCompletionEventIds.slice(0, 49)]
-          : state.processedCompletionEventIds
+        const nextCompletionIds = isDuplicateCompletion
+          ? state.processedCompletionEventIds
+          : [event.completionEventId, ...state.processedCompletionEventIds].slice(0, 100)
+
+        const nextCompletedCount = isDuplicateCompletion
+          ? state.kpis.completedCount
+          : state.kpis.completedCount + 1
+
+        const updatedLiveActivity = updateLiveActivityList(state.liveActivity, {
+          completionEventId: event.completionEventId,
+          targetStage: 'RECEIVED',
+          customerName: 'Customer',
+          createdAt: event.createdAt,
+        })
 
         return {
           ...state,
@@ -166,19 +273,35 @@ export function dashboardReducer(
             ...state.kpis,
             completedCount: nextCompletedCount,
           },
-          highlightedKpiKey: 'completedCount',
+          liveActivity: updatedLiveActivity,
+          highlightedKpiKey: isDuplicateCompletion ? null : 'completedCount',
           highlightedRowId: null,
-          announcement: `Completed Customers increased to ${nextCompletedCount}.`,
+          announcement: `Completed Customers increased to ${nextCompletedCount}. Completion received.`,
           processedEventIds: nextEventIds,
-          processedCompletionEventIds: nextCompletionEventIds,
+          processedCompletionEventIds: nextCompletionIds,
         }
       }
 
-      // B. Review Request Created Event
+      // B. Review Request Checking Event (Eligibility check started)
+      if (event.type === 'review_request.checking') {
+        const updatedLiveActivity = updateLiveActivityList(state.liveActivity, {
+          completionEventId: event.completionEventId,
+          targetStage: 'CHECKING',
+          createdAt: event.createdAt,
+        })
+
+        return {
+          ...state,
+          liveActivity: updatedLiveActivity,
+          announcement: 'Checking review request eligibility.',
+          processedEventIds: nextEventIds,
+        }
+      }
+
+      // C. Review Request Created Event
       if (event.type === 'review_request.created') {
-        const existingIdx = state.recentRequests.findIndex((r) => r.id === event.requestId)
-        if (existingIdx !== -1) {
-          // Already present, ignore duplicate creation
+        // Deduplication: ignore if request already in recentRequests
+        if (state.recentRequests.some((r) => r.id === event.requestId)) {
           return {
             ...state,
             processedEventIds: nextEventIds,
@@ -191,20 +314,18 @@ export function dashboardReducer(
           eligibleCount: nextEligibleCount,
         }
 
-        let announcement = 'New review request created.'
+        const announcement = 'Preparing review invitation.'
         let highlightedKpiKey: keyof DashboardKpis | null = null
 
         if (event.status === 'SCHEDULED') {
           newKpis.scheduledCount = state.kpis.scheduledCount + 1
           highlightedKpiKey = 'scheduledCount'
-          announcement = 'New review request scheduled.'
         } else if (SENT_SET.has(event.status)) {
           newKpis.sentCount = state.kpis.sentCount + 1
           highlightedKpiKey = 'sentCount'
-          announcement = 'New review request sent.'
         }
 
-        // Prepend placeholder row
+        // Prepend placeholder row to Recent Solicitations
         const newRow: ActivityRequestItem = {
           id: event.requestId,
           customer_id: event.customerId,
@@ -219,10 +340,19 @@ export function dashboardReducer(
         }
         const nextRecentRequests = [newRow, ...state.recentRequests].slice(0, 10)
 
+        // Live Activity evolves to PREPARING
+        const updatedLiveActivity = updateLiveActivityList(state.liveActivity, {
+          completionEventId: event.completionEventId,
+          requestId: event.requestId,
+          targetStage: 'PREPARING',
+          createdAt: event.createdAt,
+        })
+
         return {
           ...state,
           kpis: newKpis,
           recentRequests: nextRecentRequests,
+          liveActivity: updatedLiveActivity,
           highlightedKpiKey,
           highlightedRowId: event.requestId,
           announcement,
@@ -230,7 +360,7 @@ export function dashboardReducer(
         }
       }
 
-      // C. Review Request Updated Event
+      // D. Review Request Updated Event
       if (event.type === 'review_request.updated') {
         const prev = event.previousStatus
         const next = event.status
@@ -261,10 +391,10 @@ export function dashboardReducer(
           announcement = 'Review request marked clicked.'
         } else if (newKpis.failedCount > state.kpis.failedCount) {
           highlightedKpiKey = 'failedCount'
-          announcement = 'Review request dispatch failed.'
+          announcement = 'Review invitation dispatch failed.'
         } else if (newKpis.sentCount > state.kpis.sentCount) {
           highlightedKpiKey = 'sentCount'
-          announcement = 'Review request sent.'
+          announcement = 'Review invitation sent.'
         } else if (newKpis.scheduledCount > state.kpis.scheduledCount) {
           highlightedKpiKey = 'scheduledCount'
           announcement = 'Review request scheduled.'
@@ -283,6 +413,22 @@ export function dashboardReducer(
             }
           })
         }
+
+        // Live Activity stage determination
+        let liveStage: LiveActivityStage = 'PREPARING'
+        if (event.status === 'SENDING') {
+          liveStage = 'PREPARING'
+        } else if (SENT_SET.has(event.status)) {
+          liveStage = 'SENT'
+        } else if (FAILED_SET.has(event.status)) {
+          liveStage = 'FAILED'
+        }
+
+        const updatedLiveActivity = updateLiveActivityList(state.liveActivity, {
+          completionEventId: event.completionEventId,
+          requestId: event.requestId,
+          targetStage: liveStage,
+        })
 
         // Needs Attention & System Status consistency
         let nextSystemStatus: SystemStatus = state.systemStatus
@@ -333,6 +479,7 @@ export function dashboardReducer(
           ...state,
           kpis: newKpis,
           recentRequests: nextRecentRequests,
+          liveActivity: updatedLiveActivity,
           systemStatus: nextSystemStatus,
           statusDescription: nextStatusDescription,
           attentionItems: nextAttentionItems,
@@ -343,7 +490,7 @@ export function dashboardReducer(
         }
       }
 
-      // D. Review Request Ineligible / Policy Bypass Event
+      // E. Review Request Ineligible / Policy Bypass Event
       if (event.type === 'review_request.ineligible') {
         const nextIneligibleCount = (state.kpis.ineligibleCount ?? 0) + 1
         const newKpis: DashboardKpis = {
@@ -366,13 +513,20 @@ export function dashboardReducer(
           nextAttentionItems = [...nextAttentionItems, ineligibleItem]
         }
 
+        // Live Activity transitions to BYPASSED
+        const updatedLiveActivity = updateLiveActivityList(state.liveActivity, {
+          completionEventId: event.completionEventId,
+          targetStage: 'BYPASSED',
+        })
+
         return {
           ...state,
           kpis: newKpis,
           attentionItems: nextAttentionItems,
+          liveActivity: updatedLiveActivity,
           highlightedKpiKey: 'ineligibleCount',
           highlightedRowId: null,
-          announcement: `Completions bypassed by policy increased to ${nextIneligibleCount}.`,
+          announcement: `Completions bypassed by policy increased to ${nextIneligibleCount}. Completion bypassed by policy.`,
           processedEventIds: nextEventIds,
         }
       }

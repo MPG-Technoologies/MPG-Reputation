@@ -3,6 +3,7 @@ import { createHmac, randomUUID } from 'crypto'
 import { POST } from '../../src/app/api/webhooks/resend/route'
 import { createAdminClient } from '../../src/lib/supabase/admin'
 import { hashSuppressionContact } from '../../src/domain/suppression'
+import type { ReviewRequestStatus } from '../../src/domain/review-request/transitions'
 
 // Deterministic test Svix secret: whsec_ + base64(32 bytes)
 const TEST_RAW_KEY = Buffer.from('test_svix_secret_key_32_bytes!!', 'utf-8')
@@ -26,7 +27,7 @@ function signSvixPayload(secret: string, payload: string, eventId = `evt_${rando
   }
 }
 
-describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A)', () => {
+describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A & MR-1A.1)', () => {
   const originalEnv = process.env
   const supabase = createAdminClient()
 
@@ -37,6 +38,55 @@ describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A)', () => 
   let testReviewRequestId: string
   let testEmailId: string
   let testRecipientEmail: string
+
+  // Helper to create synthetic isolated review requests for specific scenario testing
+  async function createTestHierarchy(nonce: number, email: string, initialStatus: ReviewRequestStatus = 'SENT') {
+    const { data: bEvent, error: bEventErr } = await supabase
+      .from('customer_completion_events')
+      .insert({
+        organization_id: testOrgId,
+        location_id: testLocationId,
+        customer_id: testCustomerId,
+        source: 'quick_complete',
+        source_event_id: `src_test_${nonce}`,
+        contact: { email },
+        permission: { emailConsent: true },
+      })
+      .select('id')
+      .single()
+    if (bEventErr || !bEvent) throw new Error(`Setup cce failed: ${bEventErr?.message}`)
+
+    const token = `token_${nonce}`
+    const { data: testReq, error: reqErr } = await supabase
+      .from('review_requests')
+      .insert({
+        organization_id: testOrgId,
+        location_id: testLocationId,
+        customer_id: testCustomerId,
+        completion_event_id: bEvent.id,
+        channel: 'email',
+        status: initialStatus,
+        token,
+        token_hash: token,
+        ...(initialStatus === 'CLICKED' ? { clicked_at: new Date().toISOString() } : {}),
+      })
+      .select('id')
+      .single()
+    if (reqErr || !testReq) throw new Error(`Setup req failed: ${reqErr?.message}`)
+
+    const emailId = `re_msg_${nonce}`
+    await supabase.from('message_events').insert({
+      organization_id: testOrgId,
+      review_request_id: testReq.id,
+      provider: 'resend',
+      provider_message_id: emailId,
+      event_type: 'sent',
+      status: initialStatus,
+      metadata: { messageKind: 'initial_review_request' },
+    })
+
+    return { reviewRequestId: testReq.id, emailId }
+  }
 
   beforeAll(async () => {
     // Check if local Supabase is accessible
@@ -295,59 +345,415 @@ describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A)', () => 
     })
   })
 
+  describe('Concurrent Webhook Deduplication (MR-1A.1 Section 3 & 8)', () => {
+    it('concurrent identical webhook delivery is idempotent and returns safe success', async () => {
+      const concurrentNonce = Date.now() + 10
+      const { emailId: cEmailId } = await createTestHierarchy(
+        concurrentNonce,
+        `concurrent.${concurrentNonce}@example.test`,
+        'SENT'
+      )
+
+      const concurrentEventId = `concurrent_evt_${randomUUID()}`
+      const payload = JSON.stringify({
+        type: 'email.delivered',
+        created_at: new Date().toISOString(),
+        data: {
+          email_id: cEmailId,
+          to: [`concurrent.${concurrentNonce}@example.test`],
+        },
+      })
+      const { headers } = signSvixPayload(TEST_WEBHOOK_SECRET, payload, concurrentEventId)
+
+      // Dispatch two identical requests simultaneously
+      const [res1, res2] = await Promise.all([
+        POST(
+          new Request('http://localhost:3000/api/webhooks/resend', {
+            method: 'POST',
+            headers: { ...headers },
+            body: payload,
+          })
+        ),
+        POST(
+          new Request('http://localhost:3000/api/webhooks/resend', {
+            method: 'POST',
+            headers: { ...headers },
+            body: payload,
+          })
+        ),
+      ])
+
+      // Both requests must succeed with HTTP 200 (neither should fail with 500)
+      expect(res1.status).toBe(200)
+      expect(res2.status).toBe(200)
+
+      const json1 = await res1.json()
+      const json2 = await res2.json()
+      expect(json1.received).toBe(true)
+      expect(json2.received).toBe(true)
+
+      // Exactly one should process normally, and one should be handled as duplicate
+      const duplicateCount = [json1.duplicate, json2.duplicate].filter(Boolean).length
+      expect(duplicateCount).toBe(1)
+
+      // Verify database uniqueness guarantee: exactly 1 message_event row exists
+      const { count: eventRowCount } = await supabase
+        .from('message_events')
+        .select('*', { count: 'exact', head: true })
+        .eq('provider_event_id', concurrentEventId)
+      expect(eventRowCount).toBe(1)
+    })
+  })
+
+  describe('Provider-Suppressed Integration (MR-1A.1 Section 4)', () => {
+    it('email.suppressed creates internal suppression, marks request SUPPRESSED, and is idempotent on replay', async () => {
+      const suppNonce = Date.now() + 20
+      const suppEmail = `suppressed.${suppNonce}@example.test`
+      const { reviewRequestId: sReqId, emailId: sEmailId } = await createTestHierarchy(
+        suppNonce,
+        suppEmail,
+        'SENT'
+      )
+
+      const suppEventId = `evt_supp_${randomUUID()}`
+      const payload = JSON.stringify({
+        type: 'email.suppressed',
+        created_at: new Date().toISOString(),
+        data: {
+          email_id: sEmailId,
+          to: [suppEmail],
+          suppression: {
+            reason: 'Recipient previously bounced',
+          },
+        },
+      })
+      const { headers } = signSvixPayload(TEST_WEBHOOK_SECRET, payload, suppEventId)
+
+      // First delivery
+      const res1 = await POST(
+        new Request('http://localhost:3000/api/webhooks/resend', {
+          method: 'POST',
+          headers,
+          body: payload,
+        })
+      )
+      expect(res1.status).toBe(200)
+
+      // Verify review request became SUPPRESSED
+      const { data: updatedReq } = await supabase
+        .from('review_requests')
+        .select('status')
+        .eq('id', sReqId)
+        .single()
+      expect(updatedReq?.status).toBe('SUPPRESSED')
+
+      // Verify contact suppression was created with PROVIDER_SUPPRESSED reason
+      const expectedHash = hashSuppressionContact('email', suppEmail)
+      const { data: suppressions } = await supabase
+        .from('suppressions')
+        .select('*')
+        .eq('organization_id', testOrgId)
+        .eq('contact_hash', expectedHash)
+      expect(suppressions?.length).toBe(1)
+      expect(suppressions![0].reason).toBe('PROVIDER_SUPPRESSED')
+
+      // Verify message_events metadata does not contain raw recipient email
+      const { data: events } = await supabase
+        .from('message_events')
+        .select('*')
+        .eq('provider_event_id', suppEventId)
+      expect(events?.length).toBe(1)
+      expect(JSON.stringify(events![0].metadata)).not.toContain(suppEmail)
+
+      // Replay identical event: must not duplicate suppression
+      const res2 = await POST(
+        new Request('http://localhost:3000/api/webhooks/resend', {
+          method: 'POST',
+          headers,
+          body: payload,
+        })
+      )
+      expect(res2.status).toBe(200)
+      const json2 = await res2.json()
+      expect(json2.duplicate).toBe(true)
+
+      const { count: finalSuppCount } = await supabase
+        .from('suppressions')
+        .select('*', { count: 'exact', head: true })
+        .eq('organization_id', testOrgId)
+        .eq('contact_hash', expectedHash)
+      expect(finalSuppCount).toBe(1)
+    })
+  })
+
+  describe('Complaint Handling & Duplicate Protection (MR-1A.1 Section 5)', () => {
+    it('spam complaint creates contact suppression and repeated complaint does not duplicate suppression', async () => {
+      const complaintNonce = Date.now() + 30
+      const complaintEmail = `complaint.${complaintNonce}@example.test`
+      const { emailId: cEmailId } = await createTestHierarchy(
+        complaintNonce,
+        complaintEmail,
+        'SENT'
+      )
+
+      const complaintEventId1 = `evt_complaint_${randomUUID()}`
+      const payload1 = JSON.stringify({
+        type: 'email.complained',
+        created_at: new Date().toISOString(),
+        data: {
+          email_id: cEmailId,
+          to: [complaintEmail],
+        },
+      })
+      const { headers: headers1 } = signSvixPayload(TEST_WEBHOOK_SECRET, payload1, complaintEventId1)
+
+      const res1 = await POST(
+        new Request('http://localhost:3000/api/webhooks/resend', {
+          method: 'POST',
+          headers: headers1,
+          body: payload1,
+        })
+      )
+      expect(res1.status).toBe(200)
+
+      const expectedHash = hashSuppressionContact('email', complaintEmail)
+      const { data: suppression } = await supabase
+        .from('suppressions')
+        .select('*')
+        .eq('organization_id', testOrgId)
+        .eq('contact_hash', expectedHash)
+        .single()
+      expect(suppression).not.toBeNull()
+      expect(suppression!.reason).toBe('PROVIDER_COMPLAINT')
+
+      // Second distinct event for same complaint: verify DB uniqueness protects suppression table
+      const complaintEventId2 = `evt_complaint2_${randomUUID()}`
+      const payload2 = JSON.stringify({
+        type: 'email.complained',
+        created_at: new Date().toISOString(),
+        data: {
+          email_id: cEmailId,
+          to: [complaintEmail],
+        },
+      })
+      const { headers: headers2 } = signSvixPayload(TEST_WEBHOOK_SECRET, payload2, complaintEventId2)
+
+      const res2 = await POST(
+        new Request('http://localhost:3000/api/webhooks/resend', {
+          method: 'POST',
+          headers: headers2,
+          body: payload2,
+        })
+      )
+      expect(res2.status).toBe(200)
+
+      const { count: finalSuppCount } = await supabase
+        .from('suppressions')
+        .select('*', { count: 'exact', head: true })
+        .eq('organization_id', testOrgId)
+        .eq('contact_hash', expectedHash)
+      expect(finalSuppCount).toBe(1)
+    })
+  })
+
+  describe('Failed & Delayed Route Coverage (MR-1A.1 Section 6)', () => {
+    it('email.delivery_delayed records event without falsely marking request FAILED or suppressing contact', async () => {
+      const delayNonce = Date.now() + 40
+      const delayEmail = `delayed.${delayNonce}@example.test`
+      const { reviewRequestId: dReqId, emailId: dEmailId } = await createTestHierarchy(
+        delayNonce,
+        delayEmail,
+        'SENT'
+      )
+
+      const delayEventId = `evt_delay_${randomUUID()}`
+      const payload = JSON.stringify({
+        type: 'email.delivery_delayed',
+        created_at: new Date().toISOString(),
+        data: {
+          email_id: dEmailId,
+          to: [delayEmail],
+          delay: {
+            message: 'Greylisted 451, will retry',
+          },
+        },
+      })
+      const { headers } = signSvixPayload(TEST_WEBHOOK_SECRET, payload, delayEventId)
+
+      const res = await POST(
+        new Request('http://localhost:3000/api/webhooks/resend', {
+          method: 'POST',
+          headers,
+          body: payload,
+        })
+      )
+      expect(res.status).toBe(200)
+
+      // Request status must NOT be FAILED
+      const { data: reqAfter } = await supabase
+        .from('review_requests')
+        .select('status, failed_at')
+        .eq('id', dReqId)
+        .single()
+      expect(reqAfter?.status).toBe('SENT')
+      expect(reqAfter?.failed_at).toBeNull()
+
+      // Event was recorded
+      const { data: eventRecord } = await supabase
+        .from('message_events')
+        .select('*')
+        .eq('provider_event_id', delayEventId)
+        .single()
+      expect(eventRecord).not.toBeNull()
+      expect(eventRecord!.event_type).toBe('email.delivery_delayed')
+
+      // No suppression created
+      const delayHash = hashSuppressionContact('email', delayEmail)
+      const { data: supp } = await supabase
+        .from('suppressions')
+        .select('*')
+        .eq('organization_id', testOrgId)
+        .eq('contact_hash', delayHash)
+        .maybeSingle()
+      expect(supp).toBeNull()
+    })
+
+    it('email.failed transitions request to FAILED without creating permanent contact suppression', async () => {
+      const failNonce = Date.now() + 50
+      const failEmail = `failed.${failNonce}@example.test`
+      const { reviewRequestId: fReqId, emailId: fEmailId } = await createTestHierarchy(
+        failNonce,
+        failEmail,
+        'SENT'
+      )
+
+      const failEventId = `evt_fail_${randomUUID()}`
+      const payload = JSON.stringify({
+        type: 'email.failed',
+        created_at: new Date().toISOString(),
+        data: {
+          email_id: fEmailId,
+          to: [failEmail],
+          error: 'Connection timeout after 3 retries',
+        },
+      })
+      const { headers } = signSvixPayload(TEST_WEBHOOK_SECRET, payload, failEventId)
+
+      const res = await POST(
+        new Request('http://localhost:3000/api/webhooks/resend', {
+          method: 'POST',
+          headers,
+          body: payload,
+        })
+      )
+      expect(res.status).toBe(200)
+
+      // Request transitioned to FAILED
+      const { data: reqAfter } = await supabase
+        .from('review_requests')
+        .select('status, failed_at, error_message')
+        .eq('id', fReqId)
+        .single()
+      expect(reqAfter?.status).toBe('FAILED')
+      expect(reqAfter?.failed_at).not.toBeNull()
+      expect(reqAfter?.error_message).toContain('Connection timeout')
+
+      // No permanent contact suppression created solely from email.failed
+      const failHash = hashSuppressionContact('email', failEmail)
+      const { data: supp } = await supabase
+        .from('suppressions')
+        .select('*')
+        .eq('organization_id', testOrgId)
+        .eq('contact_hash', failHash)
+        .maybeSingle()
+      expect(supp).toBeNull()
+    })
+
+    it('CLICKED status never regresses when late email.delivered, email.failed, or email.suppressed arrives', async () => {
+      const clickedNonce = Date.now() + 60
+      const clickedEmail = `clicked.${clickedNonce}@example.test`
+      const { reviewRequestId: cReqId, emailId: cEmailId } = await createTestHierarchy(
+        clickedNonce,
+        clickedEmail,
+        'CLICKED'
+      )
+
+      const { data: originalReq } = await supabase
+        .from('review_requests')
+        .select('status, clicked_at')
+        .eq('id', cReqId)
+        .single()
+      expect(originalReq?.status).toBe('CLICKED')
+      const originalClickedAt = originalReq?.clicked_at
+
+      // 1. Late email.delivered arrives
+      const payloadDelivered = JSON.stringify({
+        type: 'email.delivered',
+        created_at: new Date().toISOString(),
+        data: { email_id: cEmailId, to: [clickedEmail] },
+      })
+      await POST(
+        new Request('http://localhost:3000/api/webhooks/resend', {
+          method: 'POST',
+          headers: signSvixPayload(TEST_WEBHOOK_SECRET, payloadDelivered).headers,
+          body: payloadDelivered,
+        })
+      )
+
+      // 2. Late email.failed arrives
+      const payloadFailed = JSON.stringify({
+        type: 'email.failed',
+        created_at: new Date().toISOString(),
+        data: { email_id: cEmailId, to: [clickedEmail], error: 'Late network error' },
+      })
+      await POST(
+        new Request('http://localhost:3000/api/webhooks/resend', {
+          method: 'POST',
+          headers: signSvixPayload(TEST_WEBHOOK_SECRET, payloadFailed).headers,
+          body: payloadFailed,
+        })
+      )
+
+      // 3. Late email.suppressed arrives
+      const payloadSuppressed = JSON.stringify({
+        type: 'email.suppressed',
+        created_at: new Date().toISOString(),
+        data: { email_id: cEmailId, to: [clickedEmail] },
+      })
+      await POST(
+        new Request('http://localhost:3000/api/webhooks/resend', {
+          method: 'POST',
+          headers: signSvixPayload(TEST_WEBHOOK_SECRET, payloadSuppressed).headers,
+          body: payloadSuppressed,
+        })
+      )
+
+      // Review request status and clicked_at must remain completely unregressed
+      const { data: finalReq } = await supabase
+        .from('review_requests')
+        .select('status, clicked_at')
+        .eq('id', cReqId)
+        .single()
+      expect(finalReq?.status).toBe('CLICKED')
+      expect(finalReq?.clicked_at).toBe(originalClickedAt)
+    })
+  })
+
   describe('Bounce Handling & Contact Suppression (Section 13)', () => {
     it('permanent hard bounce transitions request to FAILED and creates contact suppression', async () => {
-      const bounceNonce = Date.now()
+      const bounceNonce = Date.now() + 70
       const bounceEmail = `bounce.perm.${bounceNonce}@example.test`
-
-      const { data: bEvent, error: bEventErr } = await supabase
-        .from('customer_completion_events')
-        .insert({
-          organization_id: testOrgId,
-          location_id: testLocationId,
-          customer_id: testCustomerId,
-          source: 'quick_complete',
-          source_event_id: `src_bounce_perm_${bounceNonce}`,
-          contact: { email: bounceEmail },
-          permission: { emailConsent: true },
-        })
-        .select('id')
-        .single()
-      if (bEventErr || !bEvent) throw new Error(`Setup bounce cce failed: ${bEventErr?.message}`)
-
-      const token = `token_bounce_${bounceNonce}`
-      const { data: bounceReq, error: bReqErr } = await supabase
-        .from('review_requests')
-        .insert({
-          organization_id: testOrgId,
-          location_id: testLocationId,
-          customer_id: testCustomerId,
-          completion_event_id: bEvent.id,
-          channel: 'email',
-          status: 'SENT',
-          token,
-          token_hash: token,
-        })
-        .select('id')
-        .single()
-      if (bReqErr || !bounceReq) throw new Error(`Setup bounce req failed: ${bReqErr?.message}`)
-
-      const bounceEmailId = `re_bounce_msg_${bounceNonce}`
-      await supabase.from('message_events').insert({
-        organization_id: testOrgId,
-        review_request_id: bounceReq.id,
-        provider: 'resend',
-        provider_message_id: bounceEmailId,
-        event_type: 'sent',
-        status: 'SENT',
-        metadata: { messageKind: 'initial_review_request' },
-      })
+      const { reviewRequestId: bReqId, emailId: bEmailId } = await createTestHierarchy(
+        bounceNonce,
+        bounceEmail,
+        'SENT'
+      )
 
       const payload = JSON.stringify({
         type: 'email.bounced',
         created_at: new Date().toISOString(),
         data: {
-          email_id: bounceEmailId,
+          email_id: bEmailId,
           to: [bounceEmail],
           bounce: {
             type: 'Permanent',
@@ -370,7 +776,7 @@ describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A)', () => 
       const { data: updatedReq } = await supabase
         .from('review_requests')
         .select('status, error_message')
-        .eq('id', bounceReq.id)
+        .eq('id', bReqId)
         .single()
       expect(updatedReq?.status).toBe('FAILED')
       expect(updatedReq?.error_message).toContain('Mailbox does not exist')
@@ -388,57 +794,19 @@ describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A)', () => 
     })
 
     it('transient bounce transitions request to FAILED but does NOT suppress contact', async () => {
-      const transNonce = Date.now() + 1
+      const transNonce = Date.now() + 80
       const transientEmail = `transient.${transNonce}@example.test`
-
-      const { data: tEvent, error: tEventErr } = await supabase
-        .from('customer_completion_events')
-        .insert({
-          organization_id: testOrgId,
-          location_id: testLocationId,
-          customer_id: testCustomerId,
-          source: 'quick_complete',
-          source_event_id: `src_bounce_trans_${transNonce}`,
-          contact: { email: transientEmail },
-          permission: { emailConsent: true },
-        })
-        .select('id')
-        .single()
-      if (tEventErr || !tEvent) throw new Error(`Setup trans cce failed: ${tEventErr?.message}`)
-
-      const token = `token_trans_${transNonce}`
-      const { data: transReq, error: tReqErr } = await supabase
-        .from('review_requests')
-        .insert({
-          organization_id: testOrgId,
-          location_id: testLocationId,
-          customer_id: testCustomerId,
-          completion_event_id: tEvent.id,
-          channel: 'email',
-          status: 'SENT',
-          token,
-          token_hash: token,
-        })
-        .select('id')
-        .single()
-      if (tReqErr || !transReq) throw new Error(`Setup trans req failed: ${tReqErr?.message}`)
-
-      const transEmailId = `re_trans_msg_${transNonce}`
-      await supabase.from('message_events').insert({
-        organization_id: testOrgId,
-        review_request_id: transReq.id,
-        provider: 'resend',
-        provider_message_id: transEmailId,
-        event_type: 'sent',
-        status: 'SENT',
-        metadata: { messageKind: 'initial_review_request' },
-      })
+      const { reviewRequestId: tReqId, emailId: tEmailId } = await createTestHierarchy(
+        transNonce,
+        transientEmail,
+        'SENT'
+      )
 
       const payload = JSON.stringify({
         type: 'email.bounced',
         created_at: new Date().toISOString(),
         data: {
-          email_id: transEmailId,
+          email_id: tEmailId,
           to: [transientEmail],
           bounce: {
             type: 'Transient',
@@ -461,7 +829,7 @@ describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A)', () => 
       const { data: updatedReq } = await supabase
         .from('review_requests')
         .select('status')
-        .eq('id', transReq.id)
+        .eq('id', tReqId)
         .single()
       expect(updatedReq?.status).toBe('FAILED')
 
@@ -474,40 +842,6 @@ describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A)', () => 
         .eq('contact_hash', expectedHash)
         .maybeSingle()
       expect(suppression).toBeNull()
-    })
-  })
-
-  describe('Complaint Handling (Section 14)', () => {
-    it('spam complaint creates contact suppression with PROVIDER_COMPLAINT reason', async () => {
-      const complaintEmail = `complaint.${Date.now()}@example.test`
-      const payload = JSON.stringify({
-        type: 'email.complained',
-        created_at: new Date().toISOString(),
-        data: {
-          email_id: testEmailId,
-          to: [complaintEmail],
-        },
-      })
-      const { headers } = signSvixPayload(TEST_WEBHOOK_SECRET, payload)
-
-      const res = await POST(
-        new Request('http://localhost:3000/api/webhooks/resend', {
-          method: 'POST',
-          headers,
-          body: payload,
-        })
-      )
-      expect(res.status).toBe(200)
-
-      const expectedHash = hashSuppressionContact('email', complaintEmail)
-      const { data: suppression } = await supabase
-        .from('suppressions')
-        .select('*')
-        .eq('organization_id', testOrgId)
-        .eq('contact_hash', expectedHash)
-        .maybeSingle()
-      expect(suppression).not.toBeNull()
-      expect(suppression?.reason).toBe('PROVIDER_COMPLAINT')
     })
   })
 
@@ -578,6 +912,72 @@ describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A)', () => 
       // Status must NOT have become CLICKED
       expect(afterReq?.status).not.toBe('CLICKED')
       expect(afterReq?.clicked_at).toBeNull()
+    })
+  })
+
+  describe('Provider Error Sanitization (MR-1A.1 Section 7 & 9)', () => {
+    it('sanitizes provider error strings in review_requests and message_events, redacting recipient email and URLs', async () => {
+      const sanitizeNonce = Date.now() + 90
+      const rawTargetEmail = `secret.patient.${sanitizeNonce}@clinic.example.test`
+      const { reviewRequestId: sReqId, emailId: sEmailId } = await createTestHierarchy(
+        sanitizeNonce,
+        rawTargetEmail,
+        'SENT'
+      )
+
+      const rawProviderError = `550 5.1.1 User ${rawTargetEmail} unknown at host.\r\nSee diagnostic reference: https://resend.com/errors/550?token=supersecret123`
+
+      const payload = JSON.stringify({
+        type: 'email.bounced',
+        created_at: new Date().toISOString(),
+        data: {
+          email_id: sEmailId,
+          to: [rawTargetEmail],
+          bounce: {
+            type: 'Permanent',
+            message: rawProviderError,
+          },
+        },
+      })
+      const { headers, eventId } = signSvixPayload(TEST_WEBHOOK_SECRET, payload)
+
+      const res = await POST(
+        new Request('http://localhost:3000/api/webhooks/resend', {
+          method: 'POST',
+          headers,
+          body: payload,
+        })
+      )
+      expect(res.status).toBe(200)
+
+      // Verify review_requests.error_message was sanitized
+      const { data: reqRecord } = await supabase
+        .from('review_requests')
+        .select('error_message')
+        .eq('id', sReqId)
+        .single()
+      expect(reqRecord?.error_message).not.toBeNull()
+      expect(reqRecord?.error_message).not.toContain(rawTargetEmail)
+      expect(reqRecord?.error_message).not.toContain('https://')
+      expect(reqRecord?.error_message).not.toContain('supersecret123')
+      expect(reqRecord?.error_message).not.toContain('\r\n')
+      expect(reqRecord?.error_message).toContain('[REDACTED_EMAIL]')
+      expect(reqRecord?.error_message).toContain('[REDACTED_URL]')
+      expect(reqRecord?.error_message).toContain('550 5.1.1 User')
+
+      // Verify message_events.sanitized_error was sanitized
+      const { data: eventRecord } = await supabase
+        .from('message_events')
+        .select('sanitized_error, metadata')
+        .eq('provider_event_id', eventId)
+        .single()
+      expect(eventRecord?.sanitized_error).toBe(reqRecord?.error_message)
+
+      // Verify metadata does not contain raw recipient email or secret URL
+      const metaString = JSON.stringify(eventRecord?.metadata || {})
+      expect(metaString).not.toContain(rawTargetEmail)
+      expect(metaString).not.toContain('https://')
+      expect(metaString).not.toContain('supersecret123')
     })
   })
 

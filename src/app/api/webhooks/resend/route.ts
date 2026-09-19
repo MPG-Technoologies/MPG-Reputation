@@ -2,6 +2,7 @@ import { Resend } from 'resend'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { hashSuppressionContact } from '@/domain/suppression'
 import { determineReviewRequestTransition } from '@/domain/review-request/transitions'
+import { sanitizeProviderError } from '@/domain/review-request/sanitizer'
 import type { Database } from '@/types/database'
 
 interface ResendWebhookPayload {
@@ -10,10 +11,12 @@ interface ResendWebhookPayload {
   data?: {
     email_id?: string
     message_id?: string
-    to?: string[]
+    to?: string[] | string
+    error?: unknown
+    message?: unknown
     bounce?: {
       type?: string
-      message?: string
+      message?: unknown
     }
     tags?: Record<string, string>
     [key: string]: unknown
@@ -67,26 +70,26 @@ export async function POST(req: Request) {
 
   const supabase = createAdminClient()
 
-  // 5. Event Deduplication: check if svixId was already processed (Section 11)
+  // 5. Pre-check for quick exit on sequential replay (Section 11)
   try {
-    const { data: existingEvent, error: dedupErr } = await supabase
+    const { data: existingEvents, error: dedupErr } = await supabase
       .from('message_events')
       .select('id')
       .eq('provider', 'resend')
       .eq('provider_event_id', svixId)
-      .maybeSingle()
+      .limit(1)
 
     if (dedupErr) {
       console.error('[ResendWebhook] Database error checking event deduplication:', dedupErr.message)
       return new Response('Database error', { status: 500 })
     }
 
-    if (existingEvent) {
+    if (existingEvents && existingEvents.length > 0) {
       // Already processed idempotently
       return Response.json({ received: true, duplicate: true }, { status: 200 })
     }
   } catch (err) {
-    console.error('[ResendWebhook] Unexpected error during deduplication:', err)
+    console.error('[ResendWebhook] Unexpected error during deduplication pre-check:', err)
     return new Response('Database error', { status: 500 })
   }
 
@@ -165,70 +168,15 @@ export async function POST(req: Request) {
       bounceType: eventData.bounce?.type,
     })
 
-    // 8. Update review_request if status transitioned or delivery timestamp should be recorded
-    if (transition.statusChanged || transition.shouldSetDeliveredAt) {
-      const updateData: Database['public']['Tables']['review_requests']['Update'] = {
-        status: transition.nextStatus,
-        updated_at: new Date().toISOString(),
-      }
+    // 8. Provider Error Sanitization (MR-1A.1 Section 7)
+    const rawRecipient = Array.isArray(eventData.to) ? eventData.to[0] : eventData.to
+    const recipientEmail = typeof rawRecipient === 'string' ? rawRecipient : undefined
 
-      if (transition.shouldSetDeliveredAt) {
-        updateData.delivered_at = eventPayload.created_at || new Date().toISOString()
-      }
+    const rawErrorSource = eventData.bounce?.message || eventData.error || eventData.message
+    const sanitizedError = sanitizeProviderError(rawErrorSource, { recipientEmail })
 
-      if (transition.nextStatus === 'FAILED') {
-        updateData.failed_at = new Date().toISOString()
-        if (eventData.bounce?.message) {
-          updateData.error_message = String(eventData.bounce.message).slice(0, 500)
-        }
-      }
-
-      const { error: updateErr } = await supabase
-        .from('review_requests')
-        .update(updateData)
-        .eq('id', reviewRequestId)
-
-      if (updateErr) {
-        console.error('[ResendWebhook] Error updating review request:', updateErr.message)
-        return new Response('Database update error', { status: 500 })
-      }
-    }
-
-    // 9. Contact Suppression Handling (Section 13, 14, 15)
-    // Permanent bounce, spam complaint, or provider suppression triggers suppression
-    if (transition.shouldSuppressContact) {
-      const rawRecipient = Array.isArray(eventData.to) ? eventData.to[0] : eventData.to
-      if (rawRecipient && typeof rawRecipient === 'string') {
-        const contactHash = hashSuppressionContact('email', rawRecipient)
-        const suppressionReason = transition.suppressionReason || 'PROVIDER_HARD_BOUNCE'
-
-        const { error: suppErr } = await supabase.from('suppressions').upsert(
-          {
-            organization_id: organizationId,
-            channel: 'email',
-            contact_hash: contactHash,
-            reason: suppressionReason,
-          },
-          {
-            onConflict: 'organization_id,channel,contact_hash',
-            ignoreDuplicates: true,
-          }
-        )
-
-        if (suppErr) {
-          console.error('[ResendWebhook] Error recording suppression:', suppErr.message)
-          // Do not fail the whole webhook if suppression upsert was duplicate or transient
-        }
-      }
-    }
-
-    // 10. Record message_event (Privacy Hardened: Section 6, 11)
-    // NEVER duplicate recipient email, customer name, tracking token, tracking URL, or review destination
-    const sanitizedError =
-      eventData.bounce?.message
-        ? String(eventData.bounce.message).slice(0, 500)
-        : null
-
+    // 9. Claim & Persist provider_event_id in message_events FIRST (MR-1A.1 Section 8)
+    // Prevents concurrency race: claim the unique event before executing any side effects
     const { error: insertEventErr } = await supabase.from('message_events').insert({
       organization_id: organizationId,
       review_request_id: reviewRequestId,
@@ -246,8 +194,72 @@ export async function POST(req: Request) {
     })
 
     if (insertEventErr) {
+      // Check if this error is a unique key violation on (provider, provider_event_id)
+      const isUniqueViolation =
+        insertEventErr.code === '23505' ||
+        insertEventErr.message?.includes('idx_me_provider_event_unique') ||
+        insertEventErr.message?.includes('unique constraint')
+
+      if (isUniqueViolation) {
+        // Another concurrent request claimed this event; return safe idempotent duplicate-success
+        return Response.json({ received: true, duplicate: true }, { status: 200 })
+      }
+
       console.error('[ResendWebhook] Error persisting message_event:', insertEventErr.message)
       return new Response('Database insert error', { status: 500 })
+    }
+
+    // 10. Downstream Side Effects (ONLY AFTER event claim is guaranteed)
+    // a) Update review_request status and timestamps
+    if (transition.statusChanged || transition.shouldSetDeliveredAt) {
+      const updateData: Database['public']['Tables']['review_requests']['Update'] = {
+        status: transition.nextStatus,
+        updated_at: new Date().toISOString(),
+      }
+
+      if (transition.shouldSetDeliveredAt) {
+        updateData.delivered_at = eventPayload.created_at || new Date().toISOString()
+      }
+
+      if (transition.nextStatus === 'FAILED') {
+        updateData.failed_at = new Date().toISOString()
+        if (sanitizedError) {
+          updateData.error_message = sanitizedError
+        }
+      }
+
+      const { error: updateErr } = await supabase
+        .from('review_requests')
+        .update(updateData)
+        .eq('id', reviewRequestId)
+
+      if (updateErr) {
+        console.error('[ResendWebhook] Error updating review request:', updateErr.message)
+        return new Response('Database update error', { status: 500 })
+      }
+    }
+
+    // b) Contact Suppression Handling (Section 13, 14, 15)
+    if (transition.shouldSuppressContact && recipientEmail) {
+      const contactHash = hashSuppressionContact('email', recipientEmail)
+      const suppressionReason = transition.suppressionReason || 'PROVIDER_HARD_BOUNCE'
+
+      const { error: suppErr } = await supabase.from('suppressions').upsert(
+        {
+          organization_id: organizationId,
+          channel: 'email',
+          contact_hash: contactHash,
+          reason: suppressionReason,
+        },
+        {
+          onConflict: 'organization_id,channel,contact_hash',
+          ignoreDuplicates: true,
+        }
+      )
+
+      if (suppErr) {
+        console.error('[ResendWebhook] Error recording suppression:', suppErr.message)
+      }
     }
 
     return Response.json({ received: true }, { status: 200 })

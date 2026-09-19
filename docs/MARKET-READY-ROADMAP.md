@@ -78,7 +78,7 @@ Each transition is strictly evidence- and gate-controlled.
 
 | Dimension | Specification |
 |---|---|
-| **Status** | **ACTIVE ENGINEERING MILESTONE** (MR-1A in progress) |
+| **Status** | **ACTIVE ENGINEERING MILESTONE** (MR-1A accepted; MR-1B implemented) |
 | **Objective** | Engineer production email messaging infrastructure using Resend with strict tenant routing, domain authentication, deliverability monitoring, and bounce/complaint handling, while keeping live sends disabled. |
 | **Dependencies** | MR-0 complete; verified Resend sending domain and API configuration provided by owner. |
 | **Implementation Scope** | 1. Implement production `ResendEmailProvider` with robust error classification (transient vs permanent).<br>2. Develop responsive, accessible, neutral email templates for initial review request and optional single reminder.<br>3. Implement inbound webhook handler (`/api/webhooks/resend`) with signature verification for delivery, bounce, and complaint events.<br>4. Automate contact suppression on hard bounces and spam complaints.<br>5. Harden workflow retry mechanisms with exponential backoff and dead-letter exception records.<br>6. Implement server-side safety flag ensuring live sends to real customers remain disabled until explicitly authorized. |

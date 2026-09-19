@@ -4,14 +4,24 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { sanitizeReplyToEmail } from '@/domain/email'
 
 export async function createLocation(formData: FormData): Promise<void> {
   const organizationId = formData.get('organizationId') as string
   const name = (formData.get('name') as string)?.trim()
   const address = (formData.get('address') as string)?.trim() || null
+  const rawReplyTo = (formData.get('reviewReplyToEmail') as string)?.trim() || null
 
   if (!organizationId || !name) {
     redirect('/app/settings/location?error=Location%20name%20is%20required')
+  }
+
+  let reviewReplyToEmail: string | null = null
+  if (rawReplyTo) {
+    reviewReplyToEmail = sanitizeReplyToEmail(rawReplyTo)
+    if (!reviewReplyToEmail) {
+      redirect('/app/settings/location?error=Invalid%20Reply-To%20email%20address')
+    }
   }
 
   const supabase = await createClient()
@@ -38,6 +48,7 @@ export async function createLocation(formData: FormData): Promise<void> {
       organization_id: organizationId,
       name,
       address,
+      review_reply_to_email: reviewReplyToEmail,
       status: 'ACTIVE',
     })
     .select('id')
@@ -55,7 +66,7 @@ export async function createLocation(formData: FormData): Promise<void> {
     event_type: 'location.created',
     entity_type: 'location',
     entity_id: loc.id,
-    metadata: { name },
+    metadata: { name, reviewReplyToEmail },
   })
 
   revalidatePath('/app/settings/location')

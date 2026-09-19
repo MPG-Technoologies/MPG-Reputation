@@ -43,6 +43,7 @@ Physical or operational business locations. Multi-location support is native fro
 - `country`: VARCHAR(2) NOT NULL DEFAULT 'CA'
 - `timezone`: TEXT NOT NULL DEFAULT 'America/Toronto'
 - `status`: TEXT NOT NULL DEFAULT 'ACTIVE' -- ACTIVE, INACTIVE
+- `review_reply_to_email`: TEXT -- Safe business-specific Reply-To address (MR-1B)
 - `created_at`: TIMESTAMPTZ NOT NULL DEFAULT now()
 - `updated_at`: TIMESTAMPTZ NOT NULL DEFAULT now()
 
@@ -105,6 +106,8 @@ Review solicitation records and lifecycle state machine.
 - `status`: TEXT NOT NULL DEFAULT 'SCHEDULED' -- SCHEDULED, SENDING, SENT, DELIVERED, CLICKED, FAILED, CANCELLED, SUPPRESSED
 - `token`: TEXT NOT NULL UNIQUE
 - `token_hash`: TEXT NOT NULL
+- `unsubscribe_token`: TEXT -- Ephemeral raw token for unsubscribe URL (MR-1B)
+- `unsubscribe_token_hash`: TEXT -- SHA-256 hash of unsubscribe token indexed for lookups (MR-1B)
 - `scheduled_for`: TIMESTAMPTZ NOT NULL DEFAULT now()
 - `sent_at`: TIMESTAMPTZ
 - `clicked_at`: TIMESTAMPTZ

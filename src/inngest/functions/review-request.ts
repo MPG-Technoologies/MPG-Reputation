@@ -1,6 +1,8 @@
 import { inngest } from '../client'
 import { evaluateReviewEligibility } from '@/domain/eligibility'
 import { generateTrackingToken, buildTrackedReviewUrl } from '@/domain/tracking'
+import { generateUnsubscribeToken, buildUnsubscribeUrl } from '@/domain/unsubscribe'
+import { composeReviewRequestEmail } from '@/domain/email'
 import { getEmailProvider } from '@/providers/email'
 import { hashSuppressionContact } from '@/domain/suppression'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -62,7 +64,7 @@ export async function executeReviewRequestHandler({
       // 2. Fetch Location
       const { data: loc } = await supabase
         .from('locations')
-        .select('id, name, status')
+        .select('id, name, status, review_reply_to_email')
         .eq('id', locationId)
         .single()
 
@@ -154,6 +156,7 @@ export async function executeReviewRequestHandler({
         customerName: cust.first_name,
         customerEmail: cust.email,
         destinationId: dest?.id || null,
+        reviewReplyToEmail: loc.review_reply_to_email || null,
       }
     }
 
@@ -246,17 +249,36 @@ export async function executeReviewRequestHandler({
       if (completionEventId) {
         const { data: existing } = await supabase
           .from('review_requests')
-          .select('id, token, status')
+          .select('id, token, unsubscribe_token, status')
           .eq('completion_event_id', completionEventId)
           .eq('channel', 'email')
           .maybeSingle()
 
         if (existing) {
-          return { id: existing.id, token: existing.token, isNew: false, status: existing.status }
+          let unsubToken = existing.unsubscribe_token
+          if (!unsubToken) {
+            const generated = generateUnsubscribeToken()
+            unsubToken = generated.token
+            await supabase
+              .from('review_requests')
+              .update({
+                unsubscribe_token: generated.token,
+                unsubscribe_token_hash: generated.tokenHash,
+              })
+              .eq('id', existing.id)
+          }
+          return {
+            id: existing.id,
+            token: existing.token,
+            unsubscribeToken: unsubToken,
+            isNew: false,
+            status: existing.status,
+          }
         }
       }
 
       const { token, tokenHash } = generateTrackingToken()
+      const { token: unsubToken, tokenHash: unsubTokenHash } = generateUnsubscribeToken()
 
       const { data: created, error } = await supabase
         .from('review_requests')
@@ -270,15 +292,23 @@ export async function executeReviewRequestHandler({
           status: 'SCHEDULED',
           token,
           token_hash: tokenHash,
+          unsubscribe_token: unsubToken,
+          unsubscribe_token_hash: unsubTokenHash,
         })
-        .select('id, token')
+        .select('id, token, unsubscribe_token')
         .single()
 
       if (error || !created) {
         throw new Error(`Failed to create review request: ${error?.message || 'unknown error'}`)
       }
 
-      return { id: created.id, token: created.token, isNew: true, status: 'SCHEDULED' }
+      return {
+        id: created.id,
+        token: created.token,
+        unsubscribeToken: created.unsubscribe_token || unsubToken,
+        isNew: true,
+        status: 'SCHEDULED',
+      }
     })
 
     // Step 5: Provider Send Guarded by Atomic State Machine (Prompt Correction 5 & 8)
@@ -341,6 +371,18 @@ export async function executeReviewRequestHandler({
 
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
       const trackingUrl = buildTrackedReviewUrl(appUrl, reviewRequest.token)
+      const unsubscribeUrl = buildUnsubscribeUrl(appUrl, reviewRequest.unsubscribeToken || reviewRequest.token)
+      const fromAddress = process.env.EMAIL_FROM_ADDRESS?.trim() || 'reviews@example.test'
+
+      const composed = composeReviewRequestEmail({
+        businessName: postDelayCheck.businessName || 'our business',
+        customerFirstName: postDelayCheck.customerName,
+        reviewUrl: trackingUrl,
+        unsubscribeUrl,
+        replyToEmail: postDelayCheck.reviewReplyToEmail,
+        fromAddress,
+      })
+
       const emailProvider = getEmailProvider()
 
       try {
@@ -349,6 +391,13 @@ export async function executeReviewRequestHandler({
           recipientName: postDelayCheck.customerName || 'there',
           businessName: postDelayCheck.businessName || 'our business',
           trackingUrl,
+          unsubscribeUrl,
+          subject: composed.subject,
+          html: composed.html,
+          text: composed.text,
+          fromDisplayName: composed.fromDisplayName,
+          replyTo: composed.replyTo,
+          headers: composed.headers,
           idempotencyKey: `review-request/${reviewRequest.id}/initial-v1`,
           correlationId: reviewRequest.id,
         })

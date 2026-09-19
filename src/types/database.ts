@@ -86,6 +86,7 @@ export interface Database {
           country: string
           timezone: string
           status: 'ACTIVE' | 'INACTIVE'
+            review_reply_to_email: string | null
           created_at: string
           updated_at: string
         }
@@ -97,6 +98,7 @@ export interface Database {
           country?: string
           timezone?: string
           status?: 'ACTIVE' | 'INACTIVE'
+            review_reply_to_email?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -108,6 +110,7 @@ export interface Database {
           country?: string
           timezone?: string
           status?: 'ACTIVE' | 'INACTIVE'
+            review_reply_to_email?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -260,6 +263,8 @@ export interface Database {
           status: 'SCHEDULED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'CLICKED' | 'FAILED' | 'CANCELLED' | 'SUPPRESSED'
           token: string
           token_hash: string
+            unsubscribe_token: string | null
+            unsubscribe_token_hash: string | null
           scheduled_for: string
           sent_at: string | null
           delivered_at: string | null
@@ -281,6 +286,8 @@ export interface Database {
           status?: 'SCHEDULED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'CLICKED' | 'FAILED' | 'CANCELLED' | 'SUPPRESSED'
           token: string
           token_hash: string
+            unsubscribe_token?: string | null
+            unsubscribe_token_hash?: string | null
           scheduled_for?: string
           sent_at?: string | null
           delivered_at?: string | null
@@ -302,6 +309,8 @@ export interface Database {
           status?: 'SCHEDULED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'CLICKED' | 'FAILED' | 'CANCELLED' | 'SUPPRESSED'
           token?: string
           token_hash?: string
+            unsubscribe_token?: string | null
+            unsubscribe_token_hash?: string | null
           scheduled_for?: string
           sent_at?: string | null
           delivered_at?: string | null

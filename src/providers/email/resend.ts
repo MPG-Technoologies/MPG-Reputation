@@ -19,13 +19,21 @@ export class ResendEmailProvider implements EmailProvider {
   }
 
   async send(input: SendEmailInput): Promise<SendEmailResult> {
-    const { subject, body } = renderNeutralReviewEmail({
+    const fallback = renderNeutralReviewEmail({
       recipientName: input.recipientName,
       businessName: input.businessName,
       trackingUrl: input.trackingUrl,
+      unsubscribeUrl: input.unsubscribeUrl,
     })
 
-    const finalSubject = input.subject || subject
+    const finalSubject = input.subject || fallback.subject
+    const textBody = input.text || fallback.body
+
+    // Format envelope/from with display name if provided
+    // e.g. "Northstar Dental via MPG Reputation <reviews@configured-mpg-domain>"
+    const from = input.fromDisplayName
+      ? `"${input.fromDisplayName.replace(/[\r\n\t\0"\\<>]/g, '').trim()}" <${this.fromAddress}>`
+      : this.fromAddress
 
     try {
       // Build safe tags strictly for internal system correlation
@@ -40,16 +48,18 @@ export class ResendEmailProvider implements EmailProvider {
         ? { idempotencyKey: input.idempotencyKey }
         : undefined
 
-      const response = await this.client.emails.send(
-        {
-          from: this.fromAddress,
-          to: input.to,
-          subject: finalSubject,
-          text: body,
-          tags: tags.length > 0 ? tags : undefined,
-        },
-        requestOptions
-      )
+      const payload: Parameters<Resend['emails']['send']>[0] = {
+        from,
+        to: input.to,
+        subject: finalSubject,
+        text: textBody,
+        ...(input.html ? { html: input.html } : {}),
+        ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+        ...(input.headers ? { headers: input.headers } : {}),
+        ...(tags.length > 0 ? { tags } : {}),
+      }
+
+      const response = await this.client.emails.send(payload, requestOptions)
 
       if (response.error) {
         return {
@@ -58,7 +68,7 @@ export class ResendEmailProvider implements EmailProvider {
           messageId: '',
           error: response.error.message,
           renderedSubject: finalSubject,
-          renderedBody: body,
+          renderedBody: textBody,
         }
       }
 
@@ -67,7 +77,7 @@ export class ResendEmailProvider implements EmailProvider {
         provider: 'resend',
         messageId: response.data?.id || '',
         renderedSubject: finalSubject,
-        renderedBody: body,
+        renderedBody: textBody,
       }
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err)
@@ -77,7 +87,7 @@ export class ResendEmailProvider implements EmailProvider {
         messageId: '',
         error: errorMessage,
         renderedSubject: finalSubject,
-        renderedBody: body,
+        renderedBody: textBody,
       }
     }
   }

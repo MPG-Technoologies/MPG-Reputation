@@ -19,7 +19,7 @@ export default async function LocationSettingsPage() {
 
   const { data: locations } = await supabase
     .from('locations')
-    .select('id, name, address, country, timezone, status, created_at')
+    .select('id, name, address, country, timezone, status, review_reply_to_email, created_at')
     .eq('organization_id', orgId)
     .order('created_at', { ascending: true })
 
@@ -48,6 +48,11 @@ export default async function LocationSettingsPage() {
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 mt-1">{loc.address || 'No address specified'}</p>
+                {loc.review_reply_to_email && (
+                  <p className="text-xs text-sky-400 mt-0.5">
+                    Reply-To: {loc.review_reply_to_email}
+                  </p>
+                )}
                 <span className="text-xs text-slate-500 mt-1 block">
                   {loc.country} • {loc.timezone}
                 </span>
@@ -90,8 +95,24 @@ export default async function LocationSettingsPage() {
               />
             </div>
 
+            <div>
+              <label htmlFor="reviewReplyToEmail" className="block text-sm font-medium text-slate-300">
+                Review Request Reply-To Email <span className="text-slate-500 font-normal">(Optional)</span>
+              </label>
+              <input
+                id="reviewReplyToEmail"
+                name="reviewReplyToEmail"
+                type="email"
+                placeholder="reviews@business.com"
+                className="mt-1 block w-full px-3 py-2 border border-slate-700 bg-slate-800 text-slate-100 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                Customer replies to review requests will be directed here. If omitted, no Reply-To header is set.
+              </p>
+            </div>
+
             <SubmitButton
-              pendingText="Adding location…"
+              pendingText="Adding location..."
               className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
             >
               Add Location

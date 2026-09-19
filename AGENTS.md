@@ -5,20 +5,27 @@
 | Document | MPG Reputation product repository instructions |
 | Status | ACTIVE |
 | Product / WIP subject | MPG Reputation / Review & Reputation Automation — `PROD-REP-001` |
-| Scope | V0.1 Vertical Slice Only |
+| Scope | Market-Ready Build Program (MR-0 through MR-11) |
+| Current Program | MPG Reputation Market-Ready Development |
+| Current Engineering Milestone | MR-1 — Production Messaging Core |
 | Governance Source of Truth | `E:\MPG` (Company OS) |
-| Authority | `MPG-DEC-038` through `MPG-DEC-044` |
+| Authority | `MPG-DEC-038` through `MPG-DEC-046` |
 | Public Safe | Yes |
 
 These instructions apply to Codex, ChatGPT, Antigravity, Claude, Gemini, automated development tools, and all future agents working in this repository.
 
 ## 1. Authority and Governance
 
-1. **Company OS is the Governance Source of Truth**: Business intent, commercial scope, product authorization, stage boundaries, and governance decisions are defined in `E:\MPG`. This repository is the technical implementation repository.
-2. **No Silent Business-Scope Changes**: Do not expand product boundaries, add unapproved service families, or alter business intent without an explicit accepted decision in `E:\MPG`.
-3. **Current Scope is V0.1 Only**: The authorized target is the first synthetic vertical slice:
-   `login → organization → location → Google review destination → Quick Complete → customer.completed → eligibility → Inngest workflow → development email → tracked link → click record → HTTP 302 redirect → dashboard`.
-4. **No Public-Launch Claims**: Do not mark the product active, market-approved, delivery-ready, or publicly launched. No pricing, Stripe, or billing implementation in V0.1.
+1. **Company OS is the Governance Source of Truth**: Business intent, commercial scope, product authorization, stage boundaries, and governance decisions are defined in `E:\MPG`. This repository contains the technical implementation code.
+2. **Market-Ready Build Program Authorized**: Under `MPG-DEC-046`, MPG Reputation is developed independently through a complete market-ready build program (MR-0 through MR-11) before broad MPG company/brand development resumes.
+3. **Market-Ready STATUS is Not Yet Achieved**: Market-ready development is authorized, but market-ready STATUS is not yet achieved. Building commercial infrastructure does NOT itself grant `PILOT_READY`, `DELIVERY_READY`, `MARKET_APPROVED`, `ACTIVE`, marketing approval, public launch, real-customer messaging, final pricing, or legal/compliance approval.
+4. **Current Engineering Milestone is MR-1 (Production Messaging Core)**:
+   - Production messaging architecture (Resend email, domain authentication, bounce/complaint handling, delivery monitoring) may now be built.
+   - **LIVE customer messaging remains OFF** until separately authorized.
+   - SMS remains outside MR-1 and strictly gated.
+   - Billing (Stripe) belongs to milestone MR-5 and must not be implemented prematurely.
+   - Do not prematurely implement unrelated roadmap phases.
+5. **No Unsupported Launch Claims**: Do not mark the product active, market-approved, delivery-ready, or publicly launched in code, documentation, or commits.
 
 ## 2. Non-Negotiable Operational Rules
 
@@ -43,8 +50,8 @@ These instructions apply to Codex, ChatGPT, Antigravity, Claude, Gemini, automat
    - Never accept arbitrary destination URLs from query parameters or user-supplied input at redirect time.
 6. **Provider Abstraction**:
    - Keep third-party integrations behind narrow domain provider interfaces (`EmailProvider`, etc.).
-   - Local development defaults to `ConsoleEmailProvider`. Live sending via `ResendEmailProvider` requires explicit server configuration.
-   - Do not implement SMS (Twilio), CRM native connectors, Google OAuth review syncing, or billing in V0.1.
+   - Local development defaults to `ConsoleEmailProvider`. In MR-1, production email architecture using `ResendEmailProvider` may be engineered, but live sending to real customers remains disabled until explicitly activated and authorized.
+   - SMS (Twilio), CRM native connectors, Google OAuth review syncing, and billing are tied to their respective milestones in `docs/MARKET-READY-ROADMAP.md` and must not be added out of sequence.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

@@ -20,7 +20,7 @@ Automated, neutral review collection and reputation management for local busines
 |---|---|
 | **Program** | **Market-Ready Build Program** authorized under `MPG-DEC-046` |
 | **Status** | V0.1 Technical Foundation Accepted (`MPG-DEC-045`); V0.2 Controlled Staging & Usability Proven Baseline |
-| **Current Milestone** | **MR-0 Governance Reconciliation** (current) / **MR-1 Production Messaging Core** (next engineering milestone) |
+| **Current Milestone** | **MR-1 Production Messaging Core (active milestone) / MR-1A Transport + Provider Event Foundation** |
 | **Commercial Release** | **GATED** — The product is NOT yet publicly launched; commercial release and marketing approval remain gated |
 | **Customer Messaging** | **OFF** — Live customer messaging remains disabled until separately authorized |
 

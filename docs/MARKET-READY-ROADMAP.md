@@ -18,10 +18,10 @@ This is an **engineering execution specification**, not marketing copy. Inclusio
 ## Roadmap Overview
 
 ```text
-[MR-0: Governance Reconciliation] (CURRENT)
+[MR-0: Governance Reconciliation] (COMPLETE / ACCEPTED BASELINE)
        │
        ▼
-[MR-1: Production Messaging Core] (NEXT ENGINEERING MILESTONE)
+[MR-1: Production Messaging Core] (ACTIVE ENGINEERING MILESTONE)
        │
        ▼
 [MR-2: Customer Activation]
@@ -64,7 +64,7 @@ Each transition is strictly evidence- and gate-controlled.
 
 | Dimension | Specification |
 |---|---|
-| **Status** | **CURRENT MILESTONE** |
+| **Status** | **COMPLETE / ACCEPTED BASELINE** |
 | **Objective** | Synchronize governance, authority, decisions, project status, agent instructions, and roadmaps between Company OS (`E:\MPG`) and the product repository (`E:\MPG-Reputation`) under `MPG-DEC-046`. |
 | **Dependencies** | Owner decision `MPG-DEC-046`. |
 | **Implementation Scope** | 1. Record `MPG-DEC-046` in `docs/02-decision-register.md`.<br>2. Update `docs/01-project-status.md` to reflect temporary primary execution focus and paused Professional Business Websites work.<br>3. Update `products/mpg-reputation/README.md` and `docs/19-backlog.md` in Company OS.<br>4. Update `AGENTS.md` in `E:\MPG-Reputation` to govern the Market-Ready Build Program.<br>5. Establish `docs/MARKET-READY-ROADMAP.md` and project-specific `README.md`. |
@@ -78,7 +78,7 @@ Each transition is strictly evidence- and gate-controlled.
 
 | Dimension | Specification |
 |---|---|
-| **Status** | **NEXT ENGINEERING MILESTONE** |
+| **Status** | **ACTIVE ENGINEERING MILESTONE** (MR-1A in progress) |
 | **Objective** | Engineer production email messaging infrastructure using Resend with strict tenant routing, domain authentication, deliverability monitoring, and bounce/complaint handling, while keeping live sends disabled. |
 | **Dependencies** | MR-0 complete; verified Resend sending domain and API configuration provided by owner. |
 | **Implementation Scope** | 1. Implement production `ResendEmailProvider` with robust error classification (transient vs permanent).<br>2. Develop responsive, accessible, neutral email templates for initial review request and optional single reminder.<br>3. Implement inbound webhook handler (`/api/webhooks/resend`) with signature verification for delivery, bounce, and complaint events.<br>4. Automate contact suppression on hard bounces and spam complaints.<br>5. Harden workflow retry mechanisms with exponential backoff and dead-letter exception records.<br>6. Implement server-side safety flag ensuring live sends to real customers remain disabled until explicitly authorized. |

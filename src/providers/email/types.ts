@@ -5,6 +5,7 @@ export interface SendEmailInput {
   trackingUrl: string
   subject?: string
   idempotencyKey?: string
+  correlationId?: string
 }
 
 export interface SendEmailResult {

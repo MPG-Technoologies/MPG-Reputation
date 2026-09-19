@@ -349,7 +349,8 @@ export async function executeReviewRequestHandler({
           recipientName: postDelayCheck.customerName || 'there',
           businessName: postDelayCheck.businessName || 'our business',
           trackingUrl,
-          idempotencyKey: `req_${reviewRequest.id}`,
+          idempotencyKey: `review-request/${reviewRequest.id}/initial-v1`,
+          correlationId: reviewRequest.id,
         })
 
         if (!result.success) {
@@ -367,7 +368,7 @@ export async function executeReviewRequestHandler({
           })
           .eq('id', reviewRequest.id)
 
-        // Record message_event
+        // Record message_event (privacy hardened: minimal operational metadata)
         await supabase.from('message_events').insert({
           organization_id: organizationId,
           review_request_id: reviewRequest.id,
@@ -375,7 +376,7 @@ export async function executeReviewRequestHandler({
           provider_message_id: result.messageId,
           event_type: 'sent',
           status: 'SENT',
-          metadata: { to: postDelayCheck.customerEmail, trackingUrl },
+          metadata: { messageKind: 'initial_review_request' },
         })
 
         // Atomic usage increment via service_role admin client (Prompt Correction 19)
@@ -403,7 +404,7 @@ export async function executeReviewRequestHandler({
           })
           .eq('id', reviewRequest.id)
 
-        // Record failure event
+        // Record failure event (privacy hardened)
         await supabase.from('message_events').insert({
           organization_id: organizationId,
           review_request_id: reviewRequest.id,
@@ -411,6 +412,7 @@ export async function executeReviewRequestHandler({
           event_type: 'failed',
           status: 'FAILED',
           sanitized_error: errorMsg,
+          metadata: { messageKind: 'initial_review_request' },
         })
 
         // Rethrow for Inngest retry mechanism

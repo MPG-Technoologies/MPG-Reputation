@@ -262,6 +262,7 @@ export interface Database {
           token_hash: string
           scheduled_for: string
           sent_at: string | null
+          delivered_at: string | null
           clicked_at: string | null
           cancelled_at: string | null
           failed_at: string | null
@@ -282,6 +283,7 @@ export interface Database {
           token_hash: string
           scheduled_for?: string
           sent_at?: string | null
+          delivered_at?: string | null
           clicked_at?: string | null
           cancelled_at?: string | null
           failed_at?: string | null
@@ -302,6 +304,7 @@ export interface Database {
           token_hash?: string
           scheduled_for?: string
           sent_at?: string | null
+          delivered_at?: string | null
           clicked_at?: string | null
           cancelled_at?: string | null
           failed_at?: string | null
@@ -348,11 +351,13 @@ export interface Database {
           review_request_id: string
           provider: string
           provider_message_id: string | null
+          provider_event_id: string | null
           event_type: string
           status: string
           sanitized_error: string | null
           metadata: Json
           created_at: string
+          event_occurred_at: string | null
         }
         Insert: {
           id?: string
@@ -360,11 +365,13 @@ export interface Database {
           review_request_id: string
           provider: string
           provider_message_id?: string | null
+          provider_event_id?: string | null
           event_type: string
           status: string
           sanitized_error?: string | null
           metadata?: Json
           created_at?: string
+          event_occurred_at?: string | null
         }
         Update: {
           id?: string
@@ -372,11 +379,13 @@ export interface Database {
           review_request_id?: string
           provider?: string
           provider_message_id?: string | null
+          provider_event_id?: string | null
           event_type?: string
           status?: string
           sanitized_error?: string | null
           metadata?: Json
           created_at?: string
+          event_occurred_at?: string | null
         }
         Relationships: []
       }

@@ -8,7 +8,8 @@ Automated, neutral review collection and reputation management for local busines
 
 - **Relationship**: `MPG → MPG Reputation`
 - **Identity**: MPG Reputation is a dedicated product platform subordinate to the MPG master company architecture (`MPG-DEC-043`).
-- **Governance Source of Truth**: [`E:\MPG`](../MPG) (MPG Company OS).
+- **Governance Source of Truth**: MPG Company OS
+- **Local Workspace**: `E:\MPG`
 - **Scope & Repository**: This repository (`techwithmpg/mpg-reputation`) contains the technical implementation code for the dedicated product application and website (`MPG-DEC-039`, `MPG-DEC-044`).
 
 ---

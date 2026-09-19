@@ -121,12 +121,12 @@ Each transition is strictly evidence- and gate-controlled.
 | Dimension | Specification |
 |---|---|
 | **Status** | PLANNED |
-| **Objective** | Enforce server-side trial limits, implement an immutable usage metering ledger, and validate per-organization cost models against actual provider pricing. |
+| **Objective** | Engineer a configurable server-side trial entitlement engine, implement an immutable usage metering ledger, and validate per-organization cost models against actual provider pricing. Final trial structure, request limits, duration, and transition rules remain TBD / validation-required. |
 | **Dependencies** | MR-1, MR-2, MR-3 complete. |
-| **Implementation Scope** | 1. Server-side trial entitlement engine strictly enforcing 30 review requests or 30 calendar days (whichever comes first).<br>2. Automated trial expiration transitions that pause pending automations gracefully.<br>3. Immutable usage ledger recording billable events: `review_requests_initiated`, `emails_sent`, `webhooks_processed`.<br>4. Dashboard trial progress component displaying usage and remaining days/requests truthfully.<br>5. Cost allocation and contribution margin models tracking direct COGS (email, database, compute). |
-| **Exit Evidence** | Automated tests demonstrating that automation halts immediately when request #30 is dispatched or day 30 is reached; verified ledger reconciliation against provider invoices. |
-| **Explicit Non-Assumptions** | No unlimited requests during trial; no automated conversion to paid subscription without explicit customer payment method and consent. |
-| **Gate Required** | Founder review and verification of unit economics and COGS model (`REP-ECON-001`). |
+| **Implementation Scope** | 1. Configurable server-side trial entitlement engine capable of enforcing dynamic review request and duration limits (current working hypothesis: 30 review requests or 30 calendar days, whichever occurs first; commercial trial numbers must not be hard-coded before approval).<br>2. Automated trial expiration transitions that pause pending automations gracefully.<br>3. Immutable usage ledger recording billable events: `review_requests_initiated`, `emails_sent`, `webhooks_processed`.<br>4. Dashboard trial progress component displaying usage and remaining days/review requests truthfully.<br>5. Cost allocation and contribution margin models tracking direct COGS (email, database, compute). |
+| **Exit Evidence** | Automated tests demonstrating that the entitlement engine reliably enforces configurable limits and halts automation when configured review request or time thresholds are reached; verified ledger reconciliation against provider invoices. |
+| **Explicit Non-Assumptions** | Trial structure remains TBD / validation-required; 30 review requests / 30 days is a recommended working hypothesis, not an accepted commercial freeze; final request limit, duration, reminders, usage accounting, and paid transition require evidence and owner approval; engineering may design an entitlement engine capable of enforcing configurable limits, but commercial numbers must not be hard-coded before approval; no unlimited review requests during trial; no automated conversion to paid subscription without explicit customer payment method and consent. |
+| **Gate Required** | Founder review and verification of unit economics, COGS model, and trial parameters (`REP-ECON-001`). |
 
 ---
 
@@ -163,12 +163,12 @@ Each transition is strictly evidence- and gate-controlled.
 | Dimension | Specification |
 |---|---|
 | **Status** | PLANNED |
-| **Objective** | Harden application security, enforce privacy standards, implement data lifecycle controls, and ensure compliance with US and Canadian messaging regulations. |
+| **Objective** | Harden application security, enforce privacy standards, implement data lifecycle controls, and implement technical controls intended to support applicable US and Canadian messaging, privacy, and suppression requirements, subject to qualified legal review. |
 | **Dependencies** | MR-1 through MR-6 complete. |
-| **Implementation Scope** | 1. Comprehensive PostgreSQL RLS audit with negative penetration tests verifying complete cross-tenant denial.<br>2. Customer data retention, export, and deletion pipelines honoring GDPR/CCPA-style data subject requests.<br>3. Cross-channel durable suppression registry ensuring unsubscribed contacts cannot be messaged by any trigger.<br>4. CAN-SPAM and CASL compliance verification (physical business address in footer, clear sender identification, functional one-click unsubscribe).<br>5. Product Terms of Service and Privacy Policy technical enforcement. |
-| **Exit Evidence** | Automated penetration test report showing zero cross-tenant data leaks; verified end-to-end data deletion test; verified suppression check blocking sends to unsubscribed contacts. |
-| **Explicit Non-Assumptions** | Technical compliance features do not substitute for qualified legal review (`REP-LEGAL-001`); no health information (PHI/HIPAA) is ever accepted or stored. |
-| **Gate Required** | Qualified legal review and sign-off on messaging compliance, terms of service, and privacy policy before external customer data is processed. |
+| **Implementation Scope** | 1. Comprehensive PostgreSQL RLS audit with negative penetration tests verifying complete cross-tenant denial.<br>2. Customer data retention, export, and deletion pipelines supporting data subject request workflows.<br>3. Cross-channel durable suppression registry ensuring unsubscribed contacts cannot be messaged by any trigger.<br>4. Technical requirements to evaluate for applicable US (e.g. CAN-SPAM) and Canadian (e.g. CASL) regimes as implementation candidates subject to jurisdiction and use-case review (physical business address in footer, clear sender identification, functional one-click unsubscribe, durable opt-out processing), not blanket legal conclusions.<br>5. Product Terms of Service and Privacy Policy technical enforcement controls. |
+| **Exit Evidence** | Automated penetration test report showing zero cross-tenant data leaks; verified end-to-end data deletion test; verified suppression check blocking sends to unsubscribed contacts; documented technical controls audit prepared for qualified legal review. |
+| **Explicit Non-Assumptions** | Technical compliance features do not substitute for qualified legal review (`REP-LEGAL-001`); technical controls are intended to support compliance requirements but cannot guarantee compliance without qualified legal/professional review; no compliance certification or legal approval is claimed; no health information (PHI/HIPAA) is ever accepted or stored. |
+| **Gate Required** | Qualified legal review and sign-off on messaging compliance, terms of service, and privacy policy before external customer data is processed (`REP-LEGAL-001`). |
 
 ---
 
@@ -177,12 +177,12 @@ Each transition is strictly evidence- and gate-controlled.
 | Dimension | Specification |
 |---|---|
 | **Status** | PLANNED |
-| **Objective** | Execute a bounded, supervised pilot with a small cohort of real businesses to validate real-world conversion, deliverability, and operational support feasibility. |
+| **Objective** | Execute a bounded, supervised pilot with a small, owner-approved bounded pilot cohort under controlled conditions to evaluate product reliability, deliverability, support burden, and operator feedback. |
 | **Dependencies** | MR-1 through MR-7 exit criteria verified; explicit owner pilot authorization (`REP-PILOT-001`). |
-| **Implementation Scope** | 1. Pilot participant onboarding package and agreement.<br>2. Supervised activation of 3–5 candidate businesses.<br>3. High-frequency monitoring of delivery, click-through, and Google review generation.<br>4. Structured feedback capture interviews with business operators.<br>5. Operational metrics report measuring support burden and error rates. |
-| **Exit Evidence** | Pilot summary report demonstrating reliable delivery, acceptable conversion rates, manageable support load, zero review-gating infractions, and positive founder/business validation. |
-| **Explicit Non-Assumptions** | Pilot is invitation-only under controlled supervision; does NOT constitute open public availability or general market release. |
-| **Gate Required** | Owner approval of `PILOT_READY` status and explicit pilot cohort authorization. |
+| **Implementation Scope** | 1. Pilot participant onboarding package and participant agreements.<br>2. Supervised activation of a small, owner-approved bounded pilot cohort (final cohort size determined by operational capacity, legal/compliance readiness, support capacity, risk controls, and pilot objectives).<br>3. High-frequency monitoring of delivery, click-through, and review request accounting.<br>4. Structured feedback capture interviews with participating business operators.<br>5. Operational metrics report measuring support burden, error rates, and failure modes. |
+| **Exit Evidence** | Comprehensive pilot evaluation report documenting product reliability, deliverability evidence, support burden, operator/customer feedback, review-integrity compliance, observed failure modes, unit economics where measurable, and an explicit recommendation: proceed / revise / pause / stop. |
+| **Explicit Non-Assumptions** | Pilot is invitation-only under controlled supervision; does NOT constitute open public availability or general market release; pilot results are not pre-decided (a legitimate pilot may succeed, partially succeed, or disprove assumptions; no positive validation is guaranteed or assumed). |
+| **Gate Required** | Owner approval of `PILOT_READY` status and explicit pilot cohort authorization (`REP-PILOT-001`). |
 
 ---
 
@@ -193,9 +193,9 @@ Each transition is strictly evidence- and gate-controlled.
 | **Status** | PLANNED |
 | **Objective** | Develop the dedicated public product website for MPG Reputation, featuring the Free Reputation Check experience and seamless trial onboarding funnel. |
 | **Dependencies** | MR-2, MR-4, MR-5, and MR-8 pilot learnings. |
-| **Implementation Scope** | 1. Fast, responsive, accessible marketing site (`/`, `/how-it-works`, `/pricing`, `/faq`, `/terms`, `/privacy`).<br>2. Interactive Free Reputation Check questionnaire capturing current review metrics and process gaps.<br>3. Dynamic Reputation Opportunity Report generation presenting truthful, non-hyped optimization insights.<br>4. Seamless call-to-action transition from report to 30-day/30-request free trial registration.<br>5. Adherence to Company OS public claims policy (no fabricated testimonials, guarantees, or ranking promises). |
-| **Exit Evidence** | Lighthouse performance, accessibility, and SEO audit scores > 90; end-to-end user testing of acquisition funnel from initial check to trial account creation; truthful claims audit pass. |
-| **Explicit Non-Assumptions** | The product website is an independent product surface (`MPG-DEC-039`), not the MPG corporate/umbrella website; does not publish unapproved pricing. |
+| **Implementation Scope** | 1. Fast, responsive, accessible marketing site (`/`, `/how-it-works`, `/pricing`, `/faq`, `/terms`, `/privacy`).<br>2. Interactive Free Reputation Check questionnaire capturing current review metrics and process gaps.<br>3. Dynamic Reputation Opportunity Report generation presenting truthful, non-hyped optimization insights.<br>4. Seamless call-to-action transition from report to free trial registration based on active trial entitlements.<br>5. Adherence to Company OS public claims policy (no fabricated testimonials, guarantees, or ranking promises). |
+| **Exit Evidence** | Define and validate appropriate performance, accessibility, SEO and responsive-quality thresholds before public release; target strong Lighthouse results where representative and useful; end-to-end user testing of acquisition funnel from initial check to trial account creation; truthful claims audit pass. |
+| **Explicit Non-Assumptions** | The product website is an independent product surface (`MPG-DEC-039`), not the MPG corporate/umbrella website; does not publish unapproved pricing; Lighthouse >90 is a RECOMMENDED engineering quality target rather than an accepted company gate, and a single Lighthouse number must not substitute for real accessibility, usability, or performance validation. |
 | **Gate Required** | Public claims review and owner marketing approval prior to public deployment. |
 
 ---

@@ -197,8 +197,33 @@ export async function POST(req: Request) {
           insertEventErr.message?.includes('unique constraint')
 
         if (isUniqueViolation) {
-          // Another request claimed this event concurrently. Return duplicate success.
-          return Response.json({ received: true, duplicate: true }, { status: 200 })
+          // Another request claimed this event concurrently (MR-1A.3 Section 2)
+          // Re-query the existing claimed event to inspect completion state
+          const { data: raceRows, error: raceErr } = await supabase
+            .from('message_events')
+            .select('id, processed_at')
+            .eq('provider', 'resend')
+            .eq('provider_event_id', svixId)
+            .limit(1)
+
+          if (raceErr) {
+            console.error('[ResendWebhook] Error querying concurrent message_event:', raceErr.message)
+            return new Response('Webhook event processing in progress', { status: 503 })
+          }
+
+          const raceEvent = raceRows?.[0]
+          if (!raceEvent) {
+            // Unique violation occurred but claimed row cannot yet be read (MR-1A.3 Section 2C)
+            return new Response('Webhook event processing in progress', { status: 503 })
+          }
+
+          if (raceEvent.processed_at) {
+            // Event is fully complete (MR-1A.3 Section 2A)
+            return Response.json({ received: true, duplicate: true }, { status: 200 })
+          }
+
+          // Another request claimed the event but completion is not yet durable (MR-1A.3 Section 2B)
+          return new Response('Webhook event processing in progress', { status: 503 })
         } else {
           console.error('[ResendWebhook] Error persisting message_event:', insertEventErr.message)
           return new Response('Database insert error', { status: 500 })

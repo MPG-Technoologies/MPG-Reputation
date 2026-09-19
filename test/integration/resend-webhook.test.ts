@@ -385,18 +385,28 @@ describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A, MR-1A.1,
         ),
       ])
 
-      // Both requests must succeed with HTTP 200 (neither should fail with 500)
-      expect(res1.status).toBe(200)
-      expect(res2.status).toBe(200)
+      // One request processes normally (HTTP 200). Under MR-1A.3, the racing request
+      // receives HTTP 503 if the first is in-flight, or HTTP 200 if the first finished.
+      // One request processes normally (HTTP 200). Under MR-1A.3, the racing request
+      // receives HTTP 503 if the first is in-flight, or HTTP 200 if the first finished.
+      const statusList = [res1.status, res2.status]
+      expect(statusList).toContain(200)
+      const racingStatus = statusList.find((s) => s !== 200) ?? 200
+      expect([200, 503]).toContain(racingStatus)
 
-      const json1 = await res1.json()
-      const json2 = await res2.json()
-      expect(json1.received).toBe(true)
-      expect(json2.received).toBe(true)
-
-      // Exactly one should process normally, and one should be handled as duplicate
-      const duplicateCount = [json1.duplicate, json2.duplicate].filter(Boolean).length
-      expect(duplicateCount).toBe(1)
+      // If the racing request received 503, a subsequent replay returns 200 duplicate
+      if (racingStatus === 503) {
+        const retryRes = await POST(
+          new Request('http://localhost:3000/api/webhooks/resend', {
+            method: 'POST',
+            headers: { ...headers },
+            body: payload,
+          })
+        )
+        expect(retryRes.status).toBe(200)
+        const retryJson = await retryRes.json()
+        expect(retryJson.duplicate).toBe(true)
+      }
 
       // Verify database uniqueness guarantee: exactly 1 message_event row exists
       const { count: eventRowCount } = await supabase
@@ -1337,6 +1347,411 @@ describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A, MR-1A.1,
       expect(finalDeliveredAt ? new Date(finalDeliveredAt).toISOString() : null).toBe(
         new Date(deliveredTimestamp).toISOString()
       )
+    })
+  })
+
+  describe('Concurrent Claim Acknowledgement & Incomplete Event Protection (MR-1A.3 Sections 6, 7, 8, 9)', () => {
+    it('concurrent claim in progress returns HTTP 503 and replay after completion returns HTTP 200 duplicate (MR-1A.3 Section 6)', async () => {
+      const nonce = Date.now() + 200
+      const email = `in-progress.${nonce}@example.test`
+      const { reviewRequestId, emailId } = await createTestHierarchy(nonce, email, 'SENT')
+      const eventId = `evt_race_prog_${randomUUID()}`
+
+      const payload = JSON.stringify({
+        type: 'email.delivered',
+        created_at: new Date().toISOString(),
+        data: {
+          email_id: emailId,
+          to: [email],
+        },
+      })
+      const { headers } = signSvixPayload(TEST_WEBHOOK_SECRET, payload, eventId)
+
+      // Request A claims the event, but processed_at remains NULL (in progress)
+      const { data: claimedEvent, error: claimErr } = await supabase
+        .from('message_events')
+        .insert({
+          organization_id: testOrgId,
+          review_request_id: reviewRequestId,
+          provider: 'resend',
+          provider_message_id: emailId,
+          provider_event_id: eventId,
+          event_type: 'email.delivered',
+          status: 'SENDING',
+          event_occurred_at: new Date().toISOString(),
+          processed_at: null,
+          metadata: { messageKind: 'initial_review_request' },
+        })
+        .select('id')
+        .single()
+      expect(claimErr).toBeNull()
+      expect(claimedEvent).not.toBeNull()
+
+      // Request B races concurrently: Step 5 pre-check misses (simulating starting before A inserted),
+      // then Step 8 insert hits the real unique constraint on (provider, provider_event_id)
+      let isPreCheck = true
+      const realCreateAdminClient = adminModule.createAdminClient
+      const clientSpy = vi.spyOn(adminModule, 'createAdminClient').mockImplementation(() => {
+        const client = realCreateAdminClient()
+        const origFrom = client.from.bind(client)
+        client.from = ((table: string) => {
+          const qb = origFrom(table as 'message_events')
+          if (table === 'message_events') {
+            const origSelect = qb.select.bind(qb)
+            qb.select = ((...args: Parameters<typeof origSelect>) => {
+              if (isPreCheck) {
+                isPreCheck = false
+                const fakeQuery = {
+                  eq: () => fakeQuery,
+                  limit: () => fakeQuery,
+                  then: (resolve: (v: unknown) => unknown) =>
+                    Promise.resolve({ data: [], error: null }).then(resolve),
+                }
+                return fakeQuery as unknown as ReturnType<typeof origSelect>
+              }
+              return origSelect(...args)
+            }) as typeof origSelect
+          }
+          return qb
+        }) as unknown as typeof origFrom
+        return client
+      })
+
+      try {
+        // Request B attempts insert -> hits unique violation -> observes processed_at NULL -> returns HTTP 503
+        const resB = await POST(
+          new Request('http://localhost:3000/api/webhooks/resend', {
+            method: 'POST',
+            headers,
+            body: payload,
+          })
+        )
+        expect(resB.status).toBe(503)
+        const textB = await resB.text()
+        expect(textB).toContain('Webhook event processing in progress')
+
+        // Review request is still SENT (Request B did not execute downstream side effects)
+        const { data: reqBefore } = await supabase
+          .from('review_requests')
+          .select('status')
+          .eq('id', reviewRequestId)
+          .single()
+        expect(reqBefore?.status).toBe('SENT')
+
+        // Now Request A completes successfully
+        await supabase
+          .from('review_requests')
+          .update({ status: 'DELIVERED', delivered_at: new Date().toISOString() })
+          .eq('id', reviewRequestId)
+
+        await supabase
+          .from('message_events')
+          .update({ status: 'DELIVERED', processed_at: new Date().toISOString() })
+          .eq('id', claimedEvent!.id)
+
+        // Later replay (Request C) arrives after completion
+        const resC = await POST(
+          new Request('http://localhost:3000/api/webhooks/resend', {
+            method: 'POST',
+            headers,
+            body: payload,
+          })
+        )
+        expect(resC.status).toBe(200)
+        const jsonC = await resC.json()
+        expect(jsonC.received).toBe(true)
+        expect(jsonC.duplicate).toBe(true)
+
+        // Verify exactly one message_events row exists for this provider_event_id
+        const { data: eventRows } = await supabase
+          .from('message_events')
+          .select('id')
+          .eq('provider_event_id', eventId)
+        expect(eventRows?.length).toBe(1)
+      } finally {
+        clientSpy.mockRestore()
+      }
+    })
+
+    it('later retry resumes successfully after original claimant fails without premature 200 (MR-1A.3 Section 7)', async () => {
+      const nonce = Date.now() + 210
+      const email = `claim-fail.${nonce}@example.test`
+      const { reviewRequestId, emailId } = await createTestHierarchy(nonce, email, 'SENT')
+      const eventId = `evt_claim_fail_${randomUUID()}`
+
+      const payload = JSON.stringify({
+        type: 'email.delivered',
+        created_at: new Date().toISOString(),
+        data: {
+          email_id: emailId,
+          to: [email],
+        },
+      })
+      const { headers } = signSvixPayload(TEST_WEBHOOK_SECRET, payload, eventId)
+
+      // Request A claims the event, but fails before completing (processed_at remains NULL)
+      await supabase.from('message_events').insert({
+        organization_id: testOrgId,
+        review_request_id: reviewRequestId,
+        provider: 'resend',
+        provider_message_id: emailId,
+        provider_event_id: eventId,
+        event_type: 'email.delivered',
+        status: 'SENDING',
+        event_occurred_at: new Date().toISOString(),
+        processed_at: null,
+        metadata: { messageKind: 'initial_review_request' },
+      })
+
+      // Request B races and receives HTTP 503 because the event remains unprocessed
+      let isPreCheck = true
+      const realCreateAdminClient = adminModule.createAdminClient
+      const clientSpy = vi.spyOn(adminModule, 'createAdminClient').mockImplementation(() => {
+        const client = realCreateAdminClient()
+        const origFrom = client.from.bind(client)
+        client.from = ((table: string) => {
+          const qb = origFrom(table as 'message_events')
+          if (table === 'message_events') {
+            const origSelect = qb.select.bind(qb)
+            qb.select = ((...args: Parameters<typeof origSelect>) => {
+              if (isPreCheck) {
+                isPreCheck = false
+                const fakeQuery = {
+                  eq: () => fakeQuery,
+                  limit: () => fakeQuery,
+                  then: (resolve: (v: unknown) => unknown) =>
+                    Promise.resolve({ data: [], error: null }).then(resolve),
+                }
+                return fakeQuery as unknown as ReturnType<typeof origSelect>
+              }
+              return origSelect(...args)
+            }) as typeof origSelect
+          }
+          return qb
+        }) as unknown as typeof origFrom
+        return client
+      })
+
+      let resBStatus = 0
+      try {
+        const resB = await POST(
+          new Request('http://localhost:3000/api/webhooks/resend', {
+            method: 'POST',
+            headers,
+            body: payload,
+          })
+        )
+        resBStatus = resB.status
+      } finally {
+        clientSpy.mockRestore()
+      }
+
+      // Request B received 503 (no premature 200 acknowledgement was emitted)
+      expect(resBStatus).toBe(503)
+
+      // Request A has crashed / failed; review_request is still in SENT
+      const { data: reqBeforeRetry } = await supabase
+        .from('review_requests')
+        .select('status, delivered_at')
+        .eq('id', reviewRequestId)
+        .single()
+      expect(reqBeforeRetry?.status).toBe('SENT')
+      expect(reqBeforeRetry?.delivered_at).toBeNull()
+
+      // Later retry arrives sequentially: begins normally, finds existing event with processed_at NULL,
+      // resumes idempotent processing, updates review_request to DELIVERED, and stamps processed_at
+      const retryRes = await POST(
+        new Request('http://localhost:3000/api/webhooks/resend', {
+          method: 'POST',
+          headers,
+          body: payload,
+        })
+      )
+      expect(retryRes.status).toBe(200)
+
+      // Review request is now DELIVERED
+      const { data: reqAfterRetry } = await supabase
+        .from('review_requests')
+        .select('status, delivered_at')
+        .eq('id', reviewRequestId)
+        .single()
+      expect(reqAfterRetry?.status).toBe('DELIVERED')
+      expect(reqAfterRetry?.delivered_at).not.toBeNull()
+
+      // message_events.processed_at is now non-null
+      const { data: eventAfterRetry } = await supabase
+        .from('message_events')
+        .select('processed_at')
+        .eq('provider_event_id', eventId)
+        .single()
+      expect(eventAfterRetry?.processed_at).not.toBeNull()
+    })
+
+    it('completed duplicate event returns HTTP 200 without mutating review request, suppressions, or message_events (MR-1A.3 Section 8)', async () => {
+      const nonce = Date.now() + 220
+      const email = `comp-dup.${nonce}@example.test`
+      const { reviewRequestId, emailId } = await createTestHierarchy(nonce, email, 'SENT')
+      const eventId = `evt_comp_dup_${randomUUID()}`
+
+      const payload = JSON.stringify({
+        type: 'email.delivered',
+        created_at: new Date().toISOString(),
+        data: {
+          email_id: emailId,
+          to: [email],
+        },
+      })
+      const { headers } = signSvixPayload(TEST_WEBHOOK_SECRET, payload, eventId)
+
+      // First request arrives and completes normally
+      const res1 = await POST(
+        new Request('http://localhost:3000/api/webhooks/resend', {
+          method: 'POST',
+          headers,
+          body: payload,
+        })
+      )
+      expect(res1.status).toBe(200)
+
+      const { data: reqAfterFirst } = await supabase
+        .from('review_requests')
+        .select('status, delivered_at')
+        .eq('id', reviewRequestId)
+        .single()
+      expect(reqAfterFirst?.status).toBe('DELIVERED')
+      const deliveredTimestamp = reqAfterFirst?.delivered_at
+      expect(deliveredTimestamp).not.toBeNull()
+
+      const { count: suppressionsBefore } = await supabase
+        .from('suppressions')
+        .select('*', { count: 'exact', head: true })
+        .eq('organization_id', testOrgId)
+
+      // Same signed webhook arrives again
+      const res2 = await POST(
+        new Request('http://localhost:3000/api/webhooks/resend', {
+          method: 'POST',
+          headers,
+          body: payload,
+        })
+      )
+      expect(res2.status).toBe(200)
+      const json2 = await res2.json()
+      expect(json2.received).toBe(true)
+      expect(json2.duplicate).toBe(true)
+
+      // Review request unchanged
+      const { data: reqAfterDup } = await supabase
+        .from('review_requests')
+        .select('status, delivered_at')
+        .eq('id', reviewRequestId)
+        .single()
+      expect(reqAfterDup?.status).toBe('DELIVERED')
+      expect(reqAfterDup?.delivered_at).toBe(deliveredTimestamp)
+
+      // No new suppressions created
+      const { count: suppressionsAfter } = await supabase
+        .from('suppressions')
+        .select('*', { count: 'exact', head: true })
+        .eq('organization_id', testOrgId)
+      expect(suppressionsAfter).toBe(suppressionsBefore)
+
+      // Exactly 1 message_events row for this provider_event_id
+      const { count: eventsCount } = await supabase
+        .from('message_events')
+        .select('*', { count: 'exact', head: true })
+        .eq('provider_event_id', eventId)
+      expect(eventsCount).toBe(1)
+    })
+
+    it('returns HTTP 503 when insert receives unique violation but existing row cannot yet be read (MR-1A.3 Section 9)', async () => {
+      const nonce = Date.now() + 230
+      const email = `unread-race.${nonce}@example.test`
+      const { reviewRequestId, emailId } = await createTestHierarchy(nonce, email, 'SENT')
+      const eventId = `evt_unread_${randomUUID()}`
+
+      const payload = JSON.stringify({
+        type: 'email.delivered',
+        created_at: new Date().toISOString(),
+        data: {
+          email_id: emailId,
+          to: [email],
+        },
+      })
+      const { headers } = signSvixPayload(TEST_WEBHOOK_SECRET, payload, eventId)
+
+      // Mock createAdminClient so that:
+      // 1. Step 5 pre-check select returns empty
+      // 2. Step 6 correlation select passes through to real database
+      // 3. Step 8 insert returns unique violation error 23505
+      // 4. Step 8 follow-up select for concurrent event returns empty (simulating unreadable/transient visibility lag)
+      const realCreateAdminClient = adminModule.createAdminClient
+      const clientSpy = vi.spyOn(adminModule, 'createAdminClient').mockImplementation(() => {
+        const client = realCreateAdminClient()
+        const origFrom = client.from.bind(client)
+        client.from = ((table: string) => {
+          const qb = origFrom(table as 'message_events')
+          if (table === 'message_events') {
+            const origSelect = qb.select.bind(qb)
+            qb.select = ((...args: Parameters<typeof origSelect>) => {
+              const columns = args[0] as string | undefined
+              // Allow Step 6 correlation query (organization_id, review_request_id) to run against real DB
+              if (columns?.includes('organization_id')) {
+                return origSelect(...args)
+              }
+              // Intercept Step 5 pre-check and Step 8 re-query with empty data
+              const fakeQuery = {
+                eq: () => fakeQuery,
+                limit: () => fakeQuery,
+                then: (resolve: (v: unknown) => unknown) =>
+                  Promise.resolve({ data: [], error: null }).then(resolve),
+              }
+              return fakeQuery as unknown as ReturnType<typeof origSelect>
+            }) as typeof origSelect
+
+            qb.insert = (() => {
+              const fakeQuery = {
+                select: () => ({
+                  single: () =>
+                    Promise.resolve({
+                      data: null,
+                      error: {
+                        code: '23505',
+                        message: 'duplicate key value violates unique constraint idx_me_provider_event_unique',
+                      },
+                    }),
+                }),
+              }
+              return fakeQuery as unknown as ReturnType<typeof qb.insert>
+            }) as typeof qb.insert
+          }
+          return qb
+        }) as unknown as typeof origFrom
+        return client
+      })
+
+      try {
+        const res = await POST(
+          new Request('http://localhost:3000/api/webhooks/resend', {
+            method: 'POST',
+            headers,
+            body: payload,
+          })
+        )
+        expect(res.status).toBe(503)
+        const text = await res.text()
+        expect(text).toContain('Webhook event processing in progress')
+
+        // Verify review_request was untouched
+        const { data: req } = await supabase
+          .from('review_requests')
+          .select('status')
+          .eq('id', reviewRequestId)
+          .single()
+        expect(req?.status).toBe('SENT')
+      } finally {
+        clientSpy.mockRestore()
+      }
     })
   })
 

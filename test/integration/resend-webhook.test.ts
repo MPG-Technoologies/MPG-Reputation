@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import { createHmac, randomUUID } from 'crypto'
 import { POST } from '../../src/app/api/webhooks/resend/route'
-import { createAdminClient } from '../../src/lib/supabase/admin'
+import * as adminModule from '../../src/lib/supabase/admin'
+const { createAdminClient } = adminModule
 import { hashSuppressionContact } from '../../src/domain/suppression'
 import type { ReviewRequestStatus } from '../../src/domain/review-request/transitions'
 
@@ -27,7 +28,7 @@ function signSvixPayload(secret: string, payload: string, eventId = `evt_${rando
   }
 }
 
-describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A & MR-1A.1)', () => {
+describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A, MR-1A.1, MR-1A.2)', () => {
   const originalEnv = process.env
   const supabase = createAdminClient()
 
@@ -248,7 +249,7 @@ describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A & MR-1A.1
   })
 
   describe('Delivery Event & Idempotent Deduplication', () => {
-    it('processes verified email.delivered event, transitions status, and populates delivered_at', async () => {
+    it('processes verified email.delivered event, transitions status, and populates delivered_at and processed_at', async () => {
       const payload = JSON.stringify({
         type: 'email.delivered',
         created_at: new Date().toISOString(),
@@ -279,7 +280,7 @@ describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A & MR-1A.1
       expect(updatedReq?.status).toBe('DELIVERED')
       expect(updatedReq?.delivered_at).not.toBeNull()
 
-      // Verify message_event was recorded with provider_event_id and without PII
+      // Verify message_event was recorded with provider_event_id and processed_at stamped
       const { data: events } = await supabase
         .from('message_events')
         .select('*')
@@ -288,6 +289,7 @@ describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A & MR-1A.1
       const eventRecord = events![0]
       expect(eventRecord.event_type).toBe('email.delivered')
       expect(eventRecord.status).toBe('DELIVERED')
+      expect(eventRecord.processed_at).not.toBeNull()
 
       // Verify metadata privacy hardening: NO email, customer name, or URLs in metadata
       const metaString = JSON.stringify(eventRecord.metadata)
@@ -464,6 +466,7 @@ describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A & MR-1A.1
         .eq('provider_event_id', suppEventId)
       expect(events?.length).toBe(1)
       expect(JSON.stringify(events![0].metadata)).not.toContain(suppEmail)
+      expect(events![0].processed_at).not.toBeNull()
 
       // Replay identical event: must not duplicate suppression
       const res2 = await POST(
@@ -598,7 +601,7 @@ describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A & MR-1A.1
       expect(reqAfter?.status).toBe('SENT')
       expect(reqAfter?.failed_at).toBeNull()
 
-      // Event was recorded
+      // Event was recorded with processed_at stamped
       const { data: eventRecord } = await supabase
         .from('message_events')
         .select('*')
@@ -606,6 +609,7 @@ describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A & MR-1A.1
         .single()
       expect(eventRecord).not.toBeNull()
       expect(eventRecord!.event_type).toBe('email.delivery_delayed')
+      expect(eventRecord!.processed_at).not.toBeNull()
 
       // No suppression created
       const delayHash = hashSuppressionContact('email', delayEmail)
@@ -731,11 +735,12 @@ describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A & MR-1A.1
       // Review request status and clicked_at must remain completely unregressed
       const { data: finalReq } = await supabase
         .from('review_requests')
-        .select('status, clicked_at')
+        .select('status, clicked_at, delivered_at')
         .eq('id', cReqId)
         .single()
       expect(finalReq?.status).toBe('CLICKED')
       expect(finalReq?.clicked_at).toBe(originalClickedAt)
+      expect(finalReq?.delivered_at).not.toBeNull()
     })
   })
 
@@ -978,6 +983,360 @@ describe('Resend Inbound Webhook Endpoint & Event Deduplication (MR-1A & MR-1A.1
       expect(metaString).not.toContain(rawTargetEmail)
       expect(metaString).not.toContain('https://')
       expect(metaString).not.toContain('supersecret123')
+    })
+  })
+
+  describe('Resumable Processing & Failure Recovery (MR-1A.2 Sections 11, 12, 13, 14)', () => {
+    it('resumes incomplete event processing on retry when review_request update fails initially (MR-1A.2 Section 11)', async () => {
+      const failNonce = Date.now() + 100
+      const failEmail = `fail-recovery.${failNonce}@example.test`
+      const { reviewRequestId: fReqId, emailId: failMsgId } = await createTestHierarchy(
+        failNonce,
+        failEmail,
+        'SENT'
+      )
+      const failEventId = `evt_fail_res_${randomUUID()}`
+
+      const payload = JSON.stringify({
+        type: 'email.delivered',
+        created_at: new Date().toISOString(),
+        data: {
+          email_id: failMsgId,
+          to: [failEmail],
+        },
+      })
+      const { headers } = signSvixPayload(TEST_WEBHOOK_SECRET, payload, failEventId)
+
+      // Mock createAdminClient so the first review_requests update fails
+      let failUpdate = true
+      const realCreateAdminClient = adminModule.createAdminClient
+      const clientSpy = vi.spyOn(adminModule, 'createAdminClient').mockImplementation(() => {
+        const client = realCreateAdminClient()
+        const origFrom = client.from.bind(client)
+        client.from = ((table: string) => {
+          const qb = origFrom(table as 'review_requests')
+          if (table === 'review_requests') {
+            const origUpdate = qb.update.bind(qb)
+            qb.update = ((...args: Parameters<typeof origUpdate>) => {
+              if (failUpdate) {
+                failUpdate = false
+                const fakeQuery = {
+                  eq: () => fakeQuery,
+                  select: () => fakeQuery,
+                  then: (resolve: (v: unknown) => unknown) =>
+                    Promise.resolve({
+                      data: null,
+                      error: { message: 'Simulated connection error on review_requests' },
+                    }).then(resolve),
+                }
+                return fakeQuery as unknown as ReturnType<typeof origUpdate>
+              }
+              return origUpdate(...args)
+            }) as typeof origUpdate
+          }
+          return qb
+        }) as unknown as typeof origFrom
+        return client
+      })
+
+      try {
+        // First delivery attempt -> should fail with HTTP 500
+        const res1 = await POST(
+          new Request('http://localhost:3000/api/webhooks/resend', {
+            method: 'POST',
+            headers,
+            body: payload,
+          })
+        )
+        expect(res1.status).toBe(500)
+
+        // Verify message_events record was claimed, but processed_at remains NULL
+        const { data: eventAfterFail } = await supabase
+          .from('message_events')
+          .select('id, processed_at')
+          .eq('provider_event_id', failEventId)
+          .single()
+        expect(eventAfterFail).not.toBeNull()
+        expect(eventAfterFail?.processed_at).toBeNull()
+
+        // Review request is still SENT
+        const { data: reqAfterFail } = await supabase
+          .from('review_requests')
+          .select('status, delivered_at')
+          .eq('id', fReqId)
+          .single()
+        expect(reqAfterFail?.status).toBe('SENT')
+        expect(reqAfterFail?.delivered_at).toBeNull()
+
+        // Second delivery attempt (retry with same svix-id) -> must resume and succeed
+        const res2 = await POST(
+          new Request('http://localhost:3000/api/webhooks/resend', {
+            method: 'POST',
+            headers,
+            body: payload,
+          })
+        )
+        expect(res2.status).toBe(200)
+
+        // Verify review_request now updated to DELIVERED
+        const { data: reqAfterRetry } = await supabase
+          .from('review_requests')
+          .select('status, delivered_at')
+          .eq('id', fReqId)
+          .single()
+        expect(reqAfterRetry?.status).toBe('DELIVERED')
+        expect(reqAfterRetry?.delivered_at).not.toBeNull()
+
+        // Verify processed_at is now stamped
+        const { data: eventAfterRetry } = await supabase
+          .from('message_events')
+          .select('id, processed_at')
+          .eq('provider_event_id', failEventId)
+          .single()
+        expect(eventAfterRetry?.processed_at).not.toBeNull()
+
+        // Verify only ONE message_events row exists for this provider_event_id
+        const { data: allEvents } = await supabase
+          .from('message_events')
+          .select('id')
+          .eq('provider_event_id', failEventId)
+        expect(allEvents?.length).toBe(1)
+      } finally {
+        clientSpy.mockRestore()
+      }
+    })
+
+    it('resumes incomplete event processing and persists suppression when suppression write fails initially (MR-1A.2 Section 12)', async () => {
+      const suppFailNonce = Date.now() + 110
+      const suppFailEmail = `supp-fail.${suppFailNonce}@example.test`
+      const { emailId: suppFailMsgId } = await createTestHierarchy(
+        suppFailNonce,
+        suppFailEmail,
+        'SENT'
+      )
+      const suppFailEventId = `evt_supp_fail_${randomUUID()}`
+
+      const payload = JSON.stringify({
+        type: 'email.complained',
+        created_at: new Date().toISOString(),
+        data: {
+          email_id: suppFailMsgId,
+          to: [suppFailEmail],
+        },
+      })
+      const { headers } = signSvixPayload(TEST_WEBHOOK_SECRET, payload, suppFailEventId)
+
+      // Mock createAdminClient so first suppressions.upsert fails
+      let failSuppression = true
+      const realCreateAdminClient = adminModule.createAdminClient
+      const clientSpy = vi.spyOn(adminModule, 'createAdminClient').mockImplementation(() => {
+        const client = realCreateAdminClient()
+        const origFrom = client.from.bind(client)
+        client.from = ((table: string) => {
+          const qb = origFrom(table as 'suppressions')
+          if (table === 'suppressions') {
+            const origUpsert = qb.upsert.bind(qb)
+            qb.upsert = ((...args: Parameters<typeof origUpsert>) => {
+              if (failSuppression) {
+                failSuppression = false
+                const fakeQuery = {
+                  then: (resolve: (v: unknown) => unknown) =>
+                    Promise.resolve({
+                      data: null,
+                      error: { message: 'Simulated DB error on suppressions write' },
+                    }).then(resolve),
+                }
+                return fakeQuery as unknown as ReturnType<typeof origUpsert>
+              }
+              return origUpsert(...args)
+            }) as typeof origUpsert
+          }
+          return qb
+        }) as unknown as typeof origFrom
+        return client
+      })
+
+      try {
+        // First attempt -> suppression fails -> returns HTTP 500
+        const res1 = await POST(
+          new Request('http://localhost:3000/api/webhooks/resend', {
+            method: 'POST',
+            headers,
+            body: payload,
+          })
+        )
+        expect(res1.status).toBe(500)
+
+        // Verify message_events claimed, but processed_at remains NULL
+        const { data: eventAfterFail } = await supabase
+          .from('message_events')
+          .select('id, processed_at')
+          .eq('provider_event_id', suppFailEventId)
+          .single()
+        expect(eventAfterFail).not.toBeNull()
+        expect(eventAfterFail?.processed_at).toBeNull()
+
+        // Verify suppression was not created yet
+        const expectedHash = hashSuppressionContact('email', suppFailEmail)
+        const { data: suppBefore } = await supabase
+          .from('suppressions')
+          .select('id')
+          .eq('organization_id', testOrgId)
+          .eq('contact_hash', expectedHash)
+        expect(suppBefore?.length).toBe(0)
+
+        // Second attempt (retry same svix-id) -> succeeds
+        const res2 = await POST(
+          new Request('http://localhost:3000/api/webhooks/resend', {
+            method: 'POST',
+            headers,
+            body: payload,
+          })
+        )
+        expect(res2.status).toBe(200)
+
+        // Verify suppression created exactly once
+        const { data: suppAfter } = await supabase
+          .from('suppressions')
+          .select('id, reason')
+          .eq('organization_id', testOrgId)
+          .eq('contact_hash', expectedHash)
+        expect(suppAfter?.length).toBe(1)
+        expect(suppAfter?.[0]?.reason).toBe('PROVIDER_COMPLAINT')
+
+        // Verify processed_at is now set
+        const { data: eventAfterRetry } = await supabase
+          .from('message_events')
+          .select('id, processed_at')
+          .eq('provider_event_id', suppFailEventId)
+          .single()
+        expect(eventAfterRetry?.processed_at).not.toBeNull()
+      } finally {
+        clientSpy.mockRestore()
+      }
+    })
+
+    it('detects CAS race when request becomes CLICKED before delivery update and preserves CLICKED (MR-1A.2 Section 13)', async () => {
+      const raceNonce = Date.now() + 120
+      const raceEmail = `race-clicked.${raceNonce}@example.test`
+      const { reviewRequestId: rReqId, emailId: rEmailId } = await createTestHierarchy(
+        raceNonce,
+        raceEmail,
+        'SENT'
+      )
+      const rEventId = `evt_race_${randomUUID()}`
+
+      // Simulate concurrent race: before the first review_requests update executes,
+      // mutate review_requests in the database to CLICKED!
+      let raceTriggered = false
+      const realCreateAdminClient = adminModule.createAdminClient
+      const clientSpy = vi.spyOn(adminModule, 'createAdminClient').mockImplementation(() => {
+        const client = realCreateAdminClient()
+        const origFrom = client.from.bind(client)
+        client.from = ((table: string) => {
+          const qb = origFrom(table as 'review_requests')
+          if (table === 'review_requests') {
+            const origUpdate = qb.update.bind(qb)
+            qb.update = ((...args: Parameters<typeof origUpdate>) => {
+              const builder = origUpdate(...args)
+              if (!raceTriggered) {
+                raceTriggered = true
+                const origThen = builder.then.bind(builder)
+                builder.then = ((resolve: (v: unknown) => unknown, reject: (reason: unknown) => unknown) => {
+                  // Directly update the DB row to CLICKED right before this first CAS update executes
+                  supabase
+                    .from('review_requests')
+                    .update({ status: 'CLICKED', clicked_at: new Date().toISOString() })
+                    .eq('id', rReqId)
+                    .then(() => origThen(resolve as never, reject as never))
+                }) as typeof builder.then
+              }
+              return builder
+            }) as typeof origUpdate
+          }
+          return qb
+        }) as unknown as typeof origFrom
+        return client
+      })
+
+      try {
+        const payload = JSON.stringify({
+          type: 'email.delivered',
+          created_at: new Date().toISOString(),
+          data: {
+            email_id: rEmailId,
+            to: [raceEmail],
+          },
+        })
+        const { headers } = signSvixPayload(TEST_WEBHOOK_SECRET, payload, rEventId)
+
+        const res = await POST(
+          new Request('http://localhost:3000/api/webhooks/resend', {
+            method: 'POST',
+            headers,
+            body: payload,
+          })
+        )
+        expect(res.status).toBe(200)
+
+        // Verify request remains CLICKED and never regressed to DELIVERED
+        const { data: finalReq } = await supabase
+          .from('review_requests')
+          .select('status, clicked_at, delivered_at')
+          .eq('id', rReqId)
+          .single()
+        expect(finalReq?.status).toBe('CLICKED')
+        expect(finalReq?.clicked_at).not.toBeNull()
+        // delivered_at is truthfully populated without regressing status
+        expect(finalReq?.delivered_at).not.toBeNull()
+      } finally {
+        clientSpy.mockRestore()
+      }
+    })
+
+    it('late email.sent cannot regress DELIVERED or CLICKED status (MR-1A.2 Section 14)', async () => {
+      const lateNonce = Date.now() + 130
+      const lateEmail = `late-sent.${lateNonce}@example.test`
+      const deliveredTimestamp = new Date(Date.now() - 3600000).toISOString()
+      const { reviewRequestId: lReqId, emailId: lateMsgId } = await createTestHierarchy(
+        lateNonce,
+        lateEmail,
+        'DELIVERED'
+      )
+
+      await supabase.from('review_requests').update({ delivered_at: deliveredTimestamp }).eq('id', lReqId)
+
+      // Late email.sent arrives
+      const payload = JSON.stringify({
+        type: 'email.sent',
+        created_at: new Date(Date.now() - 7000000).toISOString(),
+        data: {
+          email_id: lateMsgId,
+          to: [lateEmail],
+        },
+      })
+      const { headers } = signSvixPayload(TEST_WEBHOOK_SECRET, payload)
+
+      const res = await POST(
+        new Request('http://localhost:3000/api/webhooks/resend', {
+          method: 'POST',
+          headers,
+          body: payload,
+        })
+      )
+      expect(res.status).toBe(200)
+
+      // Status must still be DELIVERED, not regressed to SENT
+      const { data: reqAfterLateSent } = await supabase
+        .from('review_requests')
+        .select('status, delivered_at')
+        .eq('id', lReqId)
+        .single()
+      expect(reqAfterLateSent?.status).toBe('DELIVERED')
+      const finalDeliveredAt = reqAfterLateSent?.delivered_at
+      expect(finalDeliveredAt ? new Date(finalDeliveredAt).toISOString() : null).toBe(
+        new Date(deliveredTimestamp).toISOString()
+      )
     })
   })
 

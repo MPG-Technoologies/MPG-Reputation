@@ -79,7 +79,8 @@ describe('Review Request State Transitions (MR-1A Lifecycle Invariants)', () => 
       })
       expect(result.nextStatus).toBe('CLICKED')
       expect(result.statusChanged).toBe(false)
-      expect(result.shouldSetDeliveredAt).toBe(false)
+      // MR-1A.2 Section 7 & 8: truthfully record delivered_at while preserving status CLICKED
+      expect(result.shouldSetDeliveredAt).toBe(true)
     })
   })
 

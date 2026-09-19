@@ -1,9 +1,8 @@
 import { Resend } from 'resend'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { hashSuppressionContact } from '@/domain/suppression'
-import { determineReviewRequestTransition } from '@/domain/review-request/transitions'
+import { applyProviderReviewRequestTransition } from '@/domain/review-request/cas'
 import { sanitizeProviderError } from '@/domain/review-request/sanitizer'
-import type { Database } from '@/types/database'
 
 interface ResendWebhookPayload {
   type: string
@@ -70,11 +69,14 @@ export async function POST(req: Request) {
 
   const supabase = createAdminClient()
 
-  // 5. Pre-check for quick exit on sequential replay (Section 11)
+  // 5. Pre-check for duplicate or resumable events (MR-1A.2 Section 4)
+  // If event exists AND processed_at IS NOT NULL: fully processed duplicate -> return 200 immediately.
+  // If event exists BUT processed_at IS NULL: incomplete processing -> resume required effects!
+  let existingEventRecordId: string | null = null
   try {
     const { data: existingEvents, error: dedupErr } = await supabase
       .from('message_events')
-      .select('id')
+      .select('id, processed_at')
       .eq('provider', 'resend')
       .eq('provider_event_id', svixId)
       .limit(1)
@@ -84,9 +86,14 @@ export async function POST(req: Request) {
       return new Response('Database error', { status: 500 })
     }
 
-    if (existingEvents && existingEvents.length > 0) {
-      // Already processed idempotently
-      return Response.json({ received: true, duplicate: true }, { status: 200 })
+    const existing = existingEvents?.[0]
+    if (existing) {
+      if (existing.processed_at) {
+        // Fully processed previously; exit safely
+        return Response.json({ received: true, duplicate: true }, { status: 200 })
+      }
+      // Unprocessed / incomplete claim exists: resume downstream effects
+      existingEventRecordId = existing.id
     }
   } catch (err) {
     console.error('[ResendWebhook] Unexpected error during deduplication pre-check:', err)
@@ -150,99 +157,79 @@ export async function POST(req: Request) {
       return Response.json({ received: true, correlated: false }, { status: 200 })
     }
 
-    // 7. Review Request State Transition Evaluation (Section 12)
-    const { data: currentReq, error: reqFetchErr } = await supabase
-      .from('review_requests')
-      .select('id, status')
-      .eq('id', reviewRequestId)
-      .single()
-
-    if (reqFetchErr || !currentReq) {
-      console.error('[ResendWebhook] Failed to fetch review request:', reviewRequestId, reqFetchErr?.message)
-      return new Response('Review request lookup failure', { status: 500 })
-    }
-
-    const transition = determineReviewRequestTransition({
-      currentStatus: currentReq.status,
-      eventType: eventPayload.type,
-      bounceType: eventData.bounce?.type,
-    })
-
-    // 8. Provider Error Sanitization (MR-1A.1 Section 7)
+    // 7. Error Sanitization (MR-1A.1 Section 7)
     const rawRecipient = Array.isArray(eventData.to) ? eventData.to[0] : eventData.to
     const recipientEmail = typeof rawRecipient === 'string' ? rawRecipient : undefined
 
     const rawErrorSource = eventData.bounce?.message || eventData.error || eventData.message
     const sanitizedError = sanitizeProviderError(rawErrorSource, { recipientEmail })
 
-    // 9. Claim & Persist provider_event_id in message_events FIRST (MR-1A.1 Section 8)
-    // Prevents concurrency race: claim the unique event before executing any side effects
-    const { error: insertEventErr } = await supabase.from('message_events').insert({
-      organization_id: organizationId,
-      review_request_id: reviewRequestId,
-      provider: 'resend',
-      provider_message_id: emailId || null,
-      provider_event_id: svixId,
-      event_type: eventPayload.type,
-      status: transition.nextStatus,
-      event_occurred_at: eventPayload.created_at || new Date().toISOString(),
-      sanitized_error: sanitizedError,
-      metadata: {
-        messageKind: 'initial_review_request',
-        ...(eventData.bounce?.type ? { bounceType: eventData.bounce.type } : {}),
-      },
+    // 8. Claim & Persist provider_event_id in message_events FIRST if not already claimed (MR-1A.1 Section 8 & MR-1A.2 Section 3)
+    let eventRecordId: string | null = existingEventRecordId
+
+    if (!eventRecordId) {
+      const { data: insertedEvent, error: insertEventErr } = await supabase
+        .from('message_events')
+        .insert({
+          organization_id: organizationId,
+          review_request_id: reviewRequestId,
+          provider: 'resend',
+          provider_message_id: emailId || null,
+          provider_event_id: svixId,
+          event_type: eventPayload.type,
+          status: 'SENDING', // Initial recorded status, updated on successful completion
+          event_occurred_at: eventPayload.created_at || new Date().toISOString(),
+          sanitized_error: sanitizedError,
+          processed_at: null, // explicitly NULL until all side effects succeed (MR-1A.2 Section 3)
+          metadata: {
+            messageKind: 'initial_review_request',
+            ...(eventData.bounce?.type ? { bounceType: eventData.bounce.type } : {}),
+          },
+        })
+        .select('id')
+        .single()
+
+      if (insertEventErr) {
+        // Concurrent race on (provider, provider_event_id)
+        const isUniqueViolation =
+          insertEventErr.code === '23505' ||
+          insertEventErr.message?.includes('idx_me_provider_event_unique') ||
+          insertEventErr.message?.includes('unique constraint')
+
+        if (isUniqueViolation) {
+          // Another request claimed this event concurrently. Return duplicate success.
+          return Response.json({ received: true, duplicate: true }, { status: 200 })
+        } else {
+          console.error('[ResendWebhook] Error persisting message_event:', insertEventErr.message)
+          return new Response('Database insert error', { status: 500 })
+        }
+      } else {
+        eventRecordId = insertedEvent.id
+      }
+    }
+
+    // 9. Concurrency-Safe Status Application (MR-1A.2 Section 6 & 7)
+    // Optimistic compare-and-set ensures stale reads do NOT regress newer states (e.g. CLICKED)
+    const casResult = await applyProviderReviewRequestTransition({
+      supabase,
+      reviewRequestId,
+      eventType: eventPayload.type,
+      bounceType: eventData.bounce?.type,
+      eventOccurredAt: eventPayload.created_at,
+      sanitizedError,
     })
 
-    if (insertEventErr) {
-      // Check if this error is a unique key violation on (provider, provider_event_id)
-      const isUniqueViolation =
-        insertEventErr.code === '23505' ||
-        insertEventErr.message?.includes('idx_me_provider_event_unique') ||
-        insertEventErr.message?.includes('unique constraint')
-
-      if (isUniqueViolation) {
-        // Another concurrent request claimed this event; return safe idempotent duplicate-success
-        return Response.json({ received: true, duplicate: true }, { status: 200 })
-      }
-
-      console.error('[ResendWebhook] Error persisting message_event:', insertEventErr.message)
-      return new Response('Database insert error', { status: 500 })
+    if (!casResult.success) {
+      console.error('[ResendWebhook] Compare-and-set status update failed:', casResult.error)
+      // Leave processed_at NULL so provider can retry
+      return new Response('Review request update failure', { status: 500 })
     }
 
-    // 10. Downstream Side Effects (ONLY AFTER event claim is guaranteed)
-    // a) Update review_request status and timestamps
-    if (transition.statusChanged || transition.shouldSetDeliveredAt) {
-      const updateData: Database['public']['Tables']['review_requests']['Update'] = {
-        status: transition.nextStatus,
-        updated_at: new Date().toISOString(),
-      }
-
-      if (transition.shouldSetDeliveredAt) {
-        updateData.delivered_at = eventPayload.created_at || new Date().toISOString()
-      }
-
-      if (transition.nextStatus === 'FAILED') {
-        updateData.failed_at = new Date().toISOString()
-        if (sanitizedError) {
-          updateData.error_message = sanitizedError
-        }
-      }
-
-      const { error: updateErr } = await supabase
-        .from('review_requests')
-        .update(updateData)
-        .eq('id', reviewRequestId)
-
-      if (updateErr) {
-        console.error('[ResendWebhook] Error updating review request:', updateErr.message)
-        return new Response('Database update error', { status: 500 })
-      }
-    }
-
-    // b) Contact Suppression Handling (Section 13, 14, 15)
-    if (transition.shouldSuppressContact && recipientEmail) {
+    // 10. Contact Suppression Handling (MR-1A.2 Section 9)
+    // Permanent bounce, spam complaint, or provider suppression triggers suppression
+    if (casResult.transition.shouldSuppressContact && recipientEmail) {
       const contactHash = hashSuppressionContact('email', recipientEmail)
-      const suppressionReason = transition.suppressionReason || 'PROVIDER_HARD_BOUNCE'
+      const suppressionReason = casResult.transition.suppressionReason || 'PROVIDER_HARD_BOUNCE'
 
       const { error: suppErr } = await supabase.from('suppressions').upsert(
         {
@@ -258,7 +245,27 @@ export async function POST(req: Request) {
       )
 
       if (suppErr) {
-        console.error('[ResendWebhook] Error recording suppression:', suppErr.message)
+        console.error('[ResendWebhook] Critical error recording suppression:', suppErr.message)
+        // SECTION 9: Suppression failures MUST NOT be swallowed!
+        // Return 500 and leave processed_at NULL to allow provider retry to complete suppression
+        return new Response('Suppression recording failure', { status: 500 })
+      }
+    }
+
+    // 11. Mark Event Processed ONLY AT THE END (MR-1A.2 Section 10)
+    // Only after ALL side-effects succeed, stamp processed_at and finalize event status
+    if (eventRecordId) {
+      const { error: markErr } = await supabase
+        .from('message_events')
+        .update({
+          status: casResult.finalStatus,
+          processed_at: new Date().toISOString(),
+        })
+        .eq('id', eventRecordId)
+
+      if (markErr) {
+        console.error('[ResendWebhook] Error marking message_event processed:', markErr.message)
+        return new Response('Database completion error', { status: 500 })
       }
     }
 

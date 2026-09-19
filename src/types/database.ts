@@ -358,6 +358,7 @@ export interface Database {
           metadata: Json
           created_at: string
           event_occurred_at: string | null
+          processed_at: string | null
         }
         Insert: {
           id?: string
@@ -372,6 +373,7 @@ export interface Database {
           metadata?: Json
           created_at?: string
           event_occurred_at?: string | null
+          processed_at?: string | null
         }
         Update: {
           id?: string
@@ -386,6 +388,7 @@ export interface Database {
           metadata?: Json
           created_at?: string
           event_occurred_at?: string | null
+          processed_at?: string | null
         }
         Relationships: []
       }

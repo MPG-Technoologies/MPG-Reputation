@@ -83,7 +83,7 @@ export function determineReviewRequestTransition(input: TransitionInput): Transi
       statusChanged: false,
       shouldSuppressContact,
       suppressionReason,
-      shouldSetDeliveredAt: false,
+      shouldSetDeliveredAt: eventType === 'email.delivered',
       isIgnoredForReviewActivity: false,
     }
   }

@@ -159,11 +159,12 @@ export async function GET(
 
   const businessName = escapeHtml(org?.name || 'this business')
 
-  // 3. Fetch customer email to check existing suppression state
+  // 3. Fetch customer email explicitly scoped to organization to check existing suppression state
   const { data: cust } = await supabase
     .from('customers')
     .select('email')
     .eq('id', reqRecord.customer_id)
+    .eq('organization_id', reqRecord.organization_id)
     .single()
 
   const contactHash = cust?.email ? hashSuppressionContact('email', cust.email) : ''
@@ -226,7 +227,13 @@ export async function POST(
     return new NextResponse(result.error || 'Invalid or expired unsubscribe link.', { status: 404 })
   }
 
-  // Check if RFC 8058 One-Click POST or API client
+  // RFC 8058 One-Click POST handling:
+  // - Requires no cookies, login, or HTTP authorization
+  // - Does not redirect (returns 200 directly)
+  // - Accepts POST body: List-Unsubscribe=One-Click (application/x-www-form-urlencoded)
+  //
+  // NOTE: DKIM coverage of List-Unsubscribe and List-Unsubscribe-Post must be
+  // verified during MR-1B-H against an actual Resend-delivered test message.
   const accept = request.headers.get('accept') || ''
 
   let bodyText = ''

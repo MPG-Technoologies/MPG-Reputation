@@ -183,4 +183,44 @@ describe('Email Composition & Neutrality (MR-1B Section 20)', () => {
     expect(email.headers).not.toHaveProperty('X-Resend-Click-Tracking')
     expect(email.headers).not.toHaveProperty('X-Resend-Open-Tracking')
   })
+
+  it('17. formatSenderIdentity with omitted/empty fromAddress produces displayName without inventing fake sender mailbox or domain', () => {
+    const sender = formatSenderIdentity({
+      businessName: 'Acme Hardware',
+    })
+    expect(sender.displayName).toBe('Acme Hardware via MPG Reputation')
+    expect(sender.fromAddress).toBeUndefined()
+    expect(sender.formattedFrom).toBeUndefined()
+
+    const senderEmpty = formatSenderIdentity({
+      businessName: 'Acme Hardware',
+      fromAddress: '   ',
+    })
+    expect(senderEmpty.displayName).toBe('Acme Hardware via MPG Reputation')
+    expect(senderEmpty.fromAddress).toBeUndefined()
+    expect(senderEmpty.formattedFrom).toBeUndefined()
+  })
+
+  it('18. composeReviewRequestEmail without fromAddress produces displayName and undefined formattedFrom without throwing or fabricating addresses', () => {
+    const email = composeReviewRequestEmail({
+      businessName: 'Northstar Dental',
+      customerFirstName: 'Jane',
+      reviewUrl: 'https://mpg-reputation.local/r/token_abc_123',
+      unsubscribeUrl: 'https://mpg-reputation.local/unsubscribe/unsub_xyz_789',
+    })
+
+    expect(email.fromDisplayName).toBe('Northstar Dental via MPG Reputation')
+    expect(email.formattedFrom).toBeUndefined()
+    expect(email.html).toContain('Northstar Dental')
+    expect(email.text).toContain('Northstar Dental')
+  })
+
+  it('19. formatSenderIdentity throws if invalid fromAddress string is explicitly provided', () => {
+    expect(() => {
+      formatSenderIdentity({
+        businessName: 'Acme Hardware',
+        fromAddress: 'invalid-email-format',
+      })
+    }).toThrow(/Valid fromAddress is required for sender identity/)
+  })
 })

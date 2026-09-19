@@ -97,11 +97,12 @@ export async function processCustomerUnsubscribe({
     return { success: false, error: 'Business not found.' }
   }
 
-  // 3. Resolve customer details
+  // 3. Resolve customer details explicitly scoped to organization
   const { data: cust } = await supabase
     .from('customers')
     .select('id, email')
     .eq('id', request.customer_id)
+    .eq('organization_id', request.organization_id)
     .single()
 
   if (!cust || !cust.email) {

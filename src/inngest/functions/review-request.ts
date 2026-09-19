@@ -372,7 +372,7 @@ export async function executeReviewRequestHandler({
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
       const trackingUrl = buildTrackedReviewUrl(appUrl, reviewRequest.token)
       const unsubscribeUrl = buildUnsubscribeUrl(appUrl, reviewRequest.unsubscribeToken || reviewRequest.token)
-      const fromAddress = process.env.EMAIL_FROM_ADDRESS?.trim() || 'reviews@example.test'
+      const fromAddress = process.env.EMAIL_FROM_ADDRESS?.trim() || undefined
 
       const composed = composeReviewRequestEmail({
         businessName: postDelayCheck.businessName || 'our business',

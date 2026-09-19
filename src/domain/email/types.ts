@@ -4,7 +4,7 @@ export interface ReviewRequestEmailInput {
   reviewUrl: string
   unsubscribeUrl: string
   replyToEmail?: string | null
-  fromAddress: string
+  fromAddress?: string | null
 }
 
 export interface ComposedReviewRequestEmail {
@@ -12,7 +12,7 @@ export interface ComposedReviewRequestEmail {
   html: string
   text: string
   fromDisplayName: string
-  formattedFrom: string
+  formattedFrom?: string
   replyTo?: string
   headers: Record<string, string>
 }

@@ -2,13 +2,13 @@ import { isValidEmailAddress } from '@/providers/email'
 
 export interface SenderIdentityOptions {
   businessName?: string | null
-  fromAddress: string
+  fromAddress?: string | null
 }
 
 export interface SenderIdentity {
   displayName: string
-  fromAddress: string
-  formattedFrom: string
+  fromAddress?: string
+  formattedFrom?: string
 }
 
 /**
@@ -30,20 +30,27 @@ export function sanitizeDisplayName(name?: string | null): string {
 
 /**
  * Deterministic sender identity formatter:
- * "{Business Name} via MPG Reputation <{fromAddress}>"
+ * "{Business Name} via MPG Reputation" <{fromAddress}>
  * Fallback when business name is unavailable:
- * "MPG Reputation <{fromAddress}>"
+ * "MPG Reputation" <{fromAddress}>
+ *
+ * When fromAddress is omitted, produces displayName without inventing
+ * a fabricated sender mailbox or domain.
  */
 export function formatSenderIdentity(options: SenderIdentityOptions): SenderIdentity {
   const { businessName, fromAddress } = options
+  const cleanBusiness = sanitizeDisplayName(businessName)
+  const displayName = cleanBusiness ? `${cleanBusiness} via MPG Reputation` : 'MPG Reputation'
+
   const trimmedFrom = (fromAddress || '').trim().replace(/[\r\n]/g, '')
+  if (!trimmedFrom) {
+    return { displayName }
+  }
 
   if (!isValidEmailAddress(trimmedFrom)) {
     throw new Error('Valid fromAddress is required for sender identity')
   }
 
-  const cleanBusiness = sanitizeDisplayName(businessName)
-  const displayName = cleanBusiness ? `${cleanBusiness} via MPG Reputation` : 'MPG Reputation'
   const formattedFrom = `"${displayName}" <${trimmedFrom}>`
 
   return {

@@ -1,10 +1,10 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { deriveActivationReadiness, deriveDashboardSystemStatus } from '@/domain/activation'
 import type {
   DashboardSnapshot,
   AttentionItem,
-  SystemStatus,
   ActivityRequestItem,
 } from '@/lib/dashboard/realtime-types'
 
@@ -100,57 +100,41 @@ export async function getDashboardSnapshot(
       .limit(10),
   ])
 
-  const confirmedLocationIds = new Set(
-    (destinations || [])
-      .filter((d) => d.status === 'CONFIRMED')
-      .map((d) => d.location_id)
+  const readiness = deriveActivationReadiness(
+    locations || [],
+    destinations || []
   )
 
-  const locationsNeedingDestination = (locations || []).filter(
-    (loc) => !confirmedLocationIds.has(loc.id)
+  const inactiveLocations = (locations || []).filter(
+    (loc) => loc.status !== 'ACTIVE'
   )
 
-  const inactiveLocations = (locations || []).filter((loc) => loc.status !== 'ACTIVE')
-
-  let systemStatus: SystemStatus = 'SETUP_REQUIRED'
-  let statusDescription = ''
-
-  if (!locations || locations.length === 0) {
-    systemStatus = 'SETUP_REQUIRED'
-    statusDescription = 'Initial setup required: No locations configured.'
-  } else if (locationsNeedingDestination.length > 0) {
-    systemStatus = 'SETUP_REQUIRED'
-    statusDescription = `${locationsNeedingDestination.length} location(s) require a confirmed Google review destination.`
-  } else if ((failedCount && failedCount > 0) || (outboxFailedCount && outboxFailedCount > 0)) {
-    systemStatus = 'NEEDS_ATTENTION'
-    statusDescription = 'Operational issues detected in recent dispatches or outbox.'
-  } else if ((sentCount ?? 0) === 0) {
-    systemStatus = 'READY_FOR_SYNTHETIC_TEST'
-    statusDescription =
-      'All locations configured with confirmed review destinations. Ready for synthetic validation.'
-  } else {
-    systemStatus = 'RUNNING'
-    statusDescription = 'Review request workflow actively processing completions.'
-  }
+  const { systemStatus, statusDescription } =
+    deriveDashboardSystemStatus({
+      readiness,
+      failedCount: failedCount ?? 0,
+      outboxFailedCount: outboxFailedCount ?? 0,
+      sentCount: sentCount ?? 0,
+    })
 
   const attentionItems: AttentionItem[] = []
 
-  if (!locations || locations.length === 0) {
+  if (readiness.activeLocationCount === 0) {
     attentionItems.push({
       id: 'missing-location',
       severity: 'error',
-      title: 'No Locations Configured',
+      title: 'No Active Locations Configured',
       description:
-        'Your organization requires at least one primary location to record customer completions.',
+        'Your organization requires at least one active location before the review workflow can be used.',
       actionLabel: 'Set Up Location →',
       actionHref: '/app/settings/location',
     })
-  } else if (locationsNeedingDestination.length > 0) {
+  } else if (readiness.locationsNeedingDestinationCount > 0) {
     attentionItems.push({
       id: 'missing-destination',
       severity: 'warning',
       title: 'Review Destination Missing',
-      description: `${locationsNeedingDestination.length} location(s) require a confirmed Google review destination before customer invitations can be dispatched.`,
+      description: `${readiness.locationsNeedingDestinationCount} active location(s) require a confirmed Google review destination before customer invitations can be dispatched.`,
       actionLabel: 'Configure Destination →',
       actionHref: '/app/settings/review-destination',
     })
@@ -245,7 +229,9 @@ export async function getDashboardSnapshot(
     systemStatus,
     statusDescription,
     attentionItems,
-    locationsNeedingDestinationCount: locationsNeedingDestination.length,
+    locationsNeedingDestinationCount:
+      readiness.locationsNeedingDestinationCount,
+    setupChecklist: readiness.checklist,
   }
 }
 

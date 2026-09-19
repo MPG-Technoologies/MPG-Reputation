@@ -134,6 +134,13 @@ export type SystemStatus =
   | 'RUNNING'
   | 'NEEDS_ATTENTION'
 
+export interface SetupChecklistItem {
+  id: string
+  label: string
+  complete: boolean
+  description: string
+}
+
 export interface DashboardSnapshot {
   kpis: DashboardKpis
   recentRequests: ActivityRequestItem[]
@@ -141,6 +148,7 @@ export interface DashboardSnapshot {
   statusDescription: string
   attentionItems: AttentionItem[]
   locationsNeedingDestinationCount: number
+  setupChecklist?: SetupChecklistItem[]
 }
 
 export type ConnectionState =
@@ -157,6 +165,8 @@ export interface DashboardState {
   systemStatus: SystemStatus
   statusDescription: string
   attentionItems: AttentionItem[]
+  setupChecklist: SetupChecklistItem[]
+  locationsNeedingDestinationCount: number
   connectionState: ConnectionState
   highlightedKpiKey: keyof DashboardKpis | null
   highlightedRowId: string | null

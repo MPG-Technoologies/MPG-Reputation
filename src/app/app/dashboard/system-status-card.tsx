@@ -2,7 +2,7 @@
 
 import React from 'react'
 import Link from 'next/link'
-import type { SystemStatus } from '@/lib/dashboard/realtime-types'
+import type { SystemStatus, SetupChecklistItem } from '@/lib/dashboard/realtime-types'
 import { CheckCircleIcon } from '@/components/ui/icons'
 
 interface SystemStatusCardProps {
@@ -10,6 +10,7 @@ interface SystemStatusCardProps {
   statusDescription: string
   failedCount: number
   locationsNeedingDestinationCount?: number
+  setupChecklist?: SetupChecklistItem[]
 }
 
 const STATUS_CONFIG: Record<
@@ -43,6 +44,7 @@ export const SystemStatusCard = React.memo(function SystemStatusCard({
   statusDescription,
   failedCount,
   locationsNeedingDestinationCount = 0,
+  setupChecklist = [],
 }: SystemStatusCardProps) {
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.RUNNING
 
@@ -107,6 +109,33 @@ export const SystemStatusCard = React.memo(function SystemStatusCard({
             </span>
           </div>
         </div>
+
+        {setupChecklist.length > 0 && (
+          <div className="pt-3 border-t border-slate-800/80 space-y-2.5">
+            <div className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">
+              Local activation checklist
+            </div>
+
+            {setupChecklist.map((item) => (
+              <div key={item.id} className="flex items-start gap-2">
+                {item.complete ? (
+                  <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                ) : (
+                  <span className="w-3.5 h-3.5 rounded-full border border-amber-500 shrink-0 mt-0.5" />
+                )}
+
+                <div>
+                  <div className="text-slate-200 font-medium">
+                    {item.label}
+                  </div>
+                  <div className="text-[11px] text-slate-500 leading-relaxed">
+                    {item.description}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Location Destination Missing CTA if applicable */}
         {locationsNeedingDestinationCount > 0 && (

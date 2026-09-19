@@ -223,7 +223,7 @@ export function QuickCompleteForm({
               <span>Recording completion…</span>
             </>
           ) : (
-            'Record Completion & Trigger'
+            'Record Completion'
           )}
         </button>
       </div>

@@ -141,6 +141,9 @@ export function createInitialState(
     systemStatus: snapshot.systemStatus,
     statusDescription: snapshot.statusDescription,
     attentionItems: snapshot.attentionItems.map((i) => ({ ...i })),
+    setupChecklist: (snapshot.setupChecklist ?? []).map((i) => ({ ...i })),
+    locationsNeedingDestinationCount:
+      snapshot.locationsNeedingDestinationCount,
     connectionState: 'OFFLINE',
     highlightedKpiKey: null,
     highlightedRowId: null,
@@ -230,6 +233,9 @@ export function dashboardReducer(
         systemStatus: action.snapshot.systemStatus,
         statusDescription: action.snapshot.statusDescription,
         attentionItems: action.snapshot.attentionItems.map((i) => ({ ...i })),
+          setupChecklist: (action.snapshot.setupChecklist ?? []).map((i) => ({ ...i })),
+          locationsNeedingDestinationCount:
+            action.snapshot.locationsNeedingDestinationCount,
       }
     }
 

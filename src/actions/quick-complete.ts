@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { normalizeQuickCompleteInput, PermissionState } from '@/domain/completion'
+import { deriveActivationReadiness } from '@/domain/activation'
 import { inngest } from '@/inngest/client'
 
 export interface QuickCompleteResult {
@@ -55,7 +56,7 @@ export async function submitQuickComplete(formData: FormData): Promise<QuickComp
   // Cross-tenant integrity: verify location belongs to organization
   const { data: loc } = await supabase
     .from('locations')
-    .select('id')
+    .select('id, status')
     .eq('id', locationId)
     .eq('organization_id', organizationId)
     .maybeSingle()
@@ -98,6 +99,38 @@ export async function submitQuickComplete(formData: FormData): Promise<QuickComp
       duplicate: true,
       customerId: existingEvent.customer_id,
       message: 'This completion was already recorded previously. Duplicate downstream request avoided.',
+    }
+  }
+
+  // MR-2 activation gate: never persist a new completion into the
+  // automation pipeline unless this specific location is active and has a
+  // confirmed Google destination. Duplicate submissions above remain safely
+  // idempotent even if configuration changes later.
+  const { data: destination, error: destinationError } = await supabase
+    .from('review_destinations')
+    .select('location_id, status, canonical_url')
+    .eq('organization_id', organizationId)
+    .eq('location_id', locationId)
+    .eq('provider', 'google')
+    .maybeSingle()
+
+  if (destinationError) {
+    return {
+      success: false,
+      error: 'Unable to verify location activation readiness',
+    }
+  }
+
+  const activationReadiness = deriveActivationReadiness(
+    [{ id: loc.id, status: loc.status }],
+    destination ? [destination] : []
+  )
+
+  if (!activationReadiness.ready) {
+    return {
+      success: false,
+      error:
+        'This location is not ready for automation. Confirm its Google review destination before recording a completion.',
     }
   }
 
@@ -207,6 +240,6 @@ export async function submitQuickComplete(formData: FormData): Promise<QuickComp
     success: true,
     duplicate: false,
     customerId,
-    message: 'Customer completion recorded and review workflow scheduled.',
+    message: 'Customer completion recorded. The review workflow has been queued for processing.',
   }
 }

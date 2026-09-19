@@ -300,7 +300,10 @@ export function LiveDashboard({
             status={state.systemStatus}
             statusDescription={state.statusDescription}
             failedCount={state.kpis.failedCount}
-            locationsNeedingDestinationCount={initialSnapshot.locationsNeedingDestinationCount}
+            locationsNeedingDestinationCount={
+              state.locationsNeedingDestinationCount
+            }
+            setupChecklist={state.setupChecklist}
           />
           <NeedsAttentionCard items={state.attentionItems} />
           <div className="hidden lg:block">

@@ -25,8 +25,16 @@ let mockUser: { id: string; email: string } | null = {
 }
 
 let mockMembership: { role: string } | null = { role: 'OWNER' }
-let mockLocation: { id: string } | null = { id: 'loc_123' }
-let mockExistingDestination: { id: string } | null = null
+let mockLocation: { id: string; status: string } | null = {
+  id: 'loc_123',
+  status: 'ACTIVE',
+}
+let mockExistingDestination: {
+  id: string
+  location_id?: string
+  status?: string
+  canonical_url?: string | null
+} | null = null
 
 const mockSupabase = {
   auth: {
@@ -68,7 +76,15 @@ const mockSupabase = {
           eq: vi.fn(() => ({
             eq: vi.fn(() => ({
               maybeSingle: vi.fn(async () => {
-                if (table === 'customer_completion_events') return { data: null }
+                if (table === 'customer_completion_events') {
+                  return { data: null }
+                }
+                if (table === 'review_destinations') {
+                  return {
+                    data: mockExistingDestination,
+                    error: null,
+                  }
+                }
                 return { data: null }
               }),
             })),
@@ -129,7 +145,10 @@ describe('Cache Invalidation & Router State Transitions (Regression Suite)', () 
     vi.clearAllMocks()
     mockUser = { id: 'user_123', email: 'test@example.test' }
     mockMembership = { role: 'OWNER' }
-    mockLocation = { id: 'loc_123' }
+    mockLocation = {
+      id: 'loc_123',
+      status: 'ACTIVE',
+    }
     mockExistingDestination = null
   })
 
@@ -207,6 +226,13 @@ describe('Cache Invalidation & Router State Transitions (Regression Suite)', () 
 
   describe('3. Quick Complete Mutation', () => {
     it('invalidates /app/dashboard after recording a completion', async () => {
+      mockExistingDestination = {
+        id: 'dest_123',
+        location_id: 'loc_123',
+        status: 'CONFIRMED',
+        canonical_url: 'https://g.page/r/synthetic-test-place/review',
+      }
+
       const formData = new FormData()
       formData.append('organizationId', 'org_123')
       formData.append('locationId', 'loc_123')

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   confirmDestination,
+  deactivateDestination,
   saveDestination,
   type DestinationResult,
 } from '@/actions/destinations'
@@ -40,6 +41,7 @@ export function DestinationForm({
   const [inputUrl, setInputUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [pausing, setPausing] = useState(false)
   const [tested, setTested] = useState(false)
   const [result, setResult] = useState<DestinationResult | null>(null)
 
@@ -107,6 +109,33 @@ export function DestinationForm({
     }
   }
 
+  async function handlePause() {
+    setPausing(true)
+    setResult(null)
+    setTested(false)
+
+    const formData = new FormData()
+    formData.set('organizationId', organizationId)
+    formData.set('locationId', selectedLocationId)
+
+    try {
+      const response = await deactivateDestination(formData)
+      setResult(response)
+
+      if (response.success) {
+        router.refresh()
+      }
+    } catch {
+      setResult({
+        success: false,
+        error:
+          'Unexpected error occurred while pausing destination.',
+      })
+    } finally {
+      setPausing(false)
+    }
+  }
+
   async function handleConfirm() {
     if (!tested) {
       setResult({
@@ -159,8 +188,10 @@ export function DestinationForm({
             </strong>
             {result.success
               ? result.status === 'CONFIRMED'
-                ? 'Google review destination is confirmed and eligible for automation.'
-                : 'Destination saved. Test the link, then explicitly confirm it before automation can use it.'
+                ? 'Google review destination is confirmed for the local automation workflow.'
+                : result.status === 'INACTIVE'
+                  ? 'Destination paused. Automation is blocked for this location until the link is tested and confirmed again.'
+                  : 'Destination saved. Test the link, then explicitly confirm it before automation can use it.'
               : result.error}
           </div>
         </div>
@@ -235,7 +266,9 @@ export function DestinationForm({
                         ).toLocaleString()
                       : 'Unknown'
                   }`
-                : 'Saved but not active. Test the link and explicitly confirm it.'}
+                : activeDestination.status === 'INACTIVE'
+                  ? 'Paused. Test the saved link or replace it, then explicitly confirm it to reactivate this location.'
+                  : 'Saved but not active. Test the link and explicitly confirm it.'}
             </div>
           </div>
         ) : (
@@ -270,6 +303,12 @@ export function DestinationForm({
           <p className="mt-1 text-xs text-slate-500">
             Saving a URL does not activate it. Every changed destination must
             be tested and explicitly confirmed.
+          </p>
+
+          <p className="mt-2 text-xs text-amber-400/80">
+            If the currently confirmed link is broken or no longer correct,
+            pause it first. A newly saved valid URL automatically returns this
+            location to pending confirmation.
           </p>
         </div>
 
@@ -322,6 +361,28 @@ export function DestinationForm({
               </button>
             </div>
           )}
+
+        {activeDestination?.status === 'CONFIRMED' && (
+          <div className="border-t border-slate-800 pt-5 space-y-3">
+            <p className="text-xs text-slate-400">
+              If this Google destination becomes broken, outdated, or
+              incorrect, pause it immediately. Quick Complete will stop using
+              this location until the destination is tested and confirmed
+              again.
+            </p>
+
+            <button
+              type="button"
+              disabled={pausing}
+              onClick={handlePause}
+              className="inline-flex justify-center py-2 px-4 rounded-md text-sm font-medium text-amber-200 bg-amber-950/60 hover:bg-amber-900/70 border border-amber-800 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {pausing
+                ? 'Pausing…'
+                : 'Pause This Destination'}
+            </button>
+          </div>
+        )}
       </form>
     </div>
   )

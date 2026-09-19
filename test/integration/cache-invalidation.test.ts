@@ -105,16 +105,23 @@ const mockSupabase = {
           })),
         })),
       })),
-      update: vi.fn(() => ({
-        eq: vi.fn(() => ({
+      update: vi.fn(() => {
+        const terminal = {
           select: vi.fn(() => ({
             single: vi.fn(async () => ({
               data: { id: 'dest_123' },
               error: null,
             })),
           })),
-        })),
-      })),
+        }
+
+        return {
+          eq: vi.fn(() => ({
+            ...terminal,
+            eq: vi.fn(() => terminal),
+          })),
+        }
+      }),
     }
   }),
 }
@@ -135,7 +142,7 @@ vi.mock('@/lib/supabase/admin', () => ({
 }))
 
 import { createOrganizationAndLocation } from '@/actions/onboarding'
-import { saveDestination } from '@/actions/destinations'
+import { deactivateDestination, saveDestination } from '@/actions/destinations'
 import { submitQuickComplete } from '@/actions/quick-complete'
 import { createLocation } from '@/actions/locations'
 import { signIn, signUp, signOut } from '@/actions/auth'
@@ -195,6 +202,55 @@ describe('Cache Invalidation & Router State Transitions (Regression Suite)', () 
       expect(revalidatePathMock).toHaveBeenCalledWith('/app/dashboard')
     })
 
+    it('changing a confirmed destination resets it to pending confirmation', async () => {
+      mockExistingDestination = {
+        id: 'dest_123',
+        location_id: 'loc_123',
+        status: 'CONFIRMED',
+        canonical_url: 'https://g.page/r/old-place/review',
+      }
+
+      const formData = new FormData()
+      formData.append('organizationId', 'org_123')
+      formData.append('locationId', 'loc_123')
+      formData.append(
+        'url',
+        'https://g.page/r/replacement-place/review'
+      )
+
+      const result = await saveDestination(formData)
+
+      expect(result.success).toBe(true)
+      expect(result.status).toBe('PENDING_CONFIRMATION')
+      expect(revalidatePathMock).toHaveBeenCalledWith(
+        '/app/quick-complete'
+      )
+    })
+
+    it('allows a confirmed destination to be paused immediately', async () => {
+      mockExistingDestination = {
+        id: 'dest_123',
+        location_id: 'loc_123',
+        status: 'CONFIRMED',
+        canonical_url: 'https://g.page/r/synthetic-test-place/review',
+      }
+
+      const formData = new FormData()
+      formData.append('organizationId', 'org_123')
+      formData.append('locationId', 'loc_123')
+
+      const result = await deactivateDestination(formData)
+
+      expect(result.success).toBe(true)
+      expect(result.status).toBe('INACTIVE')
+      expect(revalidatePathMock).toHaveBeenCalledWith(
+        '/app/dashboard'
+      )
+      expect(revalidatePathMock).toHaveBeenCalledWith(
+        '/app/quick-complete'
+      )
+    })
+
     it('does not invalidate cache when URL is invalid', async () => {
       const formData = new FormData()
       formData.append('organizationId', 'org_123')
@@ -244,6 +300,31 @@ describe('Cache Invalidation & Router State Transitions (Regression Suite)', () 
 
       expect(result.success).toBe(true)
       expect(revalidatePathMock).toHaveBeenCalledWith('/app/dashboard')
+    })
+
+    it('blocks Quick Complete while destination confirmation is pending', async () => {
+      mockExistingDestination = {
+        id: 'dest_123',
+        location_id: 'loc_123',
+        status: 'PENDING_CONFIRMATION',
+        canonical_url: 'https://g.page/r/synthetic-test-place/review',
+      }
+
+      const formData = new FormData()
+      formData.append('organizationId', 'org_123')
+      formData.append('locationId', 'loc_123')
+      formData.append('firstName', 'Jane')
+      formData.append('email', 'jane@example.test')
+      formData.append('permissionEmail', 'allowed')
+
+      const result = await submitQuickComplete(formData)
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain(
+        'not ready for automation'
+      )
+      expect(mockSupabase.rpc).not.toHaveBeenCalled()
+      expect(revalidatePathMock).not.toHaveBeenCalled()
     })
 
     it('does not invalidate cache on validation failure (missing email)', async () => {

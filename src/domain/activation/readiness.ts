@@ -42,6 +42,14 @@ export function deriveActivationReadiness(
   const inactiveLocationCount =
     locations.length - activeLocations.length
 
+  const savedLocationIds = new Set(
+    destinations
+      .filter((destination) =>
+        Boolean(destination.canonical_url?.trim())
+      )
+      .map((destination) => destination.location_id)
+  )
+
   const confirmedLocationIds = new Set(
     destinations
       .filter(
@@ -60,6 +68,13 @@ export function deriveActivationReadiness(
     activeLocations.length - readyLocationIds.length
 
   const hasActiveLocation = activeLocations.length > 0
+
+  const allActiveLocationsHaveSavedDestination =
+    hasActiveLocation &&
+    activeLocations.every((location) =>
+      savedLocationIds.has(location.id)
+    )
+
   const allActiveLocationsConfirmed =
     hasActiveLocation && locationsNeedingDestinationCount === 0
 
@@ -75,6 +90,13 @@ export function deriveActivationReadiness(
     readyLocationIds,
     checklist: [
       {
+        id: 'organization-created',
+        label: 'Organization workspace created',
+        complete: true,
+        description:
+          'The authenticated MPG Reputation workspace is available.',
+      },
+      {
         id: 'active-location',
         label: 'Active location configured',
         complete: hasActiveLocation,
@@ -83,24 +105,30 @@ export function deriveActivationReadiness(
           : 'Create or activate at least one business location.',
       },
       {
-        id: 'confirmed-destination',
-        label: 'Google review destination confirmed',
+        id: 'destination-saved',
+        label: 'Google review destination saved',
+        complete: allActiveLocationsHaveSavedDestination,
+        description: allActiveLocationsHaveSavedDestination
+          ? 'Every active location has a saved Google review destination.'
+          : 'Save a valid Google review destination for each active location.',
+      },
+      {
+        id: 'destination-tested',
+        label: 'Review destination tested and confirmed',
         complete: allActiveLocationsConfirmed,
         description: allActiveLocationsConfirmed
-          ? 'Every active location has a confirmed Google review destination.'
-          : hasActiveLocation
-            ? `${locationsNeedingDestinationCount} active location(s) still require confirmation.`
-            : 'A review destination can be activated after a location exists.',
+          ? 'Every active location has an explicitly tested and confirmed destination.'
+          : 'Test each saved link and explicitly confirm that it opens the correct business review destination.',
       },
       {
         id: 'activation-gate',
-        label: 'Local automation activation gate',
+        label: 'Local automation gate enabled',
         complete: ready,
         description: ready
-          ? 'Configured locations are eligible for the local review workflow.'
-          : 'Automation remains blocked until required setup is complete.',
+          ? 'Configured locations may enter the local review-request workflow.'
+          : 'Automation remains blocked until required activation steps are complete.',
       },
-    ],
+    ]
   }
 }
 

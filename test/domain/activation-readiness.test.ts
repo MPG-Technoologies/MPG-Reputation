@@ -84,6 +84,62 @@ describe('MR-2 activation readiness', () => {
     expect(readiness.locationsNeedingDestinationCount).toBe(0)
   })
 
+  it('exposes the complete MR-2 activation checklist', () => {
+    const readiness = deriveActivationReadiness(
+      [{ id: 'loc-1', status: 'ACTIVE' }],
+      [
+        {
+          location_id: 'loc-1',
+          status: 'CONFIRMED',
+          canonical_url: 'https://g.page/r/test/review',
+        },
+      ]
+    )
+
+    expect(readiness.checklist.map((item) => item.id)).toEqual([
+      'organization-created',
+      'active-location',
+      'destination-saved',
+      'destination-tested',
+      'activation-gate',
+    ])
+
+    expect(
+      readiness.checklist.every((item) => item.complete)
+    ).toBe(true)
+  })
+
+  it('keeps test/confirmation and automation incomplete for a pending destination', () => {
+    const readiness = deriveActivationReadiness(
+      [{ id: 'loc-1', status: 'ACTIVE' }],
+      [
+        {
+          location_id: 'loc-1',
+          status: 'PENDING_CONFIRMATION',
+          canonical_url: 'https://g.page/r/test/review',
+        },
+      ]
+    )
+
+    expect(
+      readiness.checklist.find(
+        (item) => item.id === 'destination-saved'
+      )?.complete
+    ).toBe(true)
+
+    expect(
+      readiness.checklist.find(
+        (item) => item.id === 'destination-tested'
+      )?.complete
+    ).toBe(false)
+
+    expect(
+      readiness.checklist.find(
+        (item) => item.id === 'activation-gate'
+      )?.complete
+    ).toBe(false)
+  })
+
   it('separates activation readiness from operational failures', () => {
     const readiness = deriveActivationReadiness(
       [{ id: 'loc-1', status: 'ACTIVE' }],

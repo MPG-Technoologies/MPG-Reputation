@@ -26,11 +26,15 @@ export default async function OnboardingPage(props: {
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8 text-slate-100">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="text-center text-xs font-semibold uppercase tracking-wider text-blue-400 mb-2">
+          Setup · Step 1 of 2
+        </div>
         <h2 className="text-center text-3xl font-bold tracking-tight text-white">
           Welcome to MPG Reputation
         </h2>
         <p className="mt-2 text-center text-sm text-slate-400">
-          Set up your business organization and primary location to start.
+          Create your business workspace and primary location. Next,
+          you’ll test and confirm its Google review destination.
         </p>
       </div>
 

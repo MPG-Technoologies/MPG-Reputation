@@ -9,7 +9,7 @@ export interface DestinationResult {
   success: boolean
   error?: string
   canonicalUrl?: string
-  status?: 'PENDING_CONFIRMATION' | 'CONFIRMED'
+  status?: 'PENDING_CONFIRMATION' | 'CONFIRMED' | 'INACTIVE'
 }
 
 async function requireDestinationManager(
@@ -176,11 +176,109 @@ export async function saveDestination(
 
   revalidatePath('/app/settings/review-destination')
   revalidatePath('/app/dashboard')
+  revalidatePath('/app/quick-complete')
 
   return {
     success: true,
     canonicalUrl: validation.canonicalUrl,
     status: 'PENDING_CONFIRMATION',
+  }
+}
+
+export async function deactivateDestination(
+  formData: FormData
+): Promise<DestinationResult> {
+  const organizationId = formData.get('organizationId') as string
+  const locationId = formData.get('locationId') as string
+
+  if (!organizationId || !locationId) {
+    return {
+      success: false,
+      error: 'Organization and location are required',
+    }
+  }
+
+  const access = await requireDestinationManager(
+    organizationId,
+    locationId
+  )
+
+  if (!access.ok) {
+    return {
+      success: false,
+      error: access.error,
+    }
+  }
+
+  const { supabase, user } = access
+
+  const { data: destination, error: destinationError } =
+    await supabase
+      .from('review_destinations')
+      .select('id, status')
+      .eq('organization_id', organizationId)
+      .eq('location_id', locationId)
+      .eq('provider', 'google')
+      .maybeSingle()
+
+  if (destinationError || !destination) {
+    return {
+      success: false,
+      error: 'No Google review destination exists for this location',
+    }
+  }
+
+  if (destination.status === 'INACTIVE') {
+    return {
+      success: true,
+      status: 'INACTIVE',
+    }
+  }
+
+  const { data: deactivated, error: deactivateError } =
+    await supabase
+      .from('review_destinations')
+      .update({
+        status: 'INACTIVE',
+        confirmed_by: null,
+        confirmed_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', destination.id)
+      .eq('organization_id', organizationId)
+      .select('id')
+      .single()
+
+  if (deactivateError || !deactivated) {
+    return {
+      success: false,
+      error: `Failed to pause destination: ${
+        deactivateError?.message || 'unknown'
+      }`,
+    }
+  }
+
+  const admin = createAdminClient()
+
+  await admin.from('audit_events').insert({
+    organization_id: organizationId,
+    actor_type: 'user',
+    actor_id: user.id,
+    event_type: 'review_destination.deactivated',
+    entity_type: 'review_destination',
+    entity_id: destination.id,
+    metadata: {
+      status: 'INACTIVE',
+    },
+  })
+
+  revalidatePath('/app/settings/review-destination')
+  revalidatePath('/app/dashboard')
+  revalidatePath('/app/quick-complete')
+
+  return {
+    success: true,
+    status: 'INACTIVE',
   }
 }
 
@@ -279,6 +377,7 @@ export async function confirmDestination(
 
   revalidatePath('/app/settings/review-destination')
   revalidatePath('/app/dashboard')
+  revalidatePath('/app/quick-complete')
 
   return {
     success: true,

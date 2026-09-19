@@ -161,6 +161,111 @@ export interface Database {
         }
         Relationships: []
       }
+      completion_api_credentials: {
+        Row: {
+          id: string
+          organization_id: string
+          name: string
+          secret_hash: string
+          status: 'ACTIVE' | 'REVOKED'
+          rate_limit_per_minute: number
+          last_used_at: string | null
+          revoked_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          name?: string
+          secret_hash: string
+          status?: 'ACTIVE' | 'REVOKED'
+          rate_limit_per_minute?: number
+          last_used_at?: string | null
+          revoked_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          name?: string
+          secret_hash?: string
+          status?: 'ACTIVE' | 'REVOKED'
+          rate_limit_per_minute?: number
+          last_used_at?: string | null
+          revoked_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      completion_ingestion_requests: {
+        Row: {
+          id: string
+          organization_id: string
+          credential_id: string
+          nonce: string
+          request_timestamp: string
+          request_body_hash: string
+          source_event_id: string | null
+          location_id: string | null
+          completion_event_id: string | null
+          status:
+            | 'CLAIMED'
+            | 'ACCEPTED'
+            | 'DUPLICATE'
+            | 'REJECTED'
+            | 'FAILED'
+          http_status: number | null
+          error_code: string | null
+          processed_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          credential_id: string
+          nonce: string
+          request_timestamp: string
+          request_body_hash: string
+          source_event_id?: string | null
+          location_id?: string | null
+          completion_event_id?: string | null
+          status?:
+            | 'CLAIMED'
+            | 'ACCEPTED'
+            | 'DUPLICATE'
+            | 'REJECTED'
+            | 'FAILED'
+          http_status?: number | null
+          error_code?: string | null
+          processed_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          credential_id?: string
+          nonce?: string
+          request_timestamp?: string
+          request_body_hash?: string
+          source_event_id?: string | null
+          location_id?: string | null
+          completion_event_id?: string | null
+          status?:
+            | 'CLAIMED'
+            | 'ACCEPTED'
+            | 'DUPLICATE'
+            | 'REJECTED'
+            | 'FAILED'
+          http_status?: number | null
+          error_code?: string | null
+          processed_at?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       customer_completion_events: {
         Row: {
           id: string
@@ -575,6 +680,36 @@ export interface Database {
           org_id: string
         }
         Returns: string
+      }
+      claim_completion_ingestion: {
+        Args: {
+          p_org_id: string
+          p_credential_id: string
+          p_nonce: string
+          p_request_timestamp: string
+          p_request_body_hash: string
+        }
+        Returns: Json
+      }
+      submit_completion_system_atomic: {
+        Args: {
+          p_org_id: string
+          p_loc_id: string
+          p_first_name: string
+          p_last_name?: string | null
+          p_email?: string | null
+          p_phone?: string | null
+          p_permission_email?: string
+          p_permission_sms?: string
+          p_permission_source?: string
+          p_source?: string
+          p_source_event_id?: string | null
+          p_source_customer_id?: string | null
+          p_source_transaction_id?: string | null
+          p_completed_at?: string
+          p_country?: string
+        }
+        Returns: Json
       }
       submit_quick_complete_atomic: {
         Args: {

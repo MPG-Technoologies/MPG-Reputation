@@ -16,6 +16,7 @@ const navItems: NavItem[] = [
   { href: '/app/quick-complete', label: 'Quick Complete' },
   { href: '/app/settings/location', label: 'Locations' },
   { href: '/app/settings/review-destination', label: 'Google Destination' },
+  { href: '/app/settings/integrations', label: 'API & Webhooks' },
 ]
 
 export function AppNav() {

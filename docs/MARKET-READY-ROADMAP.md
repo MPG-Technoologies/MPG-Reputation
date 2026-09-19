@@ -27,7 +27,7 @@ This is an **engineering execution specification**, not marketing copy. Inclusio
 [MR-2: Customer Activation] (COMPLETE / ACCEPTED)
        │
        ▼
-[MR-3: Completion Source Platform]
+[MR-3: Completion Source Platform] (LOCAL ENGINEERING COMPLETE — AWAITING OWNER ACCEPTANCE)
        │
        ▼
 [MR-4: Trial / Usage / Economics]
@@ -106,13 +106,13 @@ Each transition is strictly evidence- and gate-controlled.
 
 | Dimension | Specification |
 |---|---|
-| **Status** | PLANNED |
+| **Status** | **LOCAL ENGINEERING COMPLETE — AWAITING OWNER ACCEPTANCE** |
 | **Objective** | Create a scalable, secure, and extensible completion ingestion layer supporting universal webhooks and adapter architecture. |
 | **Dependencies** | MR-2 complete. |
-| **Implementation Scope** | 1. Universal completion API endpoint (`/api/v1/completions`) with API key and HMAC authentication.<br>2. Strict per-tenant rate limiting and replay attack protection.<br>3. Payload validation and normalization pipeline translating diverse completion formats into canonical `customer.completed` events.<br>4. Ingestion audit log and developer webhook debugging console in organization settings.<br>5. Extensible adapter interface for future demand-validated native CRM connectors. |
-| **Exit Evidence** | Automated test suite verifying webhook authentication, tenant isolation, schema validation, replay rejection, and idempotent event creation; simulated external system completions processed cleanly. |
-| **Explicit Non-Assumptions** | Does not build dozens of speculative native CRM connectors; native integrations are implemented only when supported by verified customer demand and API access. |
-| **Gate Required** | Security and tenant isolation audit of public webhook endpoints. |
+| **Implementation Scope** | 1. Universal completion API endpoint (`/api/v1/completions`) with versioned API keys (`mpg_v1.<id>.<secret>`) and HMAC-SHA256 signature verification (`v1=<hash>`).<br>2. Strict PostgreSQL-backed replay protection and per-tenant sliding 1-minute rate limiting via transaction advisory locks (stored default: 60 requests/minute per credential).<br>3. Payload validation and normalization pipeline translating diverse completion formats into canonical `customer.completed` events.<br>4. Activation gate integration requiring confirmed, valid Google review destinations before completion ingestion is accepted.<br>5. Atomic system persistence RPC (`submit_completion_system_atomic`) emitting domain event outbox records, tracking usage counters, and updating PII-free audit logs.<br>6. Tenant-isolated credential management and developer webhook debugging console in organization settings (`/app/settings/integrations`).<br>7. Extensible adapter interface for future demand-validated native CRM connectors. |
+| **Exit Evidence** | Comprehensive test suite (40 unit/domain tests + 22 PostgreSQL integration tests + 4 credential trust boundary/rotation tests) verifying authentication, HMAC verification, replay/rate limiting, atomic idempotency, tenant isolation, and audit logging; `pnpm typecheck`, `pnpm lint`, `pnpm test` (422 tests passed), `pnpm build`, and `supabase db lint` all pass cleanly. |
+| **Explicit Non-Assumptions** | Does not build dozens of speculative native CRM connectors; native integrations are implemented only when supported by verified customer demand and API access; live messaging remains OFF (`ENABLE_LIVE_EMAIL=false`); billing belongs to MR-5; MR-4 remains planned and unstarted. |
+| **Gate Required** | Owner acceptance of MR-3 technical and operational implementation before proceeding to MR-4. |
 
 ---
 

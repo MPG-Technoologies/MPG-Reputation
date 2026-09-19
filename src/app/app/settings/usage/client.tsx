@@ -7,6 +7,7 @@ import {
   startOrganizationTrialAction,
   provisionOrganizationTrialAction,
 } from '@/actions/usage'
+import { AlertTriangleIcon } from '@/components/ui/icons'
 
 interface UsageClientProps {
   organizationId: string
@@ -87,43 +88,43 @@ export function UsageClient({
     switch (status) {
       case 'ACTIVE':
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-emerald-950/60 text-emerald-400 border border-emerald-800/80">
             Active Trial
           </span>
         )
       case 'NOT_STARTED':
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-amber-950/60 text-amber-300 border border-amber-800/80">
             Trial Ready (Not Started)
           </span>
         )
       case 'EXHAUSTED':
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-amber-950/60 text-amber-400 border border-amber-800/80">
             Allowance Exhausted
           </span>
         )
       case 'EXPIRED':
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-rose-950/60 text-rose-300 border border-rose-800/80">
             Trial Expired
           </span>
         )
       case 'SUSPENDED':
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-rose-950/60 text-rose-300 border border-rose-800/80">
             Suspended
           </span>
         )
       case 'ENDED':
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/20">
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-slate-800 text-slate-400 border border-slate-700">
             Ended
           </span>
         )
       default:
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/20">
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-slate-800 text-slate-400 border border-slate-700">
             {status}
           </span>
         )
@@ -134,12 +135,12 @@ export function UsageClient({
   const allocated = entitlement?.allocatedRequests ?? 30
   const remaining = entitlement?.remainingRequests ?? 0
   const percentUsed = allocated > 0 ? Math.min(100, Math.round((consumed / allocated) * 100)) : 0
-  const isNotStarted = entitlement?.status === 'NOT_STARTED'
+  const isNotStarted = entitlement?.effectiveStatus === 'NOT_STARTED' || entitlement?.status === 'NOT_STARTED'
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* 1. Entitlement Hypothesis Notice */}
-      <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 text-xs text-blue-300">
+      <div className="rounded-xl border border-blue-900/40 bg-blue-950/20 p-4 text-xs text-blue-300 leading-relaxed">
         <span className="font-semibold uppercase tracking-wider text-blue-400">
           Validation Hypothesis — MR-4:
         </span>{' '}
@@ -150,17 +151,20 @@ export function UsageClient({
 
       {/* 2. Explicit Trial Activation Callout (when NOT_STARTED) */}
       {isNotStarted && (
-        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-6 shadow-sm space-y-4">
+        <div className="rounded-xl border border-amber-900/50 bg-[#0E172B] p-5 space-y-4 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h2 className="text-lg font-semibold text-white">Trial Ready for Activation</h2>
-              <p className="text-xs text-slate-300 mt-1">
-                Your trial has been provisioned with an initial evaluation allowance.
-                Customer completions received before explicit activation will consume zero allowance and will not send requests.
+              <div className="flex items-center gap-2">
+                <AlertTriangleIcon className="w-4 h-4 text-amber-400" />
+                <h2 className="text-sm font-semibold text-white">Trial Ready for Activation</h2>
+              </div>
+              <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                Your trial has been provisioned with an evaluation allowance of {allocated} requests.
+                Customer completions received before explicit activation will consume zero allowance and will not send live invitations.
               </p>
               <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 mt-2">
                 <span className="inline-flex items-center gap-1 font-medium text-slate-300">
-                  <span className="text-white font-semibold">{allocated}</span> review requests
+                  <span className="text-white font-semibold">{allocated}</span> review requests provisioned
                 </span>
                 <span className="text-slate-600">•</span>
                 <span className="inline-flex items-center gap-1 font-medium text-slate-300">
@@ -169,19 +173,19 @@ export function UsageClient({
               </div>
             </div>
             {isOwnerOrAdmin && (
-              <div>
+              <div className="shrink-0">
                 {usage?.canStartTrial ? (
                   <button
                     onClick={handleStartTrial}
                     disabled={isStartingTrial}
-                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-xl shadow transition-colors disabled:opacity-50 whitespace-nowrap"
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-semibold rounded-lg shadow-sm shadow-emerald-900/30 transition-colors disabled:opacity-50 whitespace-nowrap cursor-pointer"
                   >
                     {isStartingTrial ? 'Starting Trial...' : 'Start Trial'}
                   </button>
                 ) : (
                   <Link
                     href="/app/settings/review-destination"
-                    className="inline-block px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-xl transition-colors whitespace-nowrap"
+                    className="inline-block px-3.5 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap"
                   >
                     Set Up Ready Location First
                   </Link>
@@ -192,7 +196,7 @@ export function UsageClient({
 
           {!usage?.canStartTrial && (
             <div className="text-xs text-amber-300/90 bg-amber-950/40 p-3 rounded-lg border border-amber-500/20">
-              <strong>Prerequisite:</strong> An active location with a confirmed, valid Google review destination is required before starting the trial.
+              <strong>Prerequisite:</strong> At least one active location with a tested and confirmed Google review destination is required before starting the trial.
             </div>
           )}
 
@@ -200,8 +204,8 @@ export function UsageClient({
             <div
               className={`p-3 rounded-lg text-xs ${
                 startMessage.type === 'success'
-                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                  : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                  ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-800'
+                  : 'bg-rose-950/40 text-rose-400 border border-rose-800'
               }`}
             >
               {startMessage.text}
@@ -211,37 +215,53 @@ export function UsageClient({
       )}
 
       {/* 3. Trial Status & Allowance Card */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-800">
+      <div className="rounded-xl border border-[#1C2846] bg-[#0E172B] p-5 sm:p-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-[#1C2846]">
           <div>
             <div className="flex items-center gap-3">
-              <h2 className="text-lg font-semibold text-white">Trial Entitlement Allowance</h2>
+              <h2 className="text-base font-semibold text-white tracking-tight">Trial Entitlement Allowance</h2>
               {getStatusBadge(entitlement?.effectiveStatus || 'NOT_STARTED')}
             </div>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
               Server-authoritative consumption ledger and concurrency-safe limit enforcement.
             </p>
           </div>
-          <div className="text-right">
-            <div className="text-2xl font-bold text-white tracking-tight">
-              {remaining}{' '}
-              <span className="text-xs font-normal text-slate-400">requests remaining</span>
-            </div>
-            <div className="text-xs text-slate-400 mt-0.5">
-              {consumed} of {allocated} requests consumed
-            </div>
+
+          {/* Factual consistency in allowance display */}
+          <div className="sm:text-right">
+            {isNotStarted ? (
+              <>
+                <div className="text-xl sm:text-2xl font-bold text-white tracking-tight font-mono">
+                  {allocated}{' '}
+                  <span className="text-xs font-normal text-slate-400 font-sans">requests provisioned</span>
+                </div>
+                <div className="text-xs text-amber-400/90 mt-0.5">
+                  Awaiting trial start · {consumed} consumed
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-xl sm:text-2xl font-bold text-white tracking-tight font-mono">
+                  {remaining}{' '}
+                  <span className="text-xs font-normal text-slate-400 font-sans">requests remaining</span>
+                </div>
+                <div className="text-xs text-slate-400 mt-0.5">
+                  {consumed} of {allocated} requests consumed
+                </div>
+              </>
+            )}
           </div>
         </div>
 
         {/* Progress Bar */}
-        <div className="mt-6 space-y-2">
+        <div className="mt-5 space-y-2">
           <div className="flex justify-between text-xs text-slate-400">
-            <span>Utilization</span>
-            <span>{percentUsed}%</span>
+            <span>Allowance Utilization</span>
+            <span className="font-mono">{percentUsed}%</span>
           </div>
-          <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
+          <div className="w-full bg-[#0A1020] rounded-full h-2 overflow-hidden border border-[#1C2846]/60">
             <div
-              className={`h-2.5 rounded-full transition-all duration-300 ${
+              className={`h-full rounded-full transition-all duration-300 ${
                 percentUsed >= 100
                   ? 'bg-amber-500'
                   : percentUsed > 80
@@ -254,99 +274,103 @@ export function UsageClient({
         </div>
 
         {/* Entitlement Dates */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6 pt-4 border-t border-slate-800/80 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5 pt-4 border-t border-[#1C2846] text-xs">
           <div>
             <span className="text-slate-400">Trial Started:</span>{' '}
-            <span className="text-slate-300 font-medium">
-              {entitlement?.startedAt ? new Date(entitlement.startedAt).toLocaleString() : 'Not started (awaiting explicit activation)'}
+            <span className="text-slate-300 font-mono text-[11px] ml-1">
+              {entitlement?.startedAt
+                ? new Date(entitlement.startedAt).toLocaleString()
+                : 'Not started (awaiting explicit activation)'}
             </span>
           </div>
           <div>
             <span className="text-slate-400">Trial Expires:</span>{' '}
-            <span className="text-slate-300 font-medium">
-              {entitlement?.expiresAt ? new Date(entitlement.expiresAt).toLocaleString() : `${entitlement?.durationDays ?? 30} days after start`}
+            <span className="text-slate-300 font-mono text-[11px] ml-1">
+              {entitlement?.expiresAt
+                ? new Date(entitlement.expiresAt).toLocaleString()
+                : `${entitlement?.durationDays ?? 30} days after start`}
             </span>
           </div>
         </div>
       </div>
 
-      {/* 4. Factual Usage Counts (Ledger-backed) */}
+      {/* 4. Factual Usage Counts (Ledger Summary, calm statistical presentation) */}
       <div>
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-4">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
           Factual Usage Accounting (Ledger Summary)
         </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+          <div className="rounded-xl border border-[#1C2846] bg-[#0E172B] p-4">
             <div className="text-xs text-slate-400">Initial Requests</div>
-            <div className="text-xl font-bold text-white mt-1">
+            <div className="text-lg sm:text-xl font-bold text-white mt-1 font-mono">
               {counts?.initialRequestsCreated ?? 0}
             </div>
-            <div className="text-[11px] text-slate-400 mt-1">Consumes allowance</div>
+            <div className="text-[10px] text-slate-500 mt-1">Consumes allowance</div>
           </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+          <div className="rounded-xl border border-[#1C2846] bg-[#0E172B] p-4">
             <div className="text-xs text-slate-400">Reminders Created</div>
-            <div className="text-xl font-bold text-white mt-1">
+            <div className="text-lg sm:text-xl font-bold text-white mt-1 font-mono">
               {counts?.remindersCreated ?? 0}
             </div>
-            <div className="text-[11px] text-slate-400 mt-1">Separate accounting</div>
+            <div className="text-[10px] text-slate-500 mt-1">Separate accounting</div>
           </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+          <div className="rounded-xl border border-[#1C2846] bg-[#0E172B] p-4">
             <div className="text-xs text-slate-400">Provider Attempts</div>
-            <div className="text-xl font-bold text-white mt-1">
+            <div className="text-lg sm:text-xl font-bold text-white mt-1 font-mono">
               {counts?.providerSendAttempts ?? 0}
             </div>
-            <div className="text-[11px] text-slate-400 mt-1">
+            <div className="text-[10px] text-slate-500 mt-1">
               {counts?.providerSendSuccesses ?? 0} sent, {counts?.providerSendFailures ?? 0} failed
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+          <div className="rounded-xl border border-[#1C2846] bg-[#0E172B] p-4">
             <div className="text-xs text-slate-400">Tracked Clicks</div>
-            <div className="text-xl font-bold text-white mt-1">
+            <div className="text-lg sm:text-xl font-bold text-white mt-1 font-mono">
               {counts?.trackedClicks ?? 0}
             </div>
-            <div className="text-[11px] text-slate-400 mt-1">Verified redirects</div>
+            <div className="text-[10px] text-slate-500 mt-1">Verified redirects</div>
           </div>
         </div>
       </div>
 
-      {/* 5. Recent Usage Ledger Events */}
-      <div className="space-y-4">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
+      {/* 5. Recent Usage Ledger Events (Audit Record) */}
+      <div className="space-y-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
           Append-Only Usage Ledger (Audit Record)
         </h3>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 overflow-hidden">
+        <div className="rounded-xl border border-[#1C2846] bg-[#0E172B] overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/40">
-                  <th className="py-3 px-4 font-medium">Timestamp</th>
-                  <th className="py-3 px-4 font-medium">Event Type</th>
-                  <th className="py-3 px-4 font-medium">Channel</th>
-                  <th className="py-3 px-4 font-medium">Units</th>
-                  <th className="py-3 px-4 font-medium">Idempotency Key</th>
+                <tr className="border-b border-[#1C2846] text-slate-400 bg-[#0A1020] uppercase tracking-wider text-[10px]">
+                  <th scope="col" className="py-3 px-5 font-medium">Timestamp</th>
+                  <th scope="col" className="py-3 px-4 font-medium">Event Type</th>
+                  <th scope="col" className="py-3 px-4 font-medium">Channel</th>
+                  <th scope="col" className="py-3 px-4 font-medium">Units</th>
+                  <th scope="col" className="py-3 px-5 font-medium">Idempotency Key</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 text-slate-300 font-mono">
+              <tbody className="divide-y divide-[#1C2846]/70 text-slate-300 font-mono text-[11px]">
                 {usage?.recentEvents && usage.recentEvents.length > 0 ? (
                   usage.recentEvents.map((ev) => (
-                    <tr key={ev.id} className="hover:bg-slate-800/30">
-                      <td className="py-2.5 px-4 font-sans text-slate-400 whitespace-nowrap">
-                        {new Date(ev.createdAt).toLocaleTimeString()}
+                    <tr key={ev.id} className="hover:bg-[#131E38]/40 transition-colors">
+                      <td className="py-3 px-5 font-sans text-slate-400 whitespace-nowrap text-xs">
+                        {new Date(ev.createdAt).toLocaleString()}
                       </td>
-                      <td className="py-2.5 px-4 text-white font-medium">{ev.eventType}</td>
-                      <td className="py-2.5 px-4 text-slate-400">{ev.channel}</td>
-                      <td className="py-2.5 px-4">{ev.units}</td>
-                      <td className="py-2.5 px-4 text-slate-400 text-[11px] truncate max-w-[200px]">
+                      <td className="py-3 px-4 text-white font-medium">{ev.eventType}</td>
+                      <td className="py-3 px-4 text-slate-400">{ev.channel}</td>
+                      <td className="py-3 px-4">{ev.units}</td>
+                      <td className="py-3 px-5 text-slate-500 text-[10px] truncate max-w-[200px]">
                         {ev.idempotencyKey}
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={5} className="py-6 text-center text-slate-400 font-sans">
+                    <td colSpan={5} className="py-8 text-center text-slate-500 font-sans text-xs">
                       No usage events recorded yet.
                     </td>
                   </tr>
@@ -359,15 +383,15 @@ export function UsageClient({
 
       {/* 6. Operator Trial Configuration (Owner/Admin) */}
       {isOwnerOrAdmin && (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 space-y-4">
-          <h3 className="text-sm font-semibold text-white">
+        <div className="rounded-xl border border-[#1C2846] bg-[#0E172B] p-5 sm:p-6 space-y-4">
+          <h3 className="text-sm font-semibold text-white tracking-tight">
             Configure Entitlement Allowance (Pilot Operator)
           </h3>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-400 leading-relaxed">
             Modify or re-provision the organization trial allowance parameters.
           </p>
 
-          <form onSubmit={handleReprovision} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <form onSubmit={handleReprovision} className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl">
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1">
                 Allocated Review Requests
@@ -379,7 +403,7 @@ export function UsageClient({
                 min={1}
                 max={1000}
                 required
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                className="w-full bg-[#0A1020] border border-[#1C2846] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
               />
             </div>
 
@@ -394,7 +418,7 @@ export function UsageClient({
                 min={1}
                 max={365}
                 required
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                className="w-full bg-[#0A1020] border border-[#1C2846] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
               />
             </div>
 
@@ -402,7 +426,7 @@ export function UsageClient({
               <button
                 type="submit"
                 disabled={isProvisioning}
-                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
+                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg disabled:opacity-50 transition-colors shadow-sm shadow-blue-900/30 cursor-pointer"
               >
                 {isProvisioning ? 'Updating...' : 'Update Allowance'}
               </button>
@@ -413,8 +437,8 @@ export function UsageClient({
             <div
               className={`p-3 rounded-lg text-xs ${
                 provisionMessage.type === 'success'
-                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                  : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                  ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-800'
+                  : 'bg-rose-950/40 text-rose-400 border border-rose-800'
               }`}
             >
               {provisionMessage.text}

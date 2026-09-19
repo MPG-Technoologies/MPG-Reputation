@@ -1,11 +1,15 @@
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { deriveActivationReadiness } from '@/domain/activation'
+import { PageShell, PageHeader } from '@/components/layout/page-shell'
+import { DestinationReadyBanner } from './ready-banner'
 import { DestinationForm } from './form'
+import { LinkIcon } from '@/components/ui/icons'
 
 export default async function ReviewDestinationPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
   if (!user) return null
 
@@ -15,7 +19,13 @@ export default async function ReviewDestinationPage() {
     .eq('user_id', user.id)
 
   const orgId = userOrgs?.[0]?.organization_id
-  if (!orgId) return <div>No organization found.</div>
+  if (!orgId) {
+    return (
+      <PageShell>
+        <div className="p-8 text-center text-slate-400">No organization found.</div>
+      </PageShell>
+    )
+  }
 
   // Parallelize locations and destinations queries
   const [{ data: locations }, { data: destinations }] = await Promise.all([
@@ -36,44 +46,27 @@ export default async function ReviewDestinationPage() {
   )
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <div>
-        <div className="text-xs font-semibold uppercase tracking-wider text-blue-400 mb-2">
-          Setup · Step 2 of 2
-        </div>
-
-        <h1 className="text-2xl font-bold text-white tracking-tight">Google Review Destination</h1>
-        <p className="text-sm text-slate-400 mt-1">
-          Configure and confirm the official Google review destination URL for each location.
-        </p>
-      </div>
-
-      {readiness.ready && (
-        <div className="bg-emerald-950/40 border border-emerald-800 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold text-emerald-200">
-              Customer activation setup complete
-            </div>
-            <p className="text-xs text-emerald-300/70 mt-1">
-              Active locations have tested and confirmed Google destinations.
-              Quick Complete is available for the local synthetic workflow.
-            </p>
-          </div>
-
-          <Link
-            href="/app/quick-complete"
-            className="inline-flex shrink-0 justify-center py-2 px-3 rounded-md text-sm font-medium text-white bg-emerald-700 hover:bg-emerald-600"
-          >
-            Open Quick Complete →
-          </Link>
-        </div>
-      )}
-
-      <DestinationForm
-        organizationId={orgId}
-        locations={locations || []}
-        destinations={destinations || []}
+    <PageShell>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2.5">
+            <LinkIcon className="w-5 h-5 text-blue-400" />
+            <span>Google Review Destination</span>
+          </span>
+        }
+        subtitle="Configure and explicitly confirm the official Google review destination URL for each active location."
       />
-    </div>
+
+      {/* Focused Form Container (max-w-3xl) to maintain optimal readability */}
+      <div className="max-w-3xl space-y-6">
+        {readiness.ready && <DestinationReadyBanner />}
+
+        <DestinationForm
+          organizationId={orgId}
+          locations={locations || []}
+          destinations={destinations || []}
+        />
+      </div>
+    </PageShell>
   )
 }

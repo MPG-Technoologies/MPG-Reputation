@@ -12,9 +12,11 @@ interface LocationItem {
 export function QuickCompleteForm({
   organizationId,
   locations,
+  onSuccess,
 }: {
   organizationId: string
   locations: LocationItem[]
+  onSuccess?: () => void
 }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
@@ -37,6 +39,11 @@ export function QuickCompleteForm({
         // Generate new key for the next legitimate job completion
         setSourceEventId(`qc_${crypto.randomUUID()}`)
         router.refresh()
+        if (onSuccess) {
+          setTimeout(() => {
+            onSuccess()
+          }, 1200)
+        }
       }
     } catch {
       setResult({ success: false, error: 'An unexpected error occurred while submitting.' })
@@ -107,7 +114,7 @@ export function QuickCompleteForm({
 
       {/* Location */}
       <div>
-        <label htmlFor="locationId" className="block text-sm font-medium text-slate-300">
+        <label htmlFor="locationId" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
           Location
         </label>
         <select
@@ -115,7 +122,7 @@ export function QuickCompleteForm({
           name="locationId"
           required
           defaultValue={locations[0]?.id}
-          className="mt-1 block w-full pl-3 pr-10 py-2 border border-slate-700 bg-slate-800 text-slate-100 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
+          className="mt-1 block w-full px-3 py-2 border border-[#1C2846] bg-[#0A1020] text-slate-100 rounded-lg shadow-sm focus:outline-none focus:border-blue-500 text-xs"
         >
           {locations.map((loc) => (
             <option key={loc.id} value={loc.id}>
@@ -128,7 +135,7 @@ export function QuickCompleteForm({
       {/* First & Last Name */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label htmlFor="firstName" className="block text-sm font-medium text-slate-300">
+          <label htmlFor="firstName" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
             First Name <span className="text-rose-400">*</span>
           </label>
           <input
@@ -137,11 +144,11 @@ export function QuickCompleteForm({
             type="text"
             required
             placeholder="Jane"
-            className="mt-1 block w-full px-3 py-2 border border-slate-700 bg-slate-800 text-slate-100 rounded-md shadow-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full px-3 py-2 border border-[#1C2846] bg-[#0A1020] text-slate-100 rounded-lg shadow-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 text-xs"
           />
         </div>
         <div>
-          <label htmlFor="lastName" className="block text-sm font-medium text-slate-300">
+          <label htmlFor="lastName" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
             Last Name
           </label>
           <input
@@ -149,7 +156,7 @@ export function QuickCompleteForm({
             name="lastName"
             type="text"
             placeholder="Doe"
-            className="mt-1 block w-full px-3 py-2 border border-slate-700 bg-slate-800 text-slate-100 rounded-md shadow-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full px-3 py-2 border border-[#1C2846] bg-[#0A1020] text-slate-100 rounded-lg shadow-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 text-xs"
           />
         </div>
       </div>
@@ -157,7 +164,7 @@ export function QuickCompleteForm({
       {/* Contact info: Email and Phone */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label htmlFor="email" className="block text-sm font-medium text-slate-300">
+          <label htmlFor="email" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
             Email Address <span className="text-rose-400">*</span>
           </label>
           <input
@@ -166,53 +173,53 @@ export function QuickCompleteForm({
             type="email"
             required
             placeholder="jane.doe@example.test"
-            className="mt-1 block w-full px-3 py-2 border border-slate-700 bg-slate-800 text-slate-100 rounded-md shadow-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full px-3 py-2 border border-[#1C2846] bg-[#0A1020] text-slate-100 rounded-lg shadow-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 text-xs font-mono"
           />
         </div>
         <div>
-          <label htmlFor="phone" className="block text-sm font-medium text-slate-300">
-            Phone Number <span className="text-slate-500 text-xs">(optional)</span>
+          <label htmlFor="phone" className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+            Phone Number <span className="text-slate-500 font-normal lowercase">(optional)</span>
           </label>
           <input
             id="phone"
             name="phone"
             type="tel"
             placeholder="+1 (555) 000-0000"
-            className="mt-1 block w-full px-3 py-2 border border-slate-700 bg-slate-800 text-slate-100 rounded-md shadow-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full px-3 py-2 border border-[#1C2846] bg-[#0A1020] text-slate-100 rounded-lg shadow-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 text-xs font-mono"
           />
         </div>
       </div>
 
       {/* Explicit Email Permission Selector */}
       <div>
-        <label className="block text-sm font-medium text-slate-300">
+        <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
           Email Permission
         </label>
-        <p className="text-xs text-slate-400 mt-0.5 mb-2">
+        <p className="text-[11px] text-slate-400 mb-2 leading-relaxed">
           Conservative default is Unknown. Review solicitation requires explicit Allowed permission.
         </p>
         <div className="grid grid-cols-3 gap-3">
-          <label className="flex items-center gap-2 p-2.5 rounded border border-slate-700 bg-slate-800 text-xs text-slate-200 cursor-pointer hover:bg-slate-700">
+          <label className="flex items-center gap-2 p-2.5 rounded-lg border border-[#1C2846] bg-[#0A1020] text-xs text-slate-200 cursor-pointer hover:bg-[#131E38] transition-colors">
             <input type="radio" name="permissionEmail" value="unknown" defaultChecked />
             <span>Unknown (Default)</span>
           </label>
-          <label className="flex items-center gap-2 p-2.5 rounded border border-slate-700 bg-slate-800 text-xs text-slate-200 cursor-pointer hover:bg-slate-700">
+          <label className="flex items-center gap-2 p-2.5 rounded-lg border border-[#1C2846] bg-[#0A1020] text-xs text-slate-200 cursor-pointer hover:bg-[#131E38] transition-colors">
             <input type="radio" name="permissionEmail" value="allowed" />
             <span>Allowed</span>
           </label>
-          <label className="flex items-center gap-2 p-2.5 rounded border border-slate-700 bg-slate-800 text-xs text-slate-200 cursor-pointer hover:bg-slate-700">
+          <label className="flex items-center gap-2 p-2.5 rounded-lg border border-[#1C2846] bg-[#0A1020] text-xs text-slate-200 cursor-pointer hover:bg-[#131E38] transition-colors">
             <input type="radio" name="permissionEmail" value="denied" />
             <span>Denied</span>
           </label>
         </div>
       </div>
 
-      <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
+      <div className="pt-4 border-t border-[#1C2846] flex items-center justify-end gap-3">
         <button
           type="submit"
           disabled={loading}
           aria-busy={loading}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg shadow-sm shadow-blue-900/30 text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer"
         >
           {loading ? (
             <>

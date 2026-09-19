@@ -1,9 +1,13 @@
 'use client'
 
-import React, { useEffect, useReducer, useRef, useCallback } from 'react'
+import React, { useEffect, useReducer, useRef, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { getDashboardSnapshot, getActivityRowProjection, getCompletionActivityProjection } from '@/actions/dashboard'
+import {
+  getDashboardSnapshot,
+  getActivityRowProjection,
+  getCompletionActivityProjection,
+} from '@/actions/dashboard'
 import {
   createInitialState,
   dashboardReducer,
@@ -16,13 +20,12 @@ import type {
   ReviewRequestIneligibleEvent,
   ReviewRequestCheckingEvent,
 } from '@/lib/dashboard/realtime-types'
-import { RealtimeStatus } from './realtime-status'
 import { DashboardKpis } from './dashboard-kpis'
-import { LiveActivity } from './live-activity'
-import { RecentActivity } from './recent-activity'
-import { SystemStatusCard } from './system-status-card'
-import { NeedsAttentionCard } from './needs-attention-card'
-import { QuickLinksCard } from './quick-links-card'
+import { ActivityPanel } from './activity-panel'
+import { SystemStatusPanel } from './system-status-panel'
+import { CalendarIcon, ChevronDownIcon, PlusCircleIcon } from '@/components/ui/icons'
+import { PageShell } from '@/components/layout/page-shell'
+import { useModal } from '@/components/ui/modal-system'
 
 interface LiveDashboardProps {
   initialSnapshot: DashboardSnapshot
@@ -35,6 +38,8 @@ export function LiveDashboard({
   orgId,
   orgName,
 }: LiveDashboardProps) {
+  const { openQuickComplete } = useModal()
+  const supabase = useMemo(() => createClient(), [])
   const [state, dispatch] = useReducer(
     dashboardReducer,
     initialSnapshot,
@@ -59,43 +64,46 @@ export function LiveDashboard({
             reason,
             preserveLiveActivity: reason === 'focus',
           })
-        if (isSubscribedRef.current) {
-          dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'LIVE' })
+          if (isSubscribedRef.current) {
+            dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'LIVE' })
+          } else {
+            dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'RECONNECTING' })
+          }
         } else {
+          // Failed snapshot fetch: retain existing data, show non-live state
           dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'RECONNECTING' })
         }
-      } else {
-        // Failed snapshot fetch: retain existing data, show non-live state
+      } catch {
+        // Failed: retain existing state, do not falsely claim LIVE
         dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'RECONNECTING' })
+      } finally {
+        lastReconciledAt.current = Date.now()
       }
-    } catch {
-      // Failed: retain existing state, do not falsely claim LIVE
-      dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'RECONNECTING' })
-    } finally {
-      lastReconciledAt.current = Date.now()
-    }
-  }, [orgId])
+    },
+    [orgId]
+  )
 
-  // Single organization-scoped Realtime channel subscription with explicit setAuth bootstrap
+  // Realtime subscription setup
   useEffect(() => {
-    const supabase = createClient()
     let isMounted = true
     let activeChannel: ReturnType<typeof supabase.channel> | null = null
 
-    const initRealtime = async () => {
-      try {
-        // Explicitly initialize Realtime authorization using the authenticated client
-        const {
-          data: { session },
-        } = await supabase.auth.getSession()
-        await supabase.realtime.setAuth(session?.access_token ?? undefined)
-      } catch {
-        // Fall back gracefully to client defaults
+    async function initRealtime() {
+      // 1. Ensure client-side Supabase JWT is propagated to realtime connection before subscribe
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!isMounted) return
+
+      if (session?.access_token) {
+        await supabase.realtime.setAuth(session.access_token)
       }
 
       if (!isMounted) return
 
-      const topic = `organization:${orgId}:dashboard`
+      // 2. Private tenant broadcast channel: tenant:{orgId}
+      const topic = `tenant:${orgId}`
       const channel = supabase.channel(topic, {
         config: {
           private: true,
@@ -215,7 +223,7 @@ export function LiveDashboard({
         supabase.removeChannel(activeChannel)
       }
     }
-  }, [orgId, reconcile])
+  }, [orgId, reconcile, supabase])
 
   // Lifecycle focus / visibility reconciliation (throttled, only if hidden > 15s)
   useEffect(() => {
@@ -249,82 +257,134 @@ export function LiveDashboard({
     }
   }, [state.highlightedKpiKey, state.highlightedRowId])
 
+  const attentionCount = state.attentionItems.length
+
+  // Format current date e.g. "Apr 22, 2025"
+  const formattedDate = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date())
+
   return (
-    <div className="space-y-6">
+    <PageShell>
       {/* Screen reader live announcement */}
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {state.announcement}
       </div>
 
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-white tracking-tight">Dashboard</h1>
-            <RealtimeStatus status={state.connectionState} />
+      <div className="space-y-5 xl:space-y-6 flex-1 flex flex-col min-w-0 min-h-0">
+        {/* ============================================================== */}
+        {/* 1. DESKTOP & TABLET PAGE HEADER                                */}
+        {/* ============================================================== */}
+        <div className="hidden md:flex flex-row items-center justify-between gap-4">
+          <div>
+            <div className="text-xs xl:text-sm text-slate-400 font-medium">Good morning,</div>
+            <h1 className="text-xl xl:text-2xl font-bold text-white tracking-tight mt-0.5">
+              {orgName}
+            </h1>
+            <p className="text-xs xl:text-sm text-slate-400 mt-1">
+              Your reputation is in good shape.{' '}
+              {attentionCount > 0 ? (
+                <>
+                  <span className="text-amber-400 font-semibold">
+                    {attentionCount} {attentionCount === 1 ? 'item' : 'items'}
+                  </span>{' '}
+                  need your attention.
+                </>
+              ) : (
+                'All systems operational.'
+              )}
+            </p>
           </div>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Realtime activity, automation state, and operational metrics.
-          </p>
+
+          <div className="flex items-center gap-3">
+            {/* Date Selector Pill */}
+            <div className="hidden xl:flex items-center gap-2 px-3 py-2 bg-[#0E172B] border border-[#1C2846] rounded-lg text-xs font-medium text-slate-300">
+              <CalendarIcon className="w-4 h-4 text-slate-400" />
+              <span>{formattedDate}</span>
+              <ChevronDownIcon className="w-3.5 h-3.5 text-slate-400" />
+            </div>
+
+            {/* Primary CTA: + Quick Complete */}
+            <Link
+              href="/app/quick-complete"
+              onClick={(e) => {
+                e.preventDefault()
+                openQuickComplete()
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg shadow-md shadow-blue-900/40 text-xs xl:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 transition-colors"
+            >
+              <span>+</span>
+              <span>Quick Complete</span>
+            </Link>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
+
+        {/* ============================================================== */}
+        {/* 2. MOBILE GREETING & FULL-WIDTH QUICK COMPLETE (< 768px)       */}
+        {/* ============================================================== */}
+        <div className="md:hidden space-y-3.5">
+          <div>
+            <div className="text-xs text-slate-400 font-medium">Good morning,</div>
+            <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-1.5 mt-0.5">
+              <span>{orgName}</span>
+              <span aria-hidden="true">👋</span>
+            </h1>
+            <p className="text-xs text-slate-400 mt-1">
+              Here&apos;s what&apos;s happening with your reputation today.
+            </p>
+          </div>
+
+          {/* Mobile Full-Width Dominant Quick Complete Action Button */}
           <Link
             href="/app/quick-complete"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-transparent rounded-md shadow-sm text-xs sm:text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 transition-colors"
+            onClick={(e) => {
+              e.preventDefault()
+              openQuickComplete()
+            }}
+            className="w-full h-12 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-blue-900/30 text-sm transition-colors"
           >
-            + Quick Complete
+            <PlusCircleIcon className="w-4.5 h-4.5" />
+            <span>Quick Complete</span>
           </Link>
         </div>
-      </div>
 
-      {/* KPI Metric Row — Primary Scannable Metrics */}
-      <DashboardKpis kpis={state.kpis} highlightedKey={state.highlightedKpiKey} />
+        {/* ============================================================== */}
+        {/* 3. KPI METRIC ROW (5 cards on Desktop/Tablet, 2x2+1 on Mobile) */}
+        {/* ============================================================== */}
+        <DashboardKpis kpis={state.kpis} highlightedKey={state.highlightedKpiKey} />
 
-      {/* Main Two-Column Operational Area */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-6 items-start">
-        {/* Left / Primary Column on Desktop */}
-        <div className="order-1 lg:order-1 lg:col-start-1 lg:row-start-1 space-y-6 min-w-0">
-          <LiveActivity activities={state.liveActivity} />
-          <div className="hidden lg:block">
-            <RecentActivity
-              requests={state.recentRequests}
+        {/* ============================================================== */}
+        {/* 4. MAIN OPERATIONAL GRID                                       */}
+        {/* Desktop: ~68% Left Activity / ~32% Right Status                */}
+        {/* Tablet: Side-by-side 50/50                                     */}
+        {/* Mobile: Stacked Activity then Status                           */}
+        {/* ============================================================== */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_340px] gap-5 items-stretch xl:flex-1 xl:min-h-0">
+          {/* Unified Recent Activity Panel (Tabs: Live Activity / Solicitations) */}
+          <div className="min-w-0 h-full">
+            <ActivityPanel
+              liveActivities={state.liveActivity}
+              recentRequests={state.recentRequests}
               orgName={orgName}
               highlightedRowId={state.highlightedRowId}
             />
           </div>
-        </div>
 
-        {/* Right / Secondary Sidebar on Desktop (Mobile Order 2 & 3) */}
-        <div className="order-2 lg:order-2 lg:col-start-2 lg:row-start-1 space-y-6">
-          <SystemStatusCard
-            status={state.systemStatus}
-            statusDescription={state.statusDescription}
-            failedCount={state.kpis.failedCount}
-            locationsNeedingDestinationCount={
-              state.locationsNeedingDestinationCount
-            }
-            setupChecklist={state.setupChecklist}
-          />
-          <NeedsAttentionCard items={state.attentionItems} />
-          <div className="hidden lg:block">
-            <QuickLinksCard />
+          {/* Unified System Status Panel (Status, Attention, Checklist/Summary) */}
+          <div className="min-w-0 h-full">
+            <SystemStatusPanel
+              status={state.systemStatus}
+              statusDescription={state.statusDescription}
+              attentionItems={state.attentionItems}
+              checklist={state.setupChecklist}
+              failedCount={state.kpis.failedCount}
+              locationsNeedingDestinationCount={state.locationsNeedingDestinationCount}
+            />
           </div>
         </div>
-
-        {/* Mobile-only Order 5: Recent Review Solicitations */}
-        <div className="order-3 lg:hidden min-w-0">
-          <RecentActivity
-            requests={state.recentRequests}
-            orgName={orgName}
-            highlightedRowId={state.highlightedRowId}
-          />
-        </div>
-
-        {/* Mobile-only Order 6: Quick Links */}
-        <div className="order-4 lg:hidden">
-          <QuickLinksCard />
-        </div>
       </div>
-    </div>
+    </PageShell>
   )
 }

@@ -5,6 +5,8 @@ import {
   listIngestionLogs,
 } from '@/actions/completion-credentials'
 import { IntegrationsClient } from './client'
+import { PageShell, PageHeader } from '@/components/layout/page-shell'
+import { CodeIcon } from '@/components/ui/icons'
 
 export default async function IntegrationsPage() {
   const supabase = await createClient()
@@ -26,7 +28,11 @@ export default async function IntegrationsPage() {
   const userRole = activeOrg?.role || 'VIEWER'
 
   if (!orgId) {
-    return <div>No organization found.</div>
+    return (
+      <PageShell>
+        <div className="p-8 text-center text-slate-400">No organization found.</div>
+      </PageShell>
+    )
   }
 
   const [credentials, logs] = await Promise.all([
@@ -35,22 +41,25 @@ export default async function IntegrationsPage() {
   ])
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">
-          API &amp; Webhooks
-        </h1>
-        <p className="text-sm text-slate-400 mt-1">
-          Manage API credentials, inspect external completion logs, and integrate your CRM or booking software.
-        </p>
-      </div>
-
-      <IntegrationsClient
-        organizationId={orgId}
-        initialCredentials={credentials}
-        initialLogs={logs}
-        userRole={userRole}
+    <PageShell>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2.5">
+            <CodeIcon className="w-5 h-5 text-blue-400" />
+            <span>API &amp; Webhooks</span>
+          </span>
+        }
+        subtitle="Manage secure API credentials, audit ingestion history, and connect external completion sources."
       />
-    </div>
+
+      <div className="w-full flex-1 flex flex-col min-w-0">
+        <IntegrationsClient
+          organizationId={orgId}
+          initialCredentials={credentials}
+          initialLogs={logs}
+          userRole={userRole}
+        />
+      </div>
+    </PageShell>
   )
 }

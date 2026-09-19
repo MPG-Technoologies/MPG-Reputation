@@ -1630,7 +1630,7 @@ describe('Dashboard Realtime Synchronization Engine (Hardening Pass)', () => {
       expect(html).toContain('1 in this session')
     })
 
-    it('7. verifies live-dashboard.tsx layout places operational content above secondary navigation', () => {
+    it('7. verifies live-dashboard.tsx layout implements approved responsive layout and eliminates redundant bottom cards', () => {
       const componentPath = path.resolve(
         __dirname,
         '../../src/app/app/dashboard/live-dashboard.tsx'
@@ -1638,20 +1638,19 @@ describe('Dashboard Realtime Synchronization Engine (Hardening Pass)', () => {
       const code = fs.readFileSync(componentPath, 'utf8')
 
       // Grid definition
-      expect(code).toContain('lg:grid-cols-[minmax(0,1fr)_320px]')
+      expect(code).toContain('xl:grid-cols-[minmax(0,1fr)_340px]')
 
-      // Live Activity in primary column
-      expect(code).toContain('<LiveActivity')
-      expect(code).toContain('<RecentActivity')
+      // Primary operational modules
+      expect(code).toContain('<ActivityPanel')
+      expect(code).toContain('<SystemStatusPanel')
+      expect(code).toContain('<DashboardKpis')
 
-      // Sidebar components
-      expect(code).toContain('<SystemStatusCard')
-      expect(code).toContain('<NeedsAttentionCard')
-      expect(code).toContain('<QuickLinksCard')
+      // Redundant quick-link bottom cards must NOT be rendered
+      expect(code).not.toContain('<QuickLinksCard')
 
-      // Header simplification
-      expect(code).toContain('<h1 className="text-2xl font-bold text-white tracking-tight">Dashboard</h1>')
-      expect(code).not.toContain('{orgName} Dashboard')
+      // Header structure
+      expect(code).toContain('Good morning,')
+      expect(code).toContain('+ Quick Complete')
     })
   })
 })

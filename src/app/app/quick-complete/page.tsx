@@ -2,6 +2,9 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { deriveActivationReadiness } from '@/domain/activation'
 import { QuickCompleteForm } from './form'
+import { PageShell, PageHeader } from '@/components/layout/page-shell'
+import { Panel } from '@/components/layout/panels'
+import { PlusCircleIcon } from '@/components/ui/icons'
 
 export default async function QuickCompletePage() {
   const supabase = await createClient()
@@ -19,20 +22,23 @@ export default async function QuickCompletePage() {
   const orgId = userOrgs?.[0]?.organization_id
 
   if (!orgId) {
-    return <div>No organization found.</div>
+    return (
+      <PageShell>
+        <div className="p-8 text-center text-slate-400">No organization found.</div>
+      </PageShell>
+    )
   }
 
-  const [{ data: locations }, { data: destinations }] =
-    await Promise.all([
-      supabase
-        .from('locations')
-        .select('id, name, status')
-        .eq('organization_id', orgId),
-      supabase
-        .from('review_destinations')
-        .select('location_id, status, canonical_url')
-        .eq('organization_id', orgId),
-    ])
+  const [{ data: locations }, { data: destinations }] = await Promise.all([
+    supabase
+      .from('locations')
+      .select('id, name, status')
+      .eq('organization_id', orgId),
+    supabase
+      .from('review_destinations')
+      .select('location_id, status, canonical_url')
+      .eq('organization_id', orgId),
+  ])
 
   const readiness = deriveActivationReadiness(
     locations || [],
@@ -49,57 +55,56 @@ export default async function QuickCompletePage() {
     }))
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">
-          Quick Complete
-        </h1>
+    <PageShell>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2.5">
+            <PlusCircleIcon className="w-5 h-5 text-blue-400" />
+            <span>Quick Complete</span>
+          </span>
+        }
+        subtitle="Record a genuine completed customer interaction to initiate the neutral review workflow."
+      />
 
-        <p className="text-sm text-slate-400 mt-1">
-          Record a genuine completed customer interaction to initiate the
-          neutral review workflow.
-        </p>
-      </div>
-
-      {!readiness.ready && readyLocations.length === 0 ? (
-        <div className="bg-amber-950/40 border border-amber-800 p-6 rounded-lg space-y-3">
-          <div className="text-sm font-semibold text-amber-200">
-            Setup required before Quick Complete can run
-          </div>
-
-          <p className="text-sm text-amber-100/80">
-            An active location must have a tested and confirmed Google review
-            destination before a completion can enter the automation workflow.
-          </p>
-
-          <Link
-            href={
-              readiness.activeLocationCount === 0
-                ? '/app/settings/location'
-                : '/app/settings/review-destination'
-            }
-            className="inline-flex px-3 py-2 rounded-md text-sm font-medium bg-amber-900/70 hover:bg-amber-800 text-amber-100 border border-amber-700"
-          >
-            Complete setup →
-          </Link>
-        </div>
-      ) : (
-        <>
-          {readiness.locationsNeedingDestinationCount > 0 && (
-            <div className="bg-amber-950/30 border border-amber-900/60 p-4 rounded-lg text-xs text-amber-200">
-              {readiness.locationsNeedingDestinationCount} active location(s)
-              are hidden because their Google destination is not yet confirmed.
+      {/* Focused Form Container (max-w-2xl) */}
+      <div className="max-w-2xl space-y-6">
+        {!readiness.ready && readyLocations.length === 0 ? (
+          <div className="bg-amber-950/40 border border-amber-800 p-6 rounded-xl space-y-3">
+            <div className="text-sm font-semibold text-amber-200">
+              Setup required before Quick Complete can run
             </div>
-          )}
 
-          <div className="bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-lg shadow-xl">
-            <QuickCompleteForm
-              organizationId={orgId}
-              locations={readyLocations}
-            />
+            <p className="text-xs sm:text-sm text-amber-100/80 leading-relaxed">
+              An active location must have a tested and confirmed Google review destination before a
+              completion can enter the automation workflow.
+            </p>
+
+            <Link
+              href={
+                readiness.activeLocationCount === 0
+                  ? '/app/settings/location'
+                  : '/app/settings/review-destination'
+              }
+              className="inline-flex px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold bg-amber-600 hover:bg-amber-500 text-white transition-colors"
+            >
+              Complete setup →
+            </Link>
           </div>
-        </>
-      )}
-    </div>
+        ) : (
+          <>
+            {readiness.locationsNeedingDestinationCount > 0 && (
+              <div className="bg-amber-950/30 border border-amber-900/60 p-4 rounded-xl text-xs text-amber-200">
+                {readiness.locationsNeedingDestinationCount} active location(s) are hidden because
+                their Google destination is not yet confirmed.
+              </div>
+            )}
+
+            <Panel className="p-6 sm:p-8">
+              <QuickCompleteForm organizationId={orgId} locations={readyLocations} />
+            </Panel>
+          </>
+        )}
+      </div>
+    </PageShell>
   )
 }

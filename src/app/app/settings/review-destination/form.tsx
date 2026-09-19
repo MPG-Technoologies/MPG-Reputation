@@ -199,7 +199,7 @@ export function DestinationForm({
 
       <form
         onSubmit={handleSave}
-        className="space-y-6 bg-slate-900 border border-slate-800 p-6 rounded-lg"
+        className="space-y-6 bg-[#0E172B] border border-[#1C2846] p-6 rounded-xl"
       >
         <input
           type="hidden"
@@ -210,7 +210,7 @@ export function DestinationForm({
         <div>
           <label
             htmlFor="locationId"
-            className="block text-sm font-medium text-slate-300"
+            className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5"
           >
             Select Location
           </label>
@@ -225,7 +225,7 @@ export function DestinationForm({
               setTested(false)
               setResult(null)
             }}
-            className="mt-1 block w-full pl-3 pr-10 py-2 border border-slate-700 bg-slate-800 text-slate-100 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full px-3 py-2 border border-[#1C2846] bg-[#0A1020] text-slate-100 rounded-lg shadow-sm focus:outline-none focus:border-blue-500 text-xs"
           >
             {locations.map((location) => (
               <option key={location.id} value={location.id}>
@@ -236,28 +236,28 @@ export function DestinationForm({
         </div>
 
         {activeDestination ? (
-          <div className="bg-slate-950 border border-slate-800 p-4 rounded-md text-xs space-y-2">
+          <div className="bg-[#0A1020] border border-[#1C2846] p-4 rounded-lg text-xs space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-slate-400 font-medium">
                 Configured Destination:
               </span>
 
               <span
-                className={`border px-2 py-0.5 rounded uppercase font-semibold ${
+                className={`border px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
                   activeDestination.status === 'CONFIRMED'
-                    ? 'bg-emerald-950 text-emerald-400 border-emerald-800'
-                    : 'bg-amber-950 text-amber-300 border-amber-800'
+                    ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800/80'
+                    : 'bg-amber-950/60 text-amber-300 border-amber-800/80'
                 }`}
               >
                 {activeDestination.status}
               </span>
             </div>
 
-            <div className="font-mono text-slate-300 break-all">
+            <div className="font-mono text-slate-300 break-all text-[11px]">
               {activeDestination.canonical_url}
             </div>
 
-            <div className="text-slate-500">
+            <div className="text-slate-500 text-[11px]">
               {activeDestination.status === 'CONFIRMED'
                 ? `Confirmed on: ${
                     activeDestination.confirmed_at
@@ -272,7 +272,7 @@ export function DestinationForm({
             </div>
           </div>
         ) : (
-          <div className="bg-amber-950/30 border border-amber-900/40 p-4 rounded-md text-xs text-amber-300">
+          <div className="bg-amber-950/30 border border-amber-900/40 p-4 rounded-lg text-xs text-amber-300">
             No Google review destination has been saved for this location.
           </div>
         )}
@@ -280,7 +280,7 @@ export function DestinationForm({
         <div>
           <label
             htmlFor="url"
-            className="block text-sm font-medium text-slate-300"
+            className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5"
           >
             Google Review URL
             <span className="text-rose-400"> *</span>
@@ -297,15 +297,15 @@ export function DestinationForm({
               setInputUrl(event.target.value)
               setTested(false)
             }}
-            className="mt-1 block w-full px-3 py-2 border border-slate-700 bg-slate-800 text-slate-100 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm font-mono text-xs"
+            className="mt-1 block w-full px-3 py-2 border border-[#1C2846] bg-[#0A1020] text-slate-100 rounded-lg shadow-sm focus:outline-none focus:border-blue-500 font-mono text-xs"
           />
 
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-[11px] text-slate-500">
             Saving a URL does not activate it. Every changed destination must
             be tested and explicitly confirmed.
           </p>
 
-          <p className="mt-2 text-xs text-amber-400/80">
+          <p className="mt-2 text-[11px] text-amber-400/80">
             If the currently confirmed link is broken or no longer correct,
             pause it first. A newly saved valid URL automatically returns this
             location to pending confirmation.
@@ -316,7 +316,7 @@ export function DestinationForm({
           <button
             type="submit"
             disabled={loading}
-            className="inline-flex items-center justify-center py-2 px-4 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+            className="inline-flex items-center justify-center py-2 px-4 rounded-lg text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition-colors shadow-sm shadow-blue-900/30"
           >
             {loading ? 'Saving…' : 'Save Destination'}
           </button>
@@ -324,7 +324,7 @@ export function DestinationForm({
           <button
             type="button"
             onClick={handleTestUrl}
-            className="inline-flex justify-center py-2 px-4 border border-slate-700 rounded-md text-sm font-medium text-slate-300 bg-slate-800 hover:bg-slate-700"
+            className="inline-flex justify-center py-2 px-4 border border-[#1C2846] rounded-lg text-xs sm:text-sm font-medium text-slate-300 bg-[#131E38] hover:bg-[#192748] transition-colors"
           >
             Test Link ↗
           </button>
@@ -332,15 +332,15 @@ export function DestinationForm({
 
         {activeDestination &&
           activeDestination.status !== 'CONFIRMED' && (
-            <div className="border-t border-slate-800 pt-5 space-y-3">
-              <label className="flex items-start gap-3 text-sm text-slate-300">
+            <div className="border-t border-[#1C2846] pt-5 space-y-3">
+              <label className="flex items-start gap-3 text-xs sm:text-sm text-slate-300 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={tested}
                   onChange={(event) =>
                     setTested(event.target.checked)
                   }
-                  className="mt-1"
+                  className="mt-0.5 rounded border-[#1C2846] bg-[#0A1020] text-blue-600 focus:ring-0"
                 />
 
                 <span>
@@ -353,7 +353,7 @@ export function DestinationForm({
                 type="button"
                 disabled={!tested || confirming}
                 onClick={handleConfirm}
-                className="inline-flex justify-center py-2 px-4 rounded-md text-sm font-medium text-white bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="inline-flex justify-center py-2 px-4 rounded-lg text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm shadow-emerald-900/30"
               >
                 {confirming
                   ? 'Confirming…'
@@ -363,7 +363,7 @@ export function DestinationForm({
           )}
 
         {activeDestination?.status === 'CONFIRMED' && (
-          <div className="border-t border-slate-800 pt-5 space-y-3">
+          <div className="border-t border-[#1C2846] pt-5 space-y-3">
             <p className="text-xs text-slate-400">
               If this Google destination becomes broken, outdated, or
               incorrect, pause it immediately. Quick Complete will stop using
@@ -375,7 +375,7 @@ export function DestinationForm({
               type="button"
               disabled={pausing}
               onClick={handlePause}
-              className="inline-flex justify-center py-2 px-4 rounded-md text-sm font-medium text-amber-200 bg-amber-950/60 hover:bg-amber-900/70 border border-amber-800 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="inline-flex justify-center py-2 px-4 rounded-lg text-xs sm:text-sm font-medium text-amber-200 bg-amber-950/60 hover:bg-amber-900/70 border border-amber-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               {pausing
                 ? 'Pausing…'

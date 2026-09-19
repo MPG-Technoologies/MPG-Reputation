@@ -2,6 +2,8 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getOrganizationUsageSummary } from '@/actions/usage'
 import { UsageClient } from './client'
+import { PageShell, PageHeader } from '@/components/layout/page-shell'
+import { ChartBarIcon } from '@/components/ui/icons'
 
 export default async function UsageSettingsPage() {
   const supabase = await createClient()
@@ -23,27 +25,34 @@ export default async function UsageSettingsPage() {
   const userRole = activeOrg?.role || 'VIEWER'
 
   if (!orgId) {
-    return <div>No organization found.</div>
+    return (
+      <PageShell>
+        <div className="p-8 text-center text-slate-400">No organization found.</div>
+      </PageShell>
+    )
   }
 
   const usageRes = await getOrganizationUsageSummary(orgId)
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">
-          Usage &amp; Trial
-        </h1>
-        <p className="text-sm text-slate-400 mt-1">
-          Server-authoritative entitlement status and factual messaging usage accounting.
-        </p>
-      </div>
-
-      <UsageClient
-        organizationId={orgId}
-        userRole={userRole}
-        initialUsage={usageRes.data || null}
+    <PageShell>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2.5">
+            <ChartBarIcon className="w-5 h-5 text-blue-400" />
+            <span>Usage &amp; Trial</span>
+          </span>
+        }
+        subtitle="Server-authoritative entitlement status and factual messaging usage accounting."
       />
-    </div>
+
+      <div className="w-full flex-1 flex flex-col min-w-0">
+        <UsageClient
+          organizationId={orgId}
+          userRole={userRole}
+          initialUsage={usageRes.data || null}
+        />
+      </div>
+    </PageShell>
   )
 }

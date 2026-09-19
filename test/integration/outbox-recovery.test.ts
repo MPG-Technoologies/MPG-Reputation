@@ -56,6 +56,20 @@ describe("Automatic Outbox Recovery Workflow (Prompt Trust-Boundary Correction 3
       canonical_url: "https://g.page/r/OutboxRecTest123/review",
       status: "CONFIRMED",
     })
+
+    await adminClient.rpc("provision_organization_trial", {
+      p_org_id: orgId,
+      p_allocated_requests: 30,
+      p_duration_days: 30,
+    })
+    await adminClient
+      .from("organization_entitlements")
+      .update({
+        status: "ACTIVE",
+        started_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 30 * 86400000).toISOString(),
+      })
+      .eq("organization_id", orgId)
   })
 
   afterAll(async () => {

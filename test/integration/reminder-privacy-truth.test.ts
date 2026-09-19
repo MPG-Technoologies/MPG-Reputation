@@ -96,6 +96,20 @@ describe('MR-1C.1 Reminder Privacy, Lifecycle Truth & Failure Recovery', () => {
       .single()
     if (destErr || !dest) throw new Error(`Dest failed: ${destErr?.message}`)
 
+    await supabase.rpc('provision_organization_trial', {
+      p_org_id: org.id,
+      p_allocated_requests: 30,
+      p_duration_days: 30,
+    })
+    await supabase
+      .from('organization_entitlements')
+      .update({
+        status: 'ACTIVE',
+        started_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 30 * 86400000).toISOString(),
+      })
+      .eq('organization_id', org.id)
+
     const { data: cce, error: cceErr } = await supabase
       .from('customer_completion_events')
       .insert({

@@ -131,6 +131,9 @@ describe('V0.2 Founder Product Walkthrough (19 Steps Verification)', () => {
     expect(destRecord?.status).toBe('CONFIRMED')
     expect(destRecord?.canonical_url).toBe(destinationUrl)
 
+    // Explicit trusted trial activation (MR-4)
+    await adminClient.rpc('activate_organization_trial', { p_org_id: orgId })
+
     // Step 8: Open Dashboard (Initial Baseline Check)
     const { count: initialCompleted } = await userClient
       .from('customer_completion_events')

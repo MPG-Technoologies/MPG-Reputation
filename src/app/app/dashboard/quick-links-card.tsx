@@ -32,6 +32,13 @@ export const QuickLinksCard = React.memo(function QuickLinksCard() {
       icon: StarIcon,
       color: 'text-amber-400 bg-amber-950/40 border-amber-800/40',
     },
+    {
+      href: '/app/settings/usage',
+      label: 'Usage & Trial',
+      description: 'Allowance & messaging metrics',
+      icon: StarIcon,
+      color: 'text-indigo-400 bg-indigo-950/40 border-indigo-800/40',
+    },
   ]
 
   return (

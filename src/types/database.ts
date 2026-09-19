@@ -641,6 +641,205 @@ export interface Database {
         }
         Relationships: []
       }
+      organization_entitlements: {
+        Row: {
+          organization_id: string
+          status: 'NOT_STARTED' | 'ACTIVE' | 'EXHAUSTED' | 'EXPIRED' | 'ENDED' | 'SUSPENDED'
+          allocated_requests: number
+          consumed_requests: number
+          duration_days: number
+          started_at: string | null
+          expires_at: string | null
+          status_reason: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          organization_id: string
+          status?: 'NOT_STARTED' | 'ACTIVE' | 'EXHAUSTED' | 'EXPIRED' | 'ENDED' | 'SUSPENDED'
+          allocated_requests?: number
+          consumed_requests?: number
+          duration_days?: number
+          started_at?: string | null
+          expires_at?: string | null
+          status_reason?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          organization_id?: string
+          status?: 'NOT_STARTED' | 'ACTIVE' | 'EXHAUSTED' | 'EXPIRED' | 'ENDED' | 'SUSPENDED'
+          allocated_requests?: number
+          consumed_requests?: number
+          duration_days?: number
+          started_at?: string | null
+          expires_at?: string | null
+          status_reason?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_entitlements_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      usage_ledger: {
+        Row: {
+          id: string
+          organization_id: string
+          event_type:
+            | 'initial_request_created'
+            | 'reminder_created'
+            | 'provider_send_attempt'
+            | 'provider_send_success'
+            | 'provider_send_failure'
+            | 'tracked_click'
+            | 'completion_received'
+          channel: 'email' | 'sms'
+          units: number
+          entity_type:
+            | 'review_request'
+            | 'message_event'
+            | 'customer_completion_event'
+            | 'tracked_link'
+          entity_id: string
+          idempotency_key: string
+          source_event_id: string | null
+          metadata: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          event_type:
+            | 'initial_request_created'
+            | 'reminder_created'
+            | 'provider_send_attempt'
+            | 'provider_send_success'
+            | 'provider_send_failure'
+            | 'tracked_click'
+            | 'completion_received'
+          channel?: 'email' | 'sms'
+          units?: number
+          entity_type:
+            | 'review_request'
+            | 'message_event'
+            | 'customer_completion_event'
+            | 'tracked_link'
+          entity_id: string
+          idempotency_key: string
+          source_event_id?: string | null
+          metadata?: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          event_type?:
+            | 'initial_request_created'
+            | 'reminder_created'
+            | 'provider_send_attempt'
+            | 'provider_send_success'
+            | 'provider_send_failure'
+            | 'tracked_click'
+            | 'completion_received'
+          channel?: 'email' | 'sms'
+          units?: number
+          entity_type?:
+            | 'review_request'
+            | 'message_event'
+            | 'customer_completion_event'
+            | 'tracked_link'
+          entity_id?: string
+          idempotency_key?: string
+          source_event_id?: string | null
+          metadata?: Json
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "usage_ledger_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      cost_ledger: {
+        Row: {
+          id: string
+          organization_id: string
+          usage_ledger_id: string | null
+          cost_category:
+            | 'email_provider'
+            | 'workflow_execution'
+            | 'database_storage'
+            | 'hosting_allocation'
+            | 'support_allocation'
+            | 'other'
+          cost_status: 'MEASURED' | 'CONFIGURED_ESTIMATE' | 'UNKNOWN'
+          currency: string
+          amount_micro_usd: number
+          description: string | null
+          recorded_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          usage_ledger_id?: string | null
+          cost_category:
+            | 'email_provider'
+            | 'workflow_execution'
+            | 'database_storage'
+            | 'hosting_allocation'
+            | 'support_allocation'
+            | 'other'
+          cost_status: 'MEASURED' | 'CONFIGURED_ESTIMATE' | 'UNKNOWN'
+          currency?: string
+          amount_micro_usd?: number
+          description?: string | null
+          recorded_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          usage_ledger_id?: string | null
+          cost_category?:
+            | 'email_provider'
+            | 'workflow_execution'
+            | 'database_storage'
+            | 'hosting_allocation'
+            | 'support_allocation'
+            | 'other'
+          cost_status?: 'MEASURED' | 'CONFIGURED_ESTIMATE' | 'UNKNOWN'
+          currency?: string
+          amount_micro_usd?: number
+          description?: string | null
+          recorded_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cost_ledger_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cost_ledger_usage_ledger_id_fkey"
+            columns: ["usage_ledger_id"]
+            isOneToOne: false
+            referencedRelation: "usage_ledger"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: Record<string, never>
     Functions: {
@@ -734,6 +933,43 @@ export interface Database {
           outbox_id: string
           source_event_id: string
         }
+      }
+      provision_organization_trial: {
+        Args: {
+          p_org_id: string
+          p_allocated_requests?: number
+          p_duration_days?: number
+        }
+        Returns: Json
+      }
+      activate_organization_trial: {
+        Args: {
+          p_org_id: string
+        }
+        Returns: Json
+      }
+      consume_trial_entitlement: {
+        Args: {
+          p_org_id: string
+          p_review_request_id: string
+          p_idempotency_key: string
+          p_source_event_id?: string | null
+        }
+        Returns: Json
+      }
+      record_usage_event: {
+        Args: {
+          p_org_id: string
+          p_event_type: string
+          p_channel?: string
+          p_units?: number
+          p_entity_type: string
+          p_entity_id: string
+          p_idempotency_key: string
+          p_source_event_id?: string | null
+          p_metadata?: Json
+        }
+        Returns: Json
       }
     }
     Enums: Record<string, never>

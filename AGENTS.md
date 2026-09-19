@@ -7,9 +7,9 @@
 | Product / WIP subject | MPG Reputation / Review & Reputation Automation — `PROD-REP-001` |
 | Scope | Market-Ready Build Program (MR-0 through MR-11) |
 | Current Program | MPG Reputation Market-Ready Development |
-| Current Engineering Milestone | MR-2 — Customer Activation COMPLETE / ACCEPTED; MR-3 — Completion Source Platform NEXT / NOT YET STARTED |
+| Current Engineering Milestone | MR-3 — Completion Source Platform ACCEPTED (`MPG-DEC-047`); MR-4 — Trial / Usage / Economics COMPLETE / READY FOR OWNER REVIEW |
 | Governance Source of Truth | `E:\MPG` (Company OS) |
-| Authority | `MPG-DEC-038` through `MPG-DEC-046` |
+| Authority | `MPG-DEC-038` through `MPG-DEC-047` |
 | Public Safe | Yes |
 
 These instructions apply to Codex, ChatGPT, Antigravity, Claude, Gemini, automated development tools, and all future agents working in this repository.
@@ -17,12 +17,12 @@ These instructions apply to Codex, ChatGPT, Antigravity, Claude, Gemini, automat
 ## 1. Authority and Governance
 
 1. **Company OS is the Governance Source of Truth**: Business intent, commercial scope, product authorization, stage boundaries, and governance decisions are defined in `E:\MPG`. This repository contains the technical implementation code.
-2. **Market-Ready Build Program Authorized**: Under `MPG-DEC-046`, MPG Reputation is developed independently through a complete market-ready build program (MR-0 through MR-11) before broad MPG company/brand development resumes.
+2. **Market-Ready Build Program Authorized**: Under `MPG-DEC-046` and `MPG-DEC-047`, MPG Reputation is developed independently through a complete market-ready build program (MR-0 through MR-11) before broad MPG company/brand development resumes.
 3. **Market-Ready STATUS is Not Yet Achieved**: Market-ready development is authorized, but market-ready STATUS is not yet achieved. Building commercial infrastructure does NOT itself grant `PILOT_READY`, `DELIVERY_READY`, `MARKET_APPROVED`, `ACTIVE`, marketing approval, public launch, real-customer messaging, final pricing, or legal/compliance approval.
-4. **MR-2 Customer Activation is COMPLETE / ACCEPTED; MR-3 Completion Source Platform is NEXT / NOT YET STARTED**:
-   - Production messaging architecture (Resend email, domain authentication, bounce/complaint handling, delivery monitoring) may now be built.
+4. **MR-3 Completion Source Platform is ACCEPTED (`MPG-DEC-047`); MR-4 Trial / Usage / Economics is COMPLETE / READY FOR OWNER REVIEW; MR-5 Billing is NEXT / STRICTLY GATED**:
+   - Production messaging architecture (Resend email, domain authentication, bounce/complaint handling, delivery monitoring) is built with synthetic verification.
    - **LIVE customer messaging remains OFF** until separately authorized.
-   - SMS remains outside MR-1 and strictly gated.
+   - SMS remains strictly gated.
    - Billing (Stripe) belongs to milestone MR-5 and must not be implemented prematurely.
    - Do not prematurely implement unrelated roadmap phases.
 5. **No Unsupported Launch Claims**: Do not mark the product active, market-approved, delivery-ready, or publicly launched in code, documentation, or commits.

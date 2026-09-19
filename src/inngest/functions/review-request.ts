@@ -6,6 +6,7 @@ import { composeReviewRequestEmail, composeReviewReminderEmail } from '@/domain/
 import { getEmailProvider } from '@/providers/email'
 import { hashSuppressionContact } from '@/domain/suppression'
 import { getWorkflowTimingPolicy, isRequestEligibleForReminder } from '@/domain/reminder'
+import { ALLOW_REMINDERS_AFTER_EXPIRATION, deriveTrialLifecycle } from '@/domain/entitlement'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export interface ReviewRequestEventData {
@@ -178,6 +179,18 @@ export async function executeReviewRequestHandler({
           sourceEventId,
         },
       })
+
+      // MR-4: Record completion_received in usage_ledger
+      await supabase.rpc('record_usage_event', {
+        p_org_id: organizationId,
+        p_event_type: 'completion_received',
+        p_channel: 'email',
+        p_units: 1,
+        p_entity_type: 'customer_completion_event',
+        p_entity_id: eventId,
+        p_idempotency_key: `completion-received:${organizationId}:${sourceEventId || eventId}`,
+        p_source_event_id: sourceEventId,
+      })
     })
 
     // Step 1: Initial Eligibility Evaluation
@@ -278,7 +291,62 @@ export async function executeReviewRequestHandler({
             isNew: false,
             status: existing.status,
             remindedAt: existing.reminded_at,
+            blocked: false,
           }
+        }
+      }
+
+      // MR-4: Atomic entitlement consumption check before initial request creation
+      const newReviewRequestId = crypto.randomUUID()
+      const entitlementIdempotencyKey = `review-request-entitlement:${organizationId}:${completionEventId || sourceEventId}`
+
+      const { data: consumeResult, error: consumeError } = await supabase.rpc(
+        'consume_trial_entitlement',
+        {
+          p_org_id: organizationId,
+          p_review_request_id: newReviewRequestId,
+          p_idempotency_key: entitlementIdempotencyKey,
+          p_source_event_id: sourceEventId,
+        }
+      )
+
+      if (consumeError) {
+        throw new Error(`Failed to consume trial entitlement: ${consumeError.message}`)
+      }
+
+      const entitlement = (consumeResult || {}) as {
+        allowed?: boolean
+        reason?: string
+        already_consumed?: boolean
+        consumed?: number
+        remaining?: number
+      }
+
+      if (!entitlement.allowed) {
+        await supabase.from('audit_events').insert({
+          organization_id: organizationId,
+          actor_type: 'system',
+          event_type: 'review_request.blocked_by_entitlement',
+          entity_type: 'customer',
+          entity_id: customerId,
+          metadata: {
+            eventId,
+            completionEventId: completionEventId || eventId,
+            reason: entitlement.reason || 'TRIAL_LIMIT_REACHED',
+            remaining: entitlement.remaining ?? 0,
+            sourceEventId,
+          },
+        })
+
+        return {
+          id: null,
+          token: null,
+          unsubscribeToken: null,
+          isNew: false,
+          status: 'BLOCKED',
+          remindedAt: null,
+          blocked: true,
+          reason: entitlement.reason || 'TRIAL_LIMIT_REACHED',
         }
       }
 
@@ -288,6 +356,7 @@ export async function executeReviewRequestHandler({
       const { data: created, error } = await supabase
         .from('review_requests')
         .insert({
+          id: newReviewRequestId,
           organization_id: organizationId,
           location_id: locationId,
           customer_id: customerId,
@@ -314,8 +383,29 @@ export async function executeReviewRequestHandler({
         isNew: true,
         status: 'SCHEDULED',
         remindedAt: null,
+        blocked: false,
       }
     })
+
+    if ('blocked' in reviewRequest && reviewRequest.blocked) {
+      return {
+        processed: false,
+        stage: 'entitlement',
+        reason: reviewRequest.reason,
+      }
+    }
+
+    if (!reviewRequest.id || !reviewRequest.token) {
+      return {
+        processed: false,
+        stage: 'entitlement',
+        reason: 'Missing review request credentials',
+      }
+    }
+
+    const reviewRequestId = reviewRequest.id as string
+    const reviewRequestToken = reviewRequest.token as string
+    const reviewRequestUnsubscribeToken = (reviewRequest.unsubscribeToken || reviewRequest.token) as string
 
     // Step 5: Provider Send Guarded by Atomic State Machine (Prompt Correction 5 & 8)
     // One completion event + channel = at most one initial customer send
@@ -324,11 +414,11 @@ export async function executeReviewRequestHandler({
       const { data: currentReq } = await supabase
         .from('review_requests')
         .select('id, status, updated_at')
-        .eq('id', reviewRequest.id)
+        .eq('id', reviewRequestId)
         .single()
 
       if (!currentReq) {
-        throw new Error(`Review request not found: ${reviewRequest.id}`)
+        throw new Error(`Review request not found: ${reviewRequestId}`)
       }
 
       // If already successfully sent, delivered, or clicked: skip safely
@@ -360,7 +450,7 @@ export async function executeReviewRequestHandler({
           status: 'SENDING',
           updated_at: new Date().toISOString(),
         })
-        .eq('id', reviewRequest.id)
+        .eq('id', reviewRequestId)
         .or(`status.eq.SCHEDULED,status.eq.FAILED,and(status.eq.SENDING,updated_at.lt.${fiveMinutesAgo})`)
         .select('id')
         .maybeSingle()
@@ -376,8 +466,8 @@ export async function executeReviewRequestHandler({
       }
 
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-      const trackingUrl = buildTrackedReviewUrl(appUrl, reviewRequest.token)
-      const unsubscribeUrl = buildUnsubscribeUrl(appUrl, reviewRequest.unsubscribeToken || reviewRequest.token)
+      const trackingUrl = buildTrackedReviewUrl(appUrl, reviewRequestToken)
+      const unsubscribeUrl = buildUnsubscribeUrl(appUrl, reviewRequestUnsubscribeToken)
       const fromAddress = process.env.EMAIL_FROM_ADDRESS?.trim() || undefined
 
       const composed = composeReviewRequestEmail({
@@ -390,6 +480,18 @@ export async function executeReviewRequestHandler({
       })
 
       const emailProvider = getEmailProvider()
+
+      // MR-4: Record provider send attempt usage and cost estimate
+      await supabase.rpc('record_usage_event', {
+        p_org_id: organizationId,
+        p_event_type: 'provider_send_attempt',
+        p_channel: 'email',
+        p_units: 1,
+        p_entity_type: 'review_request',
+        p_entity_id: reviewRequest.id!,
+        p_idempotency_key: `provider-send-attempt:initial:${reviewRequest.id}`,
+        p_source_event_id: sourceEventId,
+      })
 
       try {
         const result = await emailProvider.send({
@@ -405,7 +507,7 @@ export async function executeReviewRequestHandler({
           replyTo: composed.replyTo,
           headers: composed.headers,
           idempotencyKey: `review-request/${reviewRequest.id}/initial-v1`,
-          correlationId: reviewRequest.id,
+          correlationId: reviewRequest.id!,
         })
 
         if (!result.success) {
@@ -421,12 +523,12 @@ export async function executeReviewRequestHandler({
             updated_at: new Date().toISOString(),
             error_message: null,
           })
-          .eq('id', reviewRequest.id)
+          .eq('id', reviewRequest.id!)
 
         // Record message_event (privacy hardened: minimal operational metadata)
         await supabase.from('message_events').insert({
           organization_id: organizationId,
-          review_request_id: reviewRequest.id,
+          review_request_id: reviewRequest.id!,
           provider: result.provider,
           provider_message_id: result.messageId,
           event_type: 'sent',
@@ -435,6 +537,18 @@ export async function executeReviewRequestHandler({
             messageKind: 'initial_review_request',
             reviewRequestId: reviewRequest.id,
           },
+        })
+
+        // MR-4: Record provider send success
+        await supabase.rpc('record_usage_event', {
+          p_org_id: organizationId,
+          p_event_type: 'provider_send_success',
+          p_channel: 'email',
+          p_units: 1,
+          p_entity_type: 'review_request',
+          p_entity_id: reviewRequest.id!,
+          p_idempotency_key: `provider-send-success:initial:${reviewRequest.id}`,
+          p_source_event_id: sourceEventId,
         })
 
         // Atomic usage increment via service_role admin client (Prompt Correction 19)
@@ -451,6 +565,18 @@ export async function executeReviewRequestHandler({
         const errorMsg = (sendErr instanceof Error ? sendErr.message : 'Email dispatch failed').slice(0, 500)
         console.error('Email dispatch error; marking review request FAILED for retry:', errorMsg)
 
+        // MR-4: Record provider send failure
+        await supabase.rpc('record_usage_event', {
+          p_org_id: organizationId,
+          p_event_type: 'provider_send_failure',
+          p_channel: 'email',
+          p_units: 1,
+          p_entity_type: 'review_request',
+          p_entity_id: reviewRequest.id!,
+          p_idempotency_key: `provider-send-failure:initial:${reviewRequest.id}:${Date.now()}`,
+          p_source_event_id: sourceEventId,
+        })
+
         // Durably record FAILED state so it does not remain stranded in SENDING
         await supabase
           .from('review_requests')
@@ -460,12 +586,12 @@ export async function executeReviewRequestHandler({
             error_message: errorMsg,
             updated_at: new Date().toISOString(),
           })
-          .eq('id', reviewRequest.id)
+          .eq('id', reviewRequest.id!)
 
         // Record failure event (privacy hardened)
         await supabase.from('message_events').insert({
           organization_id: organizationId,
-          review_request_id: reviewRequest.id,
+          review_request_id: reviewRequest.id!,
           provider: 'email',
           event_type: 'failed',
           status: 'FAILED',
@@ -509,7 +635,7 @@ export async function executeReviewRequestHandler({
       const { data: latestReq } = await supabase
         .from('review_requests')
         .select('id, status, reminded_at, clicked_at, cancelled_at')
-        .eq('id', reviewRequest.id)
+        .eq('id', reviewRequestId)
         .maybeSingle()
 
       if (!latestReq) {
@@ -546,6 +672,26 @@ export async function executeReviewRequestHandler({
         }
       }
 
+      // 3. Entitlement check: if ALLOW_REMINDERS_AFTER_EXPIRATION is false, ensure trial is not expired
+      if (!ALLOW_REMINDERS_AFTER_EXPIRATION) {
+        const { data: ent } = await supabase
+          .from('organization_entitlements')
+          .select('status, allocated_requests, consumed_requests, expires_at')
+          .eq('organization_id', organizationId)
+          .maybeSingle()
+
+        if (ent) {
+          const lifecycle = deriveTrialLifecycle(ent)
+          if (!lifecycle.isEligibleForReminder) {
+            return {
+              eligible: false,
+              reason: lifecycle.reason || 'TRIAL_EXPIRED',
+              decision: 'TRIAL_EXPIRED',
+            }
+          }
+        }
+      }
+
       return {
         eligible: true,
         reason: 'Customer is eligible for review reminder',
@@ -565,9 +711,9 @@ export async function executeReviewRequestHandler({
           actor_type: 'system',
           event_type: 'review_request.reminder_skipped',
           entity_type: 'review_request',
-          entity_id: reviewRequest.id,
+          entity_id: reviewRequestId,
           metadata: {
-            reviewRequestId: reviewRequest.id,
+            reviewRequestId,
             reason: preReminderCheck.reason,
             decision: preReminderCheck.decision,
           },
@@ -576,7 +722,7 @@ export async function executeReviewRequestHandler({
 
       return {
         processed: true,
-        reviewRequestId: reviewRequest.id,
+        reviewRequestId,
         emailSent: sendResult.success,
         provider: sendResult.provider,
         reminderSent: false,
@@ -594,11 +740,11 @@ export async function executeReviewRequestHandler({
       const { data: currentReq } = await supabase
         .from('review_requests')
         .select('id, status, reminded_at, clicked_at')
-        .eq('id', reviewRequest.id)
+        .eq('id', reviewRequestId)
         .single()
 
       if (!currentReq) {
-        throw new Error(`Review request not found: ${reviewRequest.id}`)
+        throw new Error(`Review request not found: ${reviewRequestId}`)
       }
 
       // Idempotency: if already reminded, return idempotent skip
@@ -632,8 +778,8 @@ export async function executeReviewRequestHandler({
 
       // 2. Compose neutral reminder email
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-      const trackingUrl = buildTrackedReviewUrl(appUrl, reviewRequest.token)
-      const unsubscribeUrl = buildUnsubscribeUrl(appUrl, reviewRequest.unsubscribeToken || reviewRequest.token)
+      const trackingUrl = buildTrackedReviewUrl(appUrl, reviewRequestToken)
+      const unsubscribeUrl = buildUnsubscribeUrl(appUrl, reviewRequestUnsubscribeToken)
       const fromAddress = process.env.EMAIL_FROM_ADDRESS?.trim() || undefined
 
       const composed = composeReviewReminderEmail({
@@ -646,6 +792,18 @@ export async function executeReviewRequestHandler({
       })
 
       const emailProvider = getEmailProvider()
+
+      // MR-4: Record provider send attempt usage and cost estimate for reminder
+      await supabase.rpc('record_usage_event', {
+        p_org_id: organizationId,
+        p_event_type: 'provider_send_attempt',
+        p_channel: 'email',
+        p_units: 1,
+        p_entity_type: 'review_request',
+        p_entity_id: reviewRequestId,
+        p_idempotency_key: `provider-send-attempt:reminder:${reviewRequestId}:1`,
+        p_source_event_id: sourceEventId,
+      })
 
       try {
         const result = await emailProvider.send({
@@ -660,8 +818,8 @@ export async function executeReviewRequestHandler({
           fromDisplayName: composed.fromDisplayName,
           replyTo: composed.replyTo,
           headers: composed.headers,
-          idempotencyKey: `review-request/${reviewRequest.id}/reminder-1`,
-          correlationId: reviewRequest.id,
+          idempotencyKey: `review-request/${reviewRequestId}/reminder-1`,
+          correlationId: reviewRequestId,
         })
 
         if (!result.success) {
@@ -676,7 +834,7 @@ export async function executeReviewRequestHandler({
             reminded_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })
-          .eq('id', reviewRequest.id)
+          .eq('id', reviewRequestId)
           .is('reminded_at', null)
           .select('id')
           .maybeSingle()
@@ -694,16 +852,40 @@ export async function executeReviewRequestHandler({
         // 4. Record message_event for reminder (minimal operational metadata, zero PII/tokens)
         await supabase.from('message_events').insert({
           organization_id: organizationId,
-          review_request_id: reviewRequest.id,
+          review_request_id: reviewRequestId,
           provider: result.provider,
           provider_message_id: result.messageId,
           event_type: 'sent',
           status: 'SENT',
           metadata: {
             messageKind: 'review_request_reminder',
-            reviewRequestId: reviewRequest.id,
+            reviewRequestId,
             reminderNumber: 1,
           },
+        })
+
+        // MR-4: Record reminder_created in usage_ledger
+        await supabase.rpc('record_usage_event', {
+          p_org_id: organizationId,
+          p_event_type: 'reminder_created',
+          p_channel: 'email',
+          p_units: 1,
+          p_entity_type: 'review_request',
+          p_entity_id: reviewRequestId,
+          p_idempotency_key: `usage-reminder:${reviewRequestId}:1`,
+          p_source_event_id: sourceEventId,
+        })
+
+        // MR-4: Record provider send success for reminder
+        await supabase.rpc('record_usage_event', {
+          p_org_id: organizationId,
+          p_event_type: 'provider_send_success',
+          p_channel: 'email',
+          p_units: 1,
+          p_entity_type: 'review_request',
+          p_entity_id: reviewRequestId,
+          p_idempotency_key: `provider-send-success:reminder:${reviewRequestId}:1`,
+          p_source_event_id: sourceEventId,
         })
 
         // 5. Atomic usage increment for reminders
@@ -721,9 +903,9 @@ export async function executeReviewRequestHandler({
           actor_type: 'system',
           event_type: 'review_request.reminder_sent',
           entity_type: 'review_request',
-          entity_id: reviewRequest.id,
+          entity_id: reviewRequestId,
           metadata: {
-            reviewRequestId: reviewRequest.id,
+            reviewRequestId,
           },
         })
 
@@ -732,18 +914,30 @@ export async function executeReviewRequestHandler({
         const errorMsg = (sendErr instanceof Error ? sendErr.message : 'Reminder dispatch failed').slice(0, 500)
         console.error('Reminder dispatch error:', errorMsg)
 
+        // MR-4: Record provider send failure for reminder
+        await supabase.rpc('record_usage_event', {
+          p_org_id: organizationId,
+          p_event_type: 'provider_send_failure',
+          p_channel: 'email',
+          p_units: 1,
+          p_entity_type: 'review_request',
+          p_entity_id: reviewRequestId,
+          p_idempotency_key: `provider-send-failure:reminder:${reviewRequestId}:1:${Date.now()}`,
+          p_source_event_id: sourceEventId,
+        })
+
         // Record failure in message_events without regressing review_requests status or erasing initial delivery
         // reminded_at remains NULL so Inngest retry can re-attempt dispatch
         await supabase.from('message_events').insert({
           organization_id: organizationId,
-          review_request_id: reviewRequest.id,
+          review_request_id: reviewRequestId,
           provider: 'email',
           event_type: 'failed',
           status: 'FAILED',
           sanitized_error: errorMsg,
           metadata: {
             messageKind: 'review_request_reminder',
-            reviewRequestId: reviewRequest.id,
+            reviewRequestId,
             reminderNumber: 1,
           },
         })
@@ -754,9 +948,9 @@ export async function executeReviewRequestHandler({
           actor_type: 'system',
           event_type: 'review_request.reminder_failed',
           entity_type: 'review_request',
-          entity_id: reviewRequest.id,
+          entity_id: reviewRequestId,
           metadata: {
-            reviewRequestId: reviewRequest.id,
+            reviewRequestId,
             error: errorMsg,
           },
         })
@@ -769,7 +963,7 @@ export async function executeReviewRequestHandler({
     const isAlreadySent = 'alreadySent' in reminderResult && Boolean(reminderResult.alreadySent)
     return {
       processed: true,
-      reviewRequestId: reviewRequest.id,
+      reviewRequestId,
       emailSent: sendResult.success,
       provider: sendResult.provider,
       reminderSent: reminderResult.success && !isAlreadySent,

@@ -113,6 +113,9 @@ describe('Live Local Server Founder Walkthrough (19 Steps against running Next.j
     expect(destErr).toBeNull()
     expect(destRecord?.status).toBe('CONFIRMED')
     expect(destRecord?.canonical_url).toBe(destinationUrl)
+
+    // Explicit trusted trial activation (MR-4)
+    await adminClient.rpc('activate_organization_trial', { p_org_id: orgId })
   }, 15000)
 
   it('Step 8: Open dashboard - verify initial baseline metrics', async () => {

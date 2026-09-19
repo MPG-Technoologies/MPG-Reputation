@@ -133,6 +133,17 @@ export async function GET(
           p_metric: 'link_clicks',
           p_amount: 1,
         })
+
+        // MR-4: Record tracked_click in usage_ledger
+        await supabase.rpc('record_usage_event', {
+          p_org_id: reviewRequest.organization_id,
+          p_event_type: 'tracked_click',
+          p_channel: 'email',
+          p_units: 1,
+          p_entity_type: 'tracked_link',
+          p_entity_id: reviewRequest.id,
+          p_idempotency_key: `tracked-click:${reviewRequest.id}`,
+        })
       }
     } catch (err) {
       console.error('Failed to record review request click analytics:', err)

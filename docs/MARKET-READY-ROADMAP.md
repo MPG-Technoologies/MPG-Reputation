@@ -27,10 +27,10 @@ This is an **engineering execution specification**, not marketing copy. Inclusio
 [MR-2: Customer Activation] (COMPLETE / ACCEPTED)
        │
        ▼
-[MR-3: Completion Source Platform] (LOCAL ENGINEERING COMPLETE — AWAITING OWNER ACCEPTANCE)
+[MR-3: Completion Source Platform] (COMPLETE / ACCEPTED — MPG-DEC-047)
        │
        ▼
-[MR-4: Trial / Usage / Economics]
+[MR-4: Trial / Usage / Economics] (COMPLETE / READY FOR OWNER REVIEW)
        │
        ▼
 [MR-5: Billing]
@@ -106,13 +106,13 @@ Each transition is strictly evidence- and gate-controlled.
 
 | Dimension | Specification |
 |---|---|
-| **Status** | **LOCAL ENGINEERING COMPLETE — AWAITING OWNER ACCEPTANCE** |
+| **Status** | **COMPLETE / ACCEPTED** (`MPG-DEC-047`) |
 | **Objective** | Create a scalable, secure, and extensible completion ingestion layer supporting universal webhooks and adapter architecture. |
 | **Dependencies** | MR-2 complete. |
 | **Implementation Scope** | 1. Universal completion API endpoint (`/api/v1/completions`) with versioned API keys (`mpg_v1.<id>.<secret>`) and HMAC-SHA256 signature verification (`v1=<hash>`).<br>2. Strict PostgreSQL-backed replay protection and per-tenant sliding 1-minute rate limiting via transaction advisory locks (stored default: 60 requests/minute per credential).<br>3. Payload validation and normalization pipeline translating diverse completion formats into canonical `customer.completed` events.<br>4. Activation gate integration requiring confirmed, valid Google review destinations before completion ingestion is accepted.<br>5. Atomic system persistence RPC (`submit_completion_system_atomic`) emitting domain event outbox records, tracking usage counters, and updating PII-free audit logs.<br>6. Tenant-isolated credential management and developer webhook debugging console in organization settings (`/app/settings/integrations`).<br>7. Extensible adapter interface for future demand-validated native CRM connectors. |
-| **Exit Evidence** | Comprehensive test suite (40 unit/domain tests + 22 PostgreSQL integration tests + 4 credential trust boundary/rotation tests) verifying authentication, HMAC verification, replay/rate limiting, atomic idempotency, tenant isolation, and audit logging; `pnpm typecheck`, `pnpm lint`, `pnpm test` (422 tests passed), `pnpm build`, and `supabase db lint` all pass cleanly. |
+| **Exit Evidence** | Comprehensive test suite (40 unit/domain tests + 22 PostgreSQL integration tests + 4 credential trust boundary/rotation tests) verifying authentication, HMAC verification, replay/rate limiting, atomic idempotency, tenant isolation, and audit logging; `pnpm typecheck`, `pnpm lint`, `pnpm test` (422 tests passed), `pnpm build`, and `supabase db lint` all pass cleanly. Accepted under `MPG-DEC-047`. |
 | **Explicit Non-Assumptions** | Does not build dozens of speculative native CRM connectors; native integrations are implemented only when supported by verified customer demand and API access; live messaging remains OFF (`ENABLE_LIVE_EMAIL=false`); billing belongs to MR-5; MR-4 remains planned and unstarted. |
-| **Gate Required** | Owner acceptance of MR-3 technical and operational implementation before proceeding to MR-4. |
+| **Gate Required** | Owner acceptance of MR-3 technical and operational implementation before proceeding to MR-4. (ACCEPTED) |
 
 ---
 
@@ -120,12 +120,12 @@ Each transition is strictly evidence- and gate-controlled.
 
 | Dimension | Specification |
 |---|---|
-| **Status** | PLANNED |
+| **Status** | **COMPLETE / READY FOR OWNER REVIEW** |
 | **Objective** | Engineer a configurable server-side trial entitlement engine, implement an immutable usage metering ledger, and validate per-organization cost models against actual provider pricing. Final trial structure, request limits, duration, and transition rules remain TBD / validation-required. |
-| **Dependencies** | MR-1, MR-2, MR-3 complete. |
-| **Implementation Scope** | 1. Configurable server-side trial entitlement engine capable of enforcing dynamic review request and duration limits (current working hypothesis: 30 review requests or 30 calendar days, whichever occurs first; commercial trial numbers must not be hard-coded before approval).<br>2. Automated trial expiration transitions that pause pending automations gracefully.<br>3. Immutable usage ledger recording billable events: `review_requests_initiated`, `emails_sent`, `webhooks_processed`.<br>4. Dashboard trial progress component displaying usage and remaining days/review requests truthfully.<br>5. Cost allocation and contribution margin models tracking direct COGS (email, database, compute). |
-| **Exit Evidence** | Automated tests demonstrating that the entitlement engine reliably enforces configurable limits and halts automation when configured review request or time thresholds are reached; verified ledger reconciliation against provider invoices. |
-| **Explicit Non-Assumptions** | Trial structure remains TBD / validation-required; 30 review requests / 30 days is a recommended working hypothesis, not an accepted commercial freeze; final request limit, duration, reminders, usage accounting, and paid transition require evidence and owner approval; engineering may design an entitlement engine capable of enforcing configurable limits, but commercial numbers must not be hard-coded before approval; no unlimited review requests during trial; no automated conversion to paid subscription without explicit customer payment method and consent. |
+| **Dependencies** | MR-1, MR-2, MR-3 complete (`MPG-DEC-047`). |
+| **Implementation Scope** | 1. Configurable server-side trial entitlement engine (`organization_entitlements`) with atomic advisory locking and auto-activation upon first valid completion ingestion.<br>2. Dynamic enforcement of review request allowance and duration limit with working validation hypothesis of 30 review requests or 30 days (documented as non-contractual recommendation).<br>3. Automated trial expiration transitions (`EXPIRED`, `EXHAUSTED`, `SUSPENDED`, `ENDED`) that halt pending initial requests and reminders cleanly.<br>4. Immutable, append-only usage ledger (`usage_ledger`) recording `completion_received`, `initial_request_created`, `reminder_created`, `provider_send_attempt`, `provider_send_success`, `provider_send_failure`, and `tracked_click`.<br>5. Internal economic COGS ledger (`cost_ledger`) using integer micro-USD units (`micro_usd`, 1 USD = 1,000,000 micro-USD) distinguishing `MEASURED`, `CONFIGURED_ESTIMATE`, and `UNKNOWN`.<br>6. Customer dashboard trial status card (`trial-status-card.tsx`) and comprehensive usage settings page (`/app/settings/usage`).<br>7. Role-based access control protecting unit economics (restricted to `OWNER` / `ADMIN`). |
+| **Exit Evidence** | 29 automated tests (11 domain unit tests + 18 full PostgreSQL integration tests) covering RLS mutation denial, cross-tenant isolation, atomic entitlement consumption, idempotency deduplication, limit exhaustion, time expiration, status transitions, high-concurrency race protection (advisory locks), workflow zero-consumption on suppressed/ineligible completions, reminder lifecycle halt on trial expiration, and server actions; `pnpm typecheck`, `pnpm lint`, `pnpm build`, and `supabase db lint` all pass cleanly. |
+| **Explicit Non-Assumptions** | Trial structure remains TBD / validation-required; 30 review requests / 30 days is a recommended working hypothesis, not an accepted commercial freeze; final request limit, duration, reminders, usage accounting, and paid transition require evidence and owner approval; engineering may design an entitlement engine capable of enforcing configurable limits, but commercial numbers must not be hard-coded before approval; no unlimited review requests during trial; no automated conversion to paid subscription without explicit customer payment method and consent; billing belongs to MR-5 and is strictly unstarted; live messaging remains OFF (`ENABLE_LIVE_EMAIL=false`). |
 | **Gate Required** | Founder review and verification of unit economics, COGS model, and trial parameters (`REP-ECON-001`). |
 
 ---

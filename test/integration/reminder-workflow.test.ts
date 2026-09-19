@@ -111,6 +111,21 @@ describe('MR-1C Reminder Lifecycle & Messaging Operations (Section 19: 29 Proof 
       .single()
     if (destErr || !dest) throw new Error(`Dest setup failed: ${destErr?.message}`)
 
+    // 4b. Active Entitlement for review request messaging
+    await supabase.rpc('provision_organization_trial', {
+      p_org_id: org.id,
+      p_allocated_requests: 30,
+      p_duration_days: 30,
+    })
+    await supabase
+      .from('organization_entitlements')
+      .update({
+        status: 'ACTIVE',
+        started_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 30 * 86400000).toISOString(),
+      })
+      .eq('organization_id', org.id)
+
     // 5. Completion Event
     const { data: cce, error: cceErr } = await supabase
       .from('customer_completion_events')

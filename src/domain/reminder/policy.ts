@@ -45,6 +45,7 @@ export function isRequestEligibleForReminder(request: {
   status: string
   reminded_at?: string | null
   clicked_at?: string | null
+  cancelled_at?: string | null
 }): { eligible: boolean; reason?: 'ALREADY_REMINDED' | 'CLICKED' | 'CANCELLED' | 'SUPPRESSED' | 'NOT_DELIVERABLE' } {
   if (request.reminded_at) {
     return { eligible: false, reason: 'ALREADY_REMINDED' }
@@ -54,7 +55,7 @@ export function isRequestEligibleForReminder(request: {
     return { eligible: false, reason: 'CLICKED' }
   }
 
-  if (request.status === 'CANCELLED') {
+  if (request.status === 'CANCELLED' || request.cancelled_at) {
     return { eligible: false, reason: 'CANCELLED' }
   }
 

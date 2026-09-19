@@ -288,6 +288,19 @@ export async function POST(req: Request) {
       }
     }
 
+    // 10b. Increment usage counters for delivery events (MR-1C.1 Section 9)
+    if (eventPayload.type === 'email.delivered' && organizationId) {
+      const period = new Date().toISOString().slice(0, 7)
+      if (correlatedMessageKind === 'review_request_reminder') {
+        await supabase.rpc('increment_organization_usage', {
+          p_org_id: organizationId,
+          p_period: period,
+          p_metric: 'reminders_delivered',
+          p_amount: 1,
+        })
+      }
+    }
+
     // 11. Mark Event Processed ONLY AT THE END (MR-1A.2 Section 10)
     // Only after ALL side-effects succeed, stamp processed_at and finalize event status
     if (eventRecordId) {

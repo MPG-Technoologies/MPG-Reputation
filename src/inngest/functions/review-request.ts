@@ -431,7 +431,10 @@ export async function executeReviewRequestHandler({
           provider_message_id: result.messageId,
           event_type: 'sent',
           status: 'SENT',
-          metadata: { messageKind: 'initial_review_request' },
+          metadata: {
+            messageKind: 'initial_review_request',
+            reviewRequestId: reviewRequest.id,
+          },
         })
 
         // Atomic usage increment via service_role admin client (Prompt Correction 19)
@@ -467,7 +470,10 @@ export async function executeReviewRequestHandler({
           event_type: 'failed',
           status: 'FAILED',
           sanitized_error: errorMsg,
-          metadata: { messageKind: 'initial_review_request' },
+          metadata: {
+            messageKind: 'initial_review_request',
+            reviewRequestId: reviewRequest.id,
+          },
         })
 
         // Rethrow for Inngest retry mechanism
@@ -479,54 +485,54 @@ export async function executeReviewRequestHandler({
     const isAborted = 'aborted' in sendResult && Boolean(sendResult.aborted)
     if (!sendResult.success || isAborted) {
       return {
-        processed: true,
-        reviewRequestId: reviewRequest.id,
-        emailSent: false,
-        provider: sendResult.provider,
-        reminderSent: false,
-        reason: 'initial_dispatch_aborted',
+        processed: false,
+        stage: 'initial_dispatch',
+        reason: isAborted ? 'aborted_due_to_ineligibility' : 'initial_dispatch_failed',
+        sendResult,
       }
     }
 
-    // Step 6: Configurable Reminder Cooldown Delay (MR-1C Section 3 & 4)
+    // =========================================================================
+    // MR-1C: REMINDER LIFECYCLE (Steps 6, 7, 8)
+    // Enforces at most ONE reminder: V1 max = 1 initial request + 1 reminder.
+    // Configurable delay via WORKFLOW_REMINDER_DELAY (default 3d, test 1s).
+    // Hard stops on CLICKED (by status or clicked_at), CANCELLED, or SUPPRESSED.
+    // Pre-reminder eligibility check immediately before reminder dispatch.
+    // =========================================================================
+
+    // Step 6: Durable Sleep for Reminder Delay
     await step.sleep('wait-for-reminder-delay', reminderDelay)
 
-    // Step 7: Pre-Reminder Eligibility Recheck (MR-1C Section 5, 6, 7, 8)
+    // Step 7: Pre-Reminder Eligibility Recheck
     const preReminderCheck = await step.run('evaluate-pre-reminder-eligibility', async () => {
-      // 1. Fetch current review_request record from database
-      const { data: currentReq } = await supabase
+      // 1. Re-read review_requests row from database source of truth
+      const { data: latestReq } = await supabase
         .from('review_requests')
-        .select('id, status, reminded_at, clicked_at')
+        .select('id, status, reminded_at, clicked_at, cancelled_at')
         .eq('id', reviewRequest.id)
-        .single()
+        .maybeSingle()
 
-      if (!currentReq) {
+      if (!latestReq) {
         return {
           eligible: false,
           reason: 'Review request not found',
-          decision: 'NOT_FOUND' as const,
-          businessName: null,
-          locationName: null,
-          customerName: null,
-          customerEmail: null,
-          destinationId: null,
-          reviewReplyToEmail: null,
+          decision: 'NOT_FOUND',
         }
       }
 
-      // Check structural reminder eligibility (clicked, cancelled, suppressed, already reminded)
-      const structuralCheck = isRequestEligibleForReminder(currentReq)
+      // Structural check: click, cancellation, suppression, already reminded
+      const structuralCheck = isRequestEligibleForReminder({
+        status: latestReq.status,
+        reminded_at: latestReq.reminded_at,
+        clicked_at: latestReq.clicked_at,
+        cancelled_at: latestReq.cancelled_at,
+      })
+
       if (!structuralCheck.eligible) {
         return {
           eligible: false,
           reason: structuralCheck.reason || 'Ineligible for reminder',
           decision: structuralCheck.reason || 'INELIGIBLE',
-          businessName: null,
-          locationName: null,
-          customerName: null,
-          customerEmail: null,
-          destinationId: null,
-          reviewReplyToEmail: null,
         }
       }
 
@@ -537,31 +543,23 @@ export async function executeReviewRequestHandler({
           eligible: false,
           reason: freshEligibility.reason,
           decision: freshEligibility.decision,
-          businessName: freshEligibility.businessName,
-          locationName: freshEligibility.locationName,
-          customerName: freshEligibility.customerName,
-          customerEmail: freshEligibility.customerEmail,
-          destinationId: freshEligibility.destinationId,
-          reviewReplyToEmail: freshEligibility.reviewReplyToEmail,
         }
       }
 
       return {
         eligible: true,
         reason: 'Customer is eligible for review reminder',
-        decision: 'ELIGIBLE' as const,
-        businessName: freshEligibility.businessName,
-        locationName: freshEligibility.locationName,
-        customerName: freshEligibility.customerName,
+        decision: 'ELIGIBLE_FOR_REMINDER',
         customerEmail: freshEligibility.customerEmail,
-        destinationId: freshEligibility.destinationId,
+        customerName: freshEligibility.customerName,
+        businessName: freshEligibility.businessName,
         reviewReplyToEmail: freshEligibility.reviewReplyToEmail,
       }
     })
 
+    // If pre-reminder check failed, record audit log and exit cleanly
     if (!preReminderCheck.eligible) {
-      // Record reminder skipped audit event (free of PII/tokens)
-      await step.run('record-reminder-skipped-audit', async () => {
+      await step.run('record-reminder-skipped', async () => {
         await supabase.from('audit_events').insert({
           organization_id: organizationId,
           actor_type: 'system',
@@ -582,13 +580,17 @@ export async function executeReviewRequestHandler({
         emailSent: sendResult.success,
         provider: sendResult.provider,
         reminderSent: false,
+        stage: 'reminder_skipped',
         reminderSkippedReason: preReminderCheck.reason,
       }
     }
 
-    // Step 8: Dispatch Reminder (guarded by atomic claim and idempotency)
+    // Step 8: Dispatch Review Request Reminder
+    // Privacy hardened: metadata contains no PII, tokens, or raw destinations.
+    // reminded_at is set ONLY after provider dispatch succeeds.
+    // Provider idempotencyKey ensures deterministic retry safety.
     const reminderResult = await step.run('dispatch-review-reminder', async () => {
-      // 1. Fetch current review_request to re-verify claimable state
+      // 1. Fetch current status of review_request
       const { data: currentReq } = await supabase
         .from('review_requests')
         .select('id, status, reminded_at, clicked_at')
@@ -667,15 +669,29 @@ export async function executeReviewRequestHandler({
         }
 
         // 3. Durably mark reminded_at (does NOT regress status: SENT remains SENT, DELIVERED remains DELIVERED)
-        await supabase
+        // Atomic guard .is('reminded_at', null) ensures exactly one execution claims the reminder
+        const { data: updatedReq } = await supabase
           .from('review_requests')
           .update({
             reminded_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })
           .eq('id', reviewRequest.id)
+          .is('reminded_at', null)
+          .select('id')
+          .maybeSingle()
 
-        // 4. Record message_event for reminder (semantic discriminator: review_request_reminder)
+        // If another concurrent execution already stamped reminded_at, avoid duplicate events/counters
+        if (!updatedReq) {
+          return {
+            success: true,
+            alreadySent: true,
+            provider: result.provider,
+            messageId: result.messageId,
+          }
+        }
+
+        // 4. Record message_event for reminder (minimal operational metadata, zero PII/tokens)
         await supabase.from('message_events').insert({
           organization_id: organizationId,
           review_request_id: reviewRequest.id,
@@ -683,7 +699,11 @@ export async function executeReviewRequestHandler({
           provider_message_id: result.messageId,
           event_type: 'sent',
           status: 'SENT',
-          metadata: { messageKind: 'review_request_reminder' },
+          metadata: {
+            messageKind: 'review_request_reminder',
+            reviewRequestId: reviewRequest.id,
+            reminderNumber: 1,
+          },
         })
 
         // 5. Atomic usage increment for reminders
@@ -713,6 +733,7 @@ export async function executeReviewRequestHandler({
         console.error('Reminder dispatch error:', errorMsg)
 
         // Record failure in message_events without regressing review_requests status or erasing initial delivery
+        // reminded_at remains NULL so Inngest retry can re-attempt dispatch
         await supabase.from('message_events').insert({
           organization_id: organizationId,
           review_request_id: reviewRequest.id,
@@ -720,7 +741,11 @@ export async function executeReviewRequestHandler({
           event_type: 'failed',
           status: 'FAILED',
           sanitized_error: errorMsg,
-          metadata: { messageKind: 'review_request_reminder' },
+          metadata: {
+            messageKind: 'review_request_reminder',
+            reviewRequestId: reviewRequest.id,
+            reminderNumber: 1,
+          },
         })
 
         // Record reminder failed audit event

@@ -142,7 +142,7 @@ vi.mock('@/lib/supabase/admin', () => ({
 }))
 
 import { createOrganizationAndLocation } from '@/actions/onboarding'
-import { deactivateDestination, saveDestination } from '@/actions/destinations'
+import { confirmDestination, deactivateDestination, saveDestination } from '@/actions/destinations'
 import { submitQuickComplete } from '@/actions/quick-complete'
 import { createLocation } from '@/actions/locations'
 import { signIn, signUp, signOut } from '@/actions/auth'
@@ -277,6 +277,113 @@ describe('Cache Invalidation & Router State Transitions (Regression Suite)', () 
       expect(result.success).toBe(false)
       expect(result.error).toContain('Only owners and administrators')
       expect(revalidatePathMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('MR-2 Customer Activation Acceptance', () => {
+    it('blocks automation until test and confirmation, allows it after confirmation, and blocks it again after pause', async () => {
+      const destinationForm = new FormData()
+      destinationForm.append('organizationId', 'org_123')
+      destinationForm.append('locationId', 'loc_123')
+      destinationForm.append(
+        'url',
+        'https://g.page/r/synthetic-test-place/review'
+      )
+
+      const saved = await saveDestination(destinationForm)
+
+      expect(saved.success).toBe(true)
+      expect(saved.status).toBe('PENDING_CONFIRMATION')
+
+      mockExistingDestination = {
+        id: 'dest_123',
+        location_id: 'loc_123',
+        status: 'PENDING_CONFIRMATION',
+        canonical_url:
+          'https://g.page/r/synthetic-test-place/review',
+      }
+
+      const quickCompleteForm = new FormData()
+      quickCompleteForm.append('organizationId', 'org_123')
+      quickCompleteForm.append('locationId', 'loc_123')
+      quickCompleteForm.append('firstName', 'Jane')
+      quickCompleteForm.append('email', 'jane@example.test')
+      quickCompleteForm.append('permissionEmail', 'allowed')
+
+      let quickComplete =
+        await submitQuickComplete(quickCompleteForm)
+
+      expect(quickComplete.success).toBe(false)
+      expect(quickComplete.error).toContain(
+        'not ready for automation'
+      )
+
+      const untestedConfirmation = new FormData()
+      untestedConfirmation.append('organizationId', 'org_123')
+      untestedConfirmation.append('locationId', 'loc_123')
+
+      const untested =
+        await confirmDestination(untestedConfirmation)
+
+      expect(untested.success).toBe(false)
+      expect(untested.error).toContain(
+        'Test the Google review link'
+      )
+
+      const testedConfirmation = new FormData()
+      testedConfirmation.append('organizationId', 'org_123')
+      testedConfirmation.append('locationId', 'loc_123')
+      testedConfirmation.append('explicitlyTested', 'true')
+
+      const confirmed =
+        await confirmDestination(testedConfirmation)
+
+      expect(confirmed.success).toBe(true)
+      expect(confirmed.status).toBe('CONFIRMED')
+
+      mockExistingDestination = {
+        ...mockExistingDestination,
+        status: 'CONFIRMED',
+      }
+
+      quickComplete =
+        await submitQuickComplete(quickCompleteForm)
+
+      expect(quickComplete.success).toBe(true)
+
+      const pauseForm = new FormData()
+      pauseForm.append('organizationId', 'org_123')
+      pauseForm.append('locationId', 'loc_123')
+
+      const paused =
+        await deactivateDestination(pauseForm)
+
+      expect(paused.success).toBe(true)
+      expect(paused.status).toBe('INACTIVE')
+
+      mockExistingDestination = {
+        ...mockExistingDestination,
+        status: 'INACTIVE',
+      }
+
+      const secondQuickComplete = new FormData()
+      secondQuickComplete.append('organizationId', 'org_123')
+      secondQuickComplete.append('locationId', 'loc_123')
+      secondQuickComplete.append('firstName', 'John')
+      secondQuickComplete.append('email', 'john@example.test')
+      secondQuickComplete.append('permissionEmail', 'allowed')
+      secondQuickComplete.append(
+        'sourceEventId',
+        'mr2_pause_acceptance'
+      )
+
+      quickComplete =
+        await submitQuickComplete(secondQuickComplete)
+
+      expect(quickComplete.success).toBe(false)
+      expect(quickComplete.error).toContain(
+        'not ready for automation'
+      )
     })
   })
 

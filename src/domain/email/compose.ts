@@ -1,8 +1,10 @@
-import type { ReviewRequestEmailInput, ComposedReviewRequestEmail } from './types'
+import type { ReviewRequestEmailInput, ReviewReminderEmailInput, ComposedReviewRequestEmail } from './types'
 import { formatSenderIdentity, sanitizeDisplayName } from './sender'
 import { sanitizeReplyToEmail } from './reply-to'
 import { renderReviewRequestHtml } from './template-html'
 import { renderReviewRequestText } from './template-text'
+import { renderReviewReminderHtml } from './template-reminder-html'
+import { renderReviewReminderText } from './template-reminder-text'
 
 /**
  * Extracts and sanitizes the customer's first name for neutral email greeting.
@@ -58,6 +60,64 @@ export function composeReviewRequestEmail(input: ReviewRequestEmailInput): Compo
   })
 
   const text = renderReviewRequestText({
+    businessName: cleanBusiness || 'MPG Reputation',
+    customerFirstName: firstName,
+    reviewUrl,
+    unsubscribeUrl,
+  })
+
+  return {
+    subject,
+    html,
+    text,
+    fromDisplayName: sender.displayName,
+    formattedFrom: sender.formattedFrom,
+    replyTo: validatedReplyTo || undefined,
+    headers,
+  }
+}
+
+/**
+ * Pure domain composition function:
+ * Converts business and customer inputs into a fully composed, neutral review solicitation REMINDER email.
+ * Subject: "Reminder: Share your experience with {Business Name}"
+ * Transport-agnostic: does NOT access the database or make network calls.
+ */
+export function composeReviewReminderEmail(input: ReviewReminderEmailInput): ComposedReviewRequestEmail {
+  const { businessName, customerFirstName, reviewUrl, unsubscribeUrl, replyToEmail, fromAddress } = input
+
+  const cleanBusiness = sanitizeDisplayName(businessName)
+  const firstName = extractCustomerFirstName(customerFirstName)
+
+  const subject = cleanBusiness
+    ? `Reminder: Share your experience with ${cleanBusiness}`
+    : 'Reminder: Share your experience'
+
+  const sender = formatSenderIdentity({
+    businessName: cleanBusiness,
+    fromAddress,
+  })
+
+  const validatedReplyTo = sanitizeReplyToEmail(replyToEmail)
+
+  const headers: Record<string, string> = {}
+  if (unsubscribeUrl) {
+    // Sanitize unsubscribeUrl to prevent CR/LF injection
+    const cleanUnsub = unsubscribeUrl.replace(/[\r\n\t\0<>"']/g, '').trim()
+    if (cleanUnsub) {
+      headers['List-Unsubscribe'] = `<${cleanUnsub}>`
+      headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click'
+    }
+  }
+
+  const html = renderReviewReminderHtml({
+    businessName: cleanBusiness || 'MPG Reputation',
+    customerFirstName: firstName,
+    reviewUrl,
+    unsubscribeUrl,
+  })
+
+  const text = renderReviewReminderText({
     businessName: cleanBusiness || 'MPG Reputation',
     customerFirstName: firstName,
     reviewUrl,

@@ -268,6 +268,7 @@ export interface Database {
           scheduled_for: string
           sent_at: string | null
           delivered_at: string | null
+          reminded_at?: string | null
           clicked_at: string | null
           cancelled_at: string | null
           failed_at: string | null
@@ -291,6 +292,7 @@ export interface Database {
           scheduled_for?: string
           sent_at?: string | null
           delivered_at?: string | null
+          reminded_at?: string | null
           clicked_at?: string | null
           cancelled_at?: string | null
           failed_at?: string | null
@@ -314,6 +316,7 @@ export interface Database {
           scheduled_for?: string
           sent_at?: string | null
           delivered_at?: string | null
+          reminded_at?: string | null
           clicked_at?: string | null
           cancelled_at?: string | null
           failed_at?: string | null

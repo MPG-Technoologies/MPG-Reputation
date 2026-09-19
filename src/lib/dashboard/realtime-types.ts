@@ -111,6 +111,8 @@ export interface ActivityRequestItem {
   token: string
   created_at: string
   sent_at: string | null
+  delivered_at?: string | null
+  reminded_at?: string | null
   clicked_at: string | null
   error_message?: string | null
   customerName: string

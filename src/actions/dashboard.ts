@@ -94,7 +94,7 @@ export async function getDashboardSnapshot(
       .eq('organization_id', organizationId),
     supabase
       .from('review_requests')
-      .select('id, customer_id, channel, status, token, created_at, sent_at, clicked_at, error_message')
+      .select('id, customer_id, channel, status, token, created_at, sent_at, delivered_at, reminded_at, clicked_at, error_message')
       .eq('organization_id', organizationId)
       .order('created_at', { ascending: false })
       .limit(10),
@@ -221,6 +221,8 @@ export async function getDashboardSnapshot(
       token: req.token,
       created_at: req.created_at,
       sent_at: req.sent_at,
+      delivered_at: req.delivered_at,
+      reminded_at: req.reminded_at,
       clicked_at: req.clicked_at,
       error_message: req.error_message,
       customerName: cust ? `${cust.first_name} ${cust.last_name || ''}`.trim() : 'Customer',

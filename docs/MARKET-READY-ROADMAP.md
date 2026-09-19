@@ -78,13 +78,13 @@ Each transition is strictly evidence- and gate-controlled.
 
 | Dimension | Specification |
 |---|---|
-| **Status** | **ACTIVE ENGINEERING MILESTONE** (MR-1A accepted; MR-1B implemented) |
-| **Objective** | Engineer production email messaging infrastructure using Resend with strict tenant routing, domain authentication, deliverability monitoring, and bounce/complaint handling, while keeping live sends disabled. |
-| **Dependencies** | MR-0 complete; verified Resend sending domain and API configuration provided by owner. |
-| **Implementation Scope** | 1. Implement production `ResendEmailProvider` with robust error classification (transient vs permanent).<br>2. Develop responsive, accessible, neutral email templates for initial review request and optional single reminder.<br>3. Implement inbound webhook handler (`/api/webhooks/resend`) with signature verification for delivery, bounce, and complaint events.<br>4. Automate contact suppression on hard bounces and spam complaints.<br>5. Harden workflow retry mechanisms with exponential backoff and dead-letter exception records.<br>6. Implement server-side safety flag ensuring live sends to real customers remain disabled until explicitly authorized. |
-| **Exit Evidence** | Comprehensive test suite verifying email construction, template neutrality, webhook signature verification, bounce suppression updates, and retry behavior; synthetic end-to-end delivery verified to internal test addresses. |
-| **Explicit Non-Assumptions** | LIVE customer messaging remains OFF (`ENABLE_LIVE_EMAIL=false` or server guard); SMS is explicitly outside MR-1 and remains gated; does not include marketing emails or broadcast campaigns. |
-| **Gate Required** | Developer and founder verification of synthetic delivery, webhook ingestion, and safety guards before production traffic is permitted. |
+| **Status** | **ACTIVE ENGINEERING MILESTONE** (MR-1A accepted; MR-1A-H passed; MR-1B/MR-1B.1 accepted; MR-1B-H deferred pending owner external domain setup; MR-1C locally complete/accepted; MR-1D next) |
+| **Objective** | Engineer production email messaging infrastructure using Resend with strict tenant routing, domain authentication, deliverability monitoring, bounce/complaint handling, and bounded reminder operations, while keeping live sends disabled. |
+| **Dependencies** | MR-0 complete; verified Resend sending domain and API configuration provided by owner (when authorized). |
+| **Implementation Scope** | 1. Implement production `ResendEmailProvider` with robust error classification (transient vs permanent).<br>2. Develop responsive, accessible, neutral email templates for initial review request and bounded single reminder (`MAX_REMINDERS = 1`).<br>3. Implement inbound webhook handler (`/api/webhooks/resend`) with signature verification for delivery, bounce, and complaint events.<br>4. Automate contact suppression on hard bounces, spam complaints, and user unsubscriptions.<br>5. Bounded reminder lifecycle: configurable delay (`WORKFLOW_REMINDER_DELAY`), mandatory pre-reminder eligibility recheck, hard stops on `CLICKED`, `CANCELLED`, `SUPPRESSED`, and historical status preservation (`reminded_at` without regressing `DELIVERED`).<br>6. Server-side safety flag ensuring live sends to real customers remain disabled until explicitly authorized. |
+| **Exit Evidence** | Comprehensive test suite verifying email construction, template neutrality, webhook signature verification, bounce suppression updates, 29 reminder lifecycle proof scenarios, and retry behavior; synthetic end-to-end delivery verified to internal test addresses. |
+| **Explicit Non-Assumptions** | LIVE customer messaging remains OFF (`ENABLE_LIVE_EMAIL=false` or server guard); MR-1B-H external domain/DNS validation is deferred; MR-1D delivery monitoring & alerting is next; SMS is explicitly outside MR-1 and remains gated; billing belongs to MR-5; does not include marketing emails or broadcast campaigns. |
+| **Gate Required** | Developer and founder verification of synthetic delivery, webhook ingestion, reminder stops, and safety guards before production traffic is permitted. |
 
 ---
 

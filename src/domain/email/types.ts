@@ -1,3 +1,5 @@
+export type EmailMessageKind = 'initial_review_request' | 'review_request_reminder'
+
 export interface ReviewRequestEmailInput {
   businessName: string
   customerFirstName?: string | null
@@ -6,6 +8,8 @@ export interface ReviewRequestEmailInput {
   replyToEmail?: string | null
   fromAddress?: string | null
 }
+
+export type ReviewReminderEmailInput = ReviewRequestEmailInput
 
 export interface ComposedReviewRequestEmail {
   subject: string

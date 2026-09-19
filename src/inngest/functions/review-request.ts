@@ -2,9 +2,10 @@ import { inngest } from '../client'
 import { evaluateReviewEligibility } from '@/domain/eligibility'
 import { generateTrackingToken, buildTrackedReviewUrl } from '@/domain/tracking'
 import { generateUnsubscribeToken, buildUnsubscribeUrl } from '@/domain/unsubscribe'
-import { composeReviewRequestEmail } from '@/domain/email'
+import { composeReviewRequestEmail, composeReviewReminderEmail } from '@/domain/email'
 import { getEmailProvider } from '@/providers/email'
 import { hashSuppressionContact } from '@/domain/suppression'
+import { getWorkflowTimingPolicy, isRequestEligibleForReminder } from '@/domain/reminder'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export interface ReviewRequestEventData {
@@ -38,6 +39,7 @@ export async function executeReviewRequestHandler({
     } = event.data
 
     const supabase = createAdminClient()
+    const { initialDelay, reminderDelay } = getWorkflowTimingPolicy()
 
     // Helper to evaluate current eligibility from database
     async function checkEligibility() {
@@ -58,6 +60,7 @@ export async function executeReviewRequestHandler({
           customerName: null,
           customerEmail: null,
           destinationId: null,
+          reviewReplyToEmail: null,
         }
       }
 
@@ -78,6 +81,7 @@ export async function executeReviewRequestHandler({
           customerName: null,
           customerEmail: null,
           destinationId: null,
+          reviewReplyToEmail: null,
         }
       }
 
@@ -98,6 +102,7 @@ export async function executeReviewRequestHandler({
           customerName: null,
           customerEmail: null,
           destinationId: null,
+          reviewReplyToEmail: null,
         }
       }
 
@@ -203,7 +208,6 @@ export async function executeReviewRequestHandler({
     }
 
     // Step 2: Configurable Cooldown Delay
-    const initialDelay = process.env.WORKFLOW_INITIAL_DELAY || '2s'
     await step.sleep('wait-for-request-delay', initialDelay)
 
     // Step 3: Post-Delay Eligibility Recheck (Prompt Correction 7)
@@ -249,7 +253,7 @@ export async function executeReviewRequestHandler({
       if (completionEventId) {
         const { data: existing } = await supabase
           .from('review_requests')
-          .select('id, token, unsubscribe_token, status')
+          .select('id, token, unsubscribe_token, status, reminded_at')
           .eq('completion_event_id', completionEventId)
           .eq('channel', 'email')
           .maybeSingle()
@@ -273,6 +277,7 @@ export async function executeReviewRequestHandler({
             unsubscribeToken: unsubToken,
             isNew: false,
             status: existing.status,
+            remindedAt: existing.reminded_at,
           }
         }
       }
@@ -308,6 +313,7 @@ export async function executeReviewRequestHandler({
         unsubscribeToken: created.unsubscribe_token || unsubToken,
         isNew: true,
         status: 'SCHEDULED',
+        remindedAt: null,
       }
     })
 
@@ -469,11 +475,279 @@ export async function executeReviewRequestHandler({
       }
     })
 
+    // If initial dispatch failed or was aborted due to ineligibility, stop workflow here
+    const isAborted = 'aborted' in sendResult && Boolean(sendResult.aborted)
+    if (!sendResult.success || isAborted) {
+      return {
+        processed: true,
+        reviewRequestId: reviewRequest.id,
+        emailSent: false,
+        provider: sendResult.provider,
+        reminderSent: false,
+        reason: 'initial_dispatch_aborted',
+      }
+    }
+
+    // Step 6: Configurable Reminder Cooldown Delay (MR-1C Section 3 & 4)
+    await step.sleep('wait-for-reminder-delay', reminderDelay)
+
+    // Step 7: Pre-Reminder Eligibility Recheck (MR-1C Section 5, 6, 7, 8)
+    const preReminderCheck = await step.run('evaluate-pre-reminder-eligibility', async () => {
+      // 1. Fetch current review_request record from database
+      const { data: currentReq } = await supabase
+        .from('review_requests')
+        .select('id, status, reminded_at, clicked_at')
+        .eq('id', reviewRequest.id)
+        .single()
+
+      if (!currentReq) {
+        return {
+          eligible: false,
+          reason: 'Review request not found',
+          decision: 'NOT_FOUND' as const,
+          businessName: null,
+          locationName: null,
+          customerName: null,
+          customerEmail: null,
+          destinationId: null,
+          reviewReplyToEmail: null,
+        }
+      }
+
+      // Check structural reminder eligibility (clicked, cancelled, suppressed, already reminded)
+      const structuralCheck = isRequestEligibleForReminder(currentReq)
+      if (!structuralCheck.eligible) {
+        return {
+          eligible: false,
+          reason: structuralCheck.reason || 'Ineligible for reminder',
+          decision: structuralCheck.reason || 'INELIGIBLE',
+          businessName: null,
+          locationName: null,
+          customerName: null,
+          customerEmail: null,
+          destinationId: null,
+          reviewReplyToEmail: null,
+        }
+      }
+
+      // 2. Fresh full eligibility recheck (customer, email, permission, suppressions, org, location, destination)
+      const freshEligibility = await checkEligibility()
+      if (!freshEligibility.eligible) {
+        return {
+          eligible: false,
+          reason: freshEligibility.reason,
+          decision: freshEligibility.decision,
+          businessName: freshEligibility.businessName,
+          locationName: freshEligibility.locationName,
+          customerName: freshEligibility.customerName,
+          customerEmail: freshEligibility.customerEmail,
+          destinationId: freshEligibility.destinationId,
+          reviewReplyToEmail: freshEligibility.reviewReplyToEmail,
+        }
+      }
+
+      return {
+        eligible: true,
+        reason: 'Customer is eligible for review reminder',
+        decision: 'ELIGIBLE' as const,
+        businessName: freshEligibility.businessName,
+        locationName: freshEligibility.locationName,
+        customerName: freshEligibility.customerName,
+        customerEmail: freshEligibility.customerEmail,
+        destinationId: freshEligibility.destinationId,
+        reviewReplyToEmail: freshEligibility.reviewReplyToEmail,
+      }
+    })
+
+    if (!preReminderCheck.eligible) {
+      // Record reminder skipped audit event (free of PII/tokens)
+      await step.run('record-reminder-skipped-audit', async () => {
+        await supabase.from('audit_events').insert({
+          organization_id: organizationId,
+          actor_type: 'system',
+          event_type: 'review_request.reminder_skipped',
+          entity_type: 'review_request',
+          entity_id: reviewRequest.id,
+          metadata: {
+            reviewRequestId: reviewRequest.id,
+            reason: preReminderCheck.reason,
+            decision: preReminderCheck.decision,
+          },
+        })
+      })
+
+      return {
+        processed: true,
+        reviewRequestId: reviewRequest.id,
+        emailSent: sendResult.success,
+        provider: sendResult.provider,
+        reminderSent: false,
+        reminderSkippedReason: preReminderCheck.reason,
+      }
+    }
+
+    // Step 8: Dispatch Reminder (guarded by atomic claim and idempotency)
+    const reminderResult = await step.run('dispatch-review-reminder', async () => {
+      // 1. Fetch current review_request to re-verify claimable state
+      const { data: currentReq } = await supabase
+        .from('review_requests')
+        .select('id, status, reminded_at, clicked_at')
+        .eq('id', reviewRequest.id)
+        .single()
+
+      if (!currentReq) {
+        throw new Error(`Review request not found: ${reviewRequest.id}`)
+      }
+
+      // Idempotency: if already reminded, return idempotent skip
+      if (currentReq.reminded_at) {
+        return {
+          success: true,
+          alreadySent: true,
+          provider: 'idempotent_skip',
+          messageId: 'skipped_already_reminded',
+        }
+      }
+
+      // If clicked, cancelled, or suppressed concurrently: abort send
+      if (currentReq.status === 'CLICKED' || currentReq.clicked_at) {
+        return {
+          success: false,
+          aborted: true,
+          provider: 'abort',
+          messageId: 'aborted_due_to_click',
+        }
+      }
+
+      if (['CANCELLED', 'SUPPRESSED'].includes(currentReq.status)) {
+        return {
+          success: false,
+          aborted: true,
+          provider: 'abort',
+          messageId: 'aborted_due_to_ineligibility',
+        }
+      }
+
+      // 2. Compose neutral reminder email
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+      const trackingUrl = buildTrackedReviewUrl(appUrl, reviewRequest.token)
+      const unsubscribeUrl = buildUnsubscribeUrl(appUrl, reviewRequest.unsubscribeToken || reviewRequest.token)
+      const fromAddress = process.env.EMAIL_FROM_ADDRESS?.trim() || undefined
+
+      const composed = composeReviewReminderEmail({
+        businessName: preReminderCheck.businessName || 'our business',
+        customerFirstName: preReminderCheck.customerName,
+        reviewUrl: trackingUrl,
+        unsubscribeUrl,
+        replyToEmail: preReminderCheck.reviewReplyToEmail,
+        fromAddress,
+      })
+
+      const emailProvider = getEmailProvider()
+
+      try {
+        const result = await emailProvider.send({
+          to: preReminderCheck.customerEmail!,
+          recipientName: preReminderCheck.customerName || 'there',
+          businessName: preReminderCheck.businessName || 'our business',
+          trackingUrl,
+          unsubscribeUrl,
+          subject: composed.subject,
+          html: composed.html,
+          text: composed.text,
+          fromDisplayName: composed.fromDisplayName,
+          replyTo: composed.replyTo,
+          headers: composed.headers,
+          idempotencyKey: `review-request/${reviewRequest.id}/reminder-1`,
+          correlationId: reviewRequest.id,
+        })
+
+        if (!result.success) {
+          throw new Error(result.error || 'Email provider rejected reminder send')
+        }
+
+        // 3. Durably mark reminded_at (does NOT regress status: SENT remains SENT, DELIVERED remains DELIVERED)
+        await supabase
+          .from('review_requests')
+          .update({
+            reminded_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', reviewRequest.id)
+
+        // 4. Record message_event for reminder (semantic discriminator: review_request_reminder)
+        await supabase.from('message_events').insert({
+          organization_id: organizationId,
+          review_request_id: reviewRequest.id,
+          provider: result.provider,
+          provider_message_id: result.messageId,
+          event_type: 'sent',
+          status: 'SENT',
+          metadata: { messageKind: 'review_request_reminder' },
+        })
+
+        // 5. Atomic usage increment for reminders
+        const period = new Date().toISOString().slice(0, 7)
+        await supabase.rpc('increment_organization_usage', {
+          p_org_id: organizationId,
+          p_period: period,
+          p_metric: 'reminders_sent',
+          p_amount: 1,
+        })
+
+        // 6. Record audit event
+        await supabase.from('audit_events').insert({
+          organization_id: organizationId,
+          actor_type: 'system',
+          event_type: 'review_request.reminder_sent',
+          entity_type: 'review_request',
+          entity_id: reviewRequest.id,
+          metadata: {
+            reviewRequestId: reviewRequest.id,
+          },
+        })
+
+        return result
+      } catch (sendErr: unknown) {
+        const errorMsg = (sendErr instanceof Error ? sendErr.message : 'Reminder dispatch failed').slice(0, 500)
+        console.error('Reminder dispatch error:', errorMsg)
+
+        // Record failure in message_events without regressing review_requests status or erasing initial delivery
+        await supabase.from('message_events').insert({
+          organization_id: organizationId,
+          review_request_id: reviewRequest.id,
+          provider: 'email',
+          event_type: 'failed',
+          status: 'FAILED',
+          sanitized_error: errorMsg,
+          metadata: { messageKind: 'review_request_reminder' },
+        })
+
+        // Record reminder failed audit event
+        await supabase.from('audit_events').insert({
+          organization_id: organizationId,
+          actor_type: 'system',
+          event_type: 'review_request.reminder_failed',
+          entity_type: 'review_request',
+          entity_id: reviewRequest.id,
+          metadata: {
+            reviewRequestId: reviewRequest.id,
+            error: errorMsg,
+          },
+        })
+
+        // Rethrow for Inngest retry mechanism
+        throw sendErr
+      }
+    })
+
+    const isAlreadySent = 'alreadySent' in reminderResult && Boolean(reminderResult.alreadySent)
     return {
       processed: true,
       reviewRequestId: reviewRequest.id,
       emailSent: sendResult.success,
       provider: sendResult.provider,
+      reminderSent: reminderResult.success && !isAlreadySent,
     }
 }
 

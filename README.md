@@ -20,7 +20,7 @@ Automated, neutral review collection and reputation management for local busines
 |---|---|
 | **Program** | **Market-Ready Build Program** authorized under `MPG-DEC-046` |
 | **Status** | V0.1 Technical Foundation Accepted (`MPG-DEC-045`); V0.2 Controlled Staging & Usability Proven Baseline |
-| **Current Milestone** | **MR-1 Production Messaging Core (active milestone) / MR-1A Transport + Provider Event Foundation** |
+| **Current Milestone** | **MR-1 Production Messaging Core (MR-1A, MR-1B, MR-1C locally accepted; MR-1D next)** |
 | **Commercial Release** | **GATED** — The product is NOT yet publicly launched; commercial release and marketing approval remain gated |
 | **Customer Messaging** | **OFF** — Live customer messaging remains disabled until separately authorized |
 
@@ -30,9 +30,10 @@ Automated, neutral review collection and reputation management for local busines
 
 - **Frontend & App Framework**: Next.js 16 (App Router, Server Actions, React Server Components) with TypeScript
 - **Database & Auth**: Supabase PostgreSQL with strict Row Level Security (RLS) policies and `@supabase/ssr` authentication
-- **Background Workflows**: Inngest 4.x for durable event-driven workflows, step delays, and outbox processing
+- **Background Workflows**: Inngest 4.x for durable event-driven workflows, step delays, outbox processing, and bounded reminder lifecycle
 - **Email Messaging Core**: `EmailProvider` interface (`ConsoleEmailProvider` for local dev; `ResendEmailProvider` for production messaging core)
-- **Security & Integrity**: Cryptographic opaque tokens for tracked review redirects (`/r/[token]`), idempotent event ingestion, and real-time dashboard updates
+- **Reminder Operations**: Strictly bounded single reminder (`MAX_REMINDERS = 1`), pre-reminder eligibility recheck, and hard stops on click, suppression, or cancellation
+- **Security & Integrity**: Cryptographic opaque tokens for tracked review redirects (`/r/[token]`), RFC 8058 one-click unsubscribe headers, idempotent event ingestion, and real-time dashboard updates
 
 ---
 

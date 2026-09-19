@@ -106,12 +106,14 @@ export async function POST(req: Request) {
   let organizationId: string | null = null
   let reviewRequestId: string | null = null
 
+  let correlatedMessageKind = 'initial_review_request'
+
   try {
     // Primary lookup: Resend email_id -> message_events.provider_message_id
     if (emailId) {
       const { data: priorEvents, error: corrErr } = await supabase
         .from('message_events')
-        .select('organization_id, review_request_id')
+        .select('organization_id, review_request_id, metadata')
         .eq('provider_message_id', emailId)
         .limit(1)
 
@@ -124,6 +126,15 @@ export async function POST(req: Request) {
       if (priorEvent) {
         organizationId = priorEvent.organization_id
         reviewRequestId = priorEvent.review_request_id
+        if (
+          priorEvent.metadata &&
+          typeof priorEvent.metadata === 'object' &&
+          'messageKind' in (priorEvent.metadata as Record<string, unknown>)
+        ) {
+          correlatedMessageKind = String(
+            (priorEvent.metadata as Record<string, unknown>).messageKind
+          )
+        }
       }
     }
 
@@ -182,7 +193,7 @@ export async function POST(req: Request) {
           sanitized_error: sanitizedError,
           processed_at: null, // explicitly NULL until all side effects succeed (MR-1A.2 Section 3)
           metadata: {
-            messageKind: 'initial_review_request',
+            messageKind: correlatedMessageKind,
             ...(eventData.bounce?.type ? { bounceType: eventData.bounce.type } : {}),
           },
         })

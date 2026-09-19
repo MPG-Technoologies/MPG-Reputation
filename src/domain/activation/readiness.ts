@@ -1,3 +1,5 @@
+import { validateGoogleReviewUrl } from '../destination'
+
 export interface ActivationLocation {
   id: string
   status: string
@@ -31,6 +33,18 @@ export type ActivationSystemStatus =
   | 'RUNNING'
   | 'NEEDS_ATTENTION'
 
+function hasValidCanonicalDestination(
+  destination: ActivationDestination
+): boolean {
+  const canonicalUrl = destination.canonical_url?.trim()
+
+  if (!canonicalUrl) {
+    return false
+  }
+
+  return validateGoogleReviewUrl(canonicalUrl).valid
+}
+
 export function deriveActivationReadiness(
   locations: ActivationLocation[],
   destinations: ActivationDestination[]
@@ -44,9 +58,7 @@ export function deriveActivationReadiness(
 
   const savedLocationIds = new Set(
     destinations
-      .filter((destination) =>
-        Boolean(destination.canonical_url?.trim())
-      )
+      .filter(hasValidCanonicalDestination)
       .map((destination) => destination.location_id)
   )
 
@@ -55,7 +67,7 @@ export function deriveActivationReadiness(
       .filter(
         (destination) =>
           destination.status === 'CONFIRMED' &&
-          Boolean(destination.canonical_url?.trim())
+          hasValidCanonicalDestination(destination)
       )
       .map((destination) => destination.location_id)
   )

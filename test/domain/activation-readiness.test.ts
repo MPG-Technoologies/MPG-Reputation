@@ -47,6 +47,52 @@ describe('MR-2 activation readiness', () => {
     expect(missingUrl.ready).toBe(false)
   })
 
+  it('fails closed when a confirmed destination contains an invalid Google URL', () => {
+    const readiness = deriveActivationReadiness(
+      [{ id: 'loc-1', status: 'ACTIVE' }],
+      [
+        {
+          location_id: 'loc-1',
+          status: 'CONFIRMED',
+          canonical_url: 'https://evil.example/review',
+        },
+      ]
+    )
+
+    expect(readiness.ready).toBe(false)
+    expect(readiness.readyLocationIds).toEqual([])
+    expect(readiness.locationsNeedingDestinationCount).toBe(1)
+
+    expect(
+      readiness.checklist.find(
+        (item) => item.id === 'destination-saved'
+      )?.complete
+    ).toBe(false)
+
+    expect(
+      readiness.checklist.find(
+        (item) => item.id === 'destination-tested'
+      )?.complete
+    ).toBe(false)
+  })
+
+  it('accepts a confirmed destination only when the canonical Google URL is valid', () => {
+    const readiness = deriveActivationReadiness(
+      [{ id: 'loc-1', status: 'ACTIVE' }],
+      [
+        {
+          location_id: 'loc-1',
+          status: 'CONFIRMED',
+          canonical_url: 'https://g.page/r/test/review',
+        },
+      ]
+    )
+
+    expect(readiness.ready).toBe(true)
+    expect(readiness.readyLocationIds).toEqual(['loc-1'])
+    expect(readiness.locationsNeedingDestinationCount).toBe(0)
+  })
+
   it('marks an active location ready only after destination confirmation', () => {
     const readiness = deriveActivationReadiness(
       [{ id: 'loc-1', status: 'ACTIVE' }],

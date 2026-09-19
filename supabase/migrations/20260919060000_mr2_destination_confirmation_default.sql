@@ -1,0 +1,2 @@
+ALTER TABLE public.review_destinations
+  ALTER COLUMN status SET DEFAULT 'PENDING_CONFIRMATION';

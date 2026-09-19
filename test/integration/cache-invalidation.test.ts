@@ -119,7 +119,7 @@ vi.mock('@/lib/supabase/admin', () => ({
 }))
 
 import { createOrganizationAndLocation } from '@/actions/onboarding'
-import { saveAndConfirmDestination } from '@/actions/destinations'
+import { saveDestination } from '@/actions/destinations'
 import { submitQuickComplete } from '@/actions/quick-complete'
 import { createLocation } from '@/actions/locations'
 import { signIn, signUp, signOut } from '@/actions/auth'
@@ -168,7 +168,7 @@ describe('Cache Invalidation & Router State Transitions (Regression Suite)', () 
       formData.append('locationId', 'loc_123')
       formData.append('url', 'https://g.page/r/synthetic-test-place/review')
 
-      const result = await saveAndConfirmDestination(formData)
+      const result = await saveDestination(formData)
 
       expect(result.success).toBe(true)
       expect(result.canonicalUrl).toBe('https://g.page/r/synthetic-test-place/review')
@@ -182,7 +182,7 @@ describe('Cache Invalidation & Router State Transitions (Regression Suite)', () 
       formData.append('locationId', 'loc_123')
       formData.append('url', 'https://invalid-non-google-url.example.com')
 
-      const result = await saveAndConfirmDestination(formData)
+      const result = await saveDestination(formData)
 
       expect(result.success).toBe(false)
       expect(result.error).toBeDefined()
@@ -197,7 +197,7 @@ describe('Cache Invalidation & Router State Transitions (Regression Suite)', () 
       formData.append('locationId', 'loc_123')
       formData.append('url', 'https://g.page/r/synthetic-test-place/review')
 
-      const result = await saveAndConfirmDestination(formData)
+      const result = await saveDestination(formData)
 
       expect(result.success).toBe(false)
       expect(result.error).toContain('Only owners and administrators')
@@ -306,3 +306,4 @@ describe('Cache Invalidation & Router State Transitions (Regression Suite)', () 
     })
   })
 })
+

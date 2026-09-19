@@ -21,10 +21,10 @@ This is an **engineering execution specification**, not marketing copy. Inclusio
 [MR-0: Governance Reconciliation] (COMPLETE / ACCEPTED BASELINE)
        │
        ▼
-[MR-1: Production Messaging Core] (ACTIVE ENGINEERING MILESTONE)
+[MR-1: Production Messaging Core] (LOCAL ENGINEERING ACCEPTED; HOSTED DOMAIN VALIDATION DEFERRED)
        │
        ▼
-[MR-2: Customer Activation]
+[MR-2: Customer Activation] (ACTIVE LOCAL ENGINEERING)
        │
        ▼
 [MR-3: Completion Source Platform]
@@ -92,7 +92,7 @@ Each transition is strictly evidence- and gate-controlled.
 
 | Dimension | Specification |
 |---|---|
-| **Status** | PLANNED |
+| **Status** | **ACTIVE LOCAL ENGINEERING** |
 | **Objective** | Provide a reliable, self-serve business onboarding and location activation workflow ensuring no review automation can become active without an explicitly confirmed, valid Google review destination. |
 | **Dependencies** | MR-1 complete. |
 | **Implementation Scope** | 1. Streamline authenticated onboarding wizard for organization and location creation.<br>2. Google review URL parser and validator with interactive test link.<br>3. Explicit business confirmation step persisting verified destination status.<br>4. Activation checklist widget in dashboard (organization created, location configured, destination verified, sample tested, automation enabled).<br>5. Clear error recovery flows for broken, changed, or invalid review URLs. |

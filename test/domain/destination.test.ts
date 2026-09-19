@@ -76,3 +76,30 @@ describe('validateGoogleReviewUrl', () => {
     expect(arbitrary.error).toContain('review path')
   })
 })
+
+describe('MR-2 destination activation safety', () => {
+  it('canonicalizes valid review URLs without implying confirmation', () => {
+    const result = validateGoogleReviewUrl(
+      'https://g.page/r/CWd814KXYZ123/review#fragment'
+    )
+
+    expect(result.valid).toBe(true)
+    expect(result.canonicalUrl).toBe(
+      'https://g.page/r/CWd814KXYZ123/review'
+    )
+  })
+
+  it('rejects attacker-controlled lookalike Google hosts', () => {
+    expect(
+      validateGoogleReviewUrl(
+        'https://g.page.example.com/r/abc/review'
+      ).valid
+    ).toBe(false)
+
+    expect(
+      validateGoogleReviewUrl(
+        'https://www.google.com.example.com/maps/place/test'
+      ).valid
+    ).toBe(false)
+  })
+})

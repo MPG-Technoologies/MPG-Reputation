@@ -157,7 +157,7 @@ export function UsageClient({
         </span>{' '}
         Default allowance of 30 review requests or 30 days is a product validation hypothesis and
         operational test limit. It does not represent contractual pricing or a public commercial
-        commitment. Billing infrastructure remains deactivated until authorized milestone MR-5.
+        commitment. MR-5 billing engineering is active under MPG-DEC-048; final pricing, commercial terms, and live billing remain separately gated and are not authorized.
       </div>
 
       {/* 2. Explicit Trial Activation Callout (when NOT_STARTED) */}

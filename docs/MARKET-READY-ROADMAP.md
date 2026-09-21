@@ -30,10 +30,10 @@ This is an **engineering execution specification**, not marketing copy. Inclusio
 [MR-3: Completion Source Platform] (COMPLETE / ACCEPTED — MPG-DEC-047)
        │
        ▼
-[MR-4: Trial / Usage / Economics] (COMPLETE / READY FOR OWNER REVIEW)
+[MR-4: Trial / Usage / Economics] (COMPLETE / ACCEPTED — MPG-DEC-048)
        │
        ▼
-[MR-5: Billing]
+[MR-5: Billing] (ACTIVE — MPG-DEC-048)
        │
        ▼
 [MR-6: Admin / Support / Observability]
@@ -120,13 +120,13 @@ Each transition is strictly evidence- and gate-controlled.
 
 | Dimension | Specification |
 |---|---|
-| **Status** | **COMPLETE / READY FOR OWNER REVIEW** |
+| **Status** | **COMPLETE / ACCEPTED** (`MPG-DEC-048`) |
 | **Objective** | Engineer a configurable server-side trial entitlement engine, implement an immutable usage metering ledger, and validate per-organization cost models against actual provider pricing. Final trial structure, request limits, duration, and transition rules remain TBD / validation-required. |
 | **Dependencies** | MR-1, MR-2, MR-3 complete (`MPG-DEC-047`). |
 | **Implementation Scope** | 1. Configurable server-side trial entitlement engine (`organization_entitlements`) with atomic advisory locking and auto-activation upon first valid completion ingestion.<br>2. Dynamic enforcement of review request allowance and duration limit with working validation hypothesis of 30 review requests or 30 days (documented as non-contractual recommendation).<br>3. Automated trial expiration transitions (`EXPIRED`, `EXHAUSTED`, `SUSPENDED`, `ENDED`) that halt pending initial requests and reminders cleanly.<br>4. Immutable, append-only usage ledger (`usage_ledger`) recording `completion_received`, `initial_request_created`, `reminder_created`, `provider_send_attempt`, `provider_send_success`, `provider_send_failure`, and `tracked_click`.<br>5. Internal economic COGS ledger (`cost_ledger`) using integer micro-USD units (`micro_usd`, 1 USD = 1,000,000 micro-USD) distinguishing `MEASURED`, `CONFIGURED_ESTIMATE`, and `UNKNOWN`.<br>6. Customer dashboard trial status card (`trial-status-card.tsx`) and comprehensive usage settings page (`/app/settings/usage`).<br>7. Role-based access control protecting unit economics (restricted to `OWNER` / `ADMIN`). |
 | **Exit Evidence** | 29 automated tests (11 domain unit tests + 18 full PostgreSQL integration tests) covering RLS mutation denial, cross-tenant isolation, atomic entitlement consumption, idempotency deduplication, limit exhaustion, time expiration, status transitions, high-concurrency race protection (advisory locks), workflow zero-consumption on suppressed/ineligible completions, reminder lifecycle halt on trial expiration, and server actions; `pnpm typecheck`, `pnpm lint`, `pnpm build`, and `supabase db lint` all pass cleanly. |
-| **Explicit Non-Assumptions** | Trial structure remains TBD / validation-required; 30 review requests / 30 days is a recommended working hypothesis, not an accepted commercial freeze; final request limit, duration, reminders, usage accounting, and paid transition require evidence and owner approval; engineering may design an entitlement engine capable of enforcing configurable limits, but commercial numbers must not be hard-coded before approval; no unlimited review requests during trial; no automated conversion to paid subscription without explicit customer payment method and consent; billing belongs to MR-5 and is strictly unstarted; live messaging remains OFF (`ENABLE_LIVE_EMAIL=false`). |
-| **Gate Required** | Founder review and verification of unit economics, COGS model, and trial parameters (`REP-ECON-001`). |
+| **Explicit Non-Assumptions** | Trial structure remains TBD / validation-required; 30 review requests / 30 days is a recommended working hypothesis, not an accepted commercial freeze; final request limit, duration, reminders, usage accounting, and paid transition require evidence and owner approval; engineering may design an entitlement engine capable of enforcing configurable limits, but commercial numbers must not be hard-coded before approval; no unlimited review requests during trial; no automated conversion to paid subscription without explicit customer payment method and consent; MR-5 billing engineering is active under MPG-DEC-048; final pricing and live billing remain separately gated; live messaging remains OFF (`ENABLE_LIVE_EMAIL=false`). |
+| **Gate Required** | **ACCEPTED under `MPG-DEC-048`.** MR-5 billing engineering is active. Final pricing and commercial terms remain separately owner-gated. |
 
 ---
 
@@ -134,13 +134,13 @@ Each transition is strictly evidence- and gate-controlled.
 
 | Dimension | Specification |
 |---|---|
-| **Status** | PLANNED |
+| **Status** | **ACTIVE ENGINEERING MILESTONE** (`MPG-DEC-048`) |
 | **Objective** | Integrate Stripe for recurring subscription billing, payment collection, entitlement management, and automated dunning/cancellation workflows. |
-| **Dependencies** | MR-4 complete; owner-approved pricing, plan limits, and commercial terms (`REP-ECON-002`). |
+| **Dependencies** | MR-4 complete / accepted under `MPG-DEC-048`. Bounded billing architecture and test-mode implementation are authorized. Final pricing, plan limits, payment terms, refund policy, and live commercial enablement remain owner-gated. |
 | **Implementation Scope** | 1. Stripe Checkout integration for subscription checkout.<br>2. Stripe Customer Portal integration for card updates, invoice history, and cancellation.<br>3. Webhook handler (`/api/webhooks/stripe`) with cryptographic signature verification.<br>4. Subscription state synchronization (`trialing`, `active`, `past_due`, `canceled`, `unpaid`).<br>5. Automated grace period enforcement and automation suspension on payment failure. |
 | **Exit Evidence** | Stripe test suite passing; end-to-end checkout, renewal, card update, failed payment, and cancellation flows validated in Stripe test mode; zero RLS or webhook race conditions. |
-| **Explicit Non-Assumptions** | Pricing numbers remain hypotheses until formally authorized by the owner in Company OS; live Stripe mode disabled until pricing and terms are approved. |
-| **Gate Required** | Formal owner decision approving commercial model, final prices, payment terms, and refund policies under the MPG Pricing Framework (`MPG-DEC-018`, `docs/07-pricing-commercial-model.md`). |
+| **Explicit Non-Assumptions** | Pricing numbers remain hypotheses until formally authorized by the owner in Company OS. Engineering remains price-configurable and test-mode-first. Live Stripe mode, real-customer charging, final pricing, refund/commercial policy, public launch, and production customer messaging remain unauthorized. |
+| **Gate Required** | Bounded MR-5 engineering is authorized under `MPG-DEC-048`. A separate owner decision approving the commercial model, final prices, payment terms, refund policy, and live billing is required before consequential commercial enablement. |
 
 ---
 

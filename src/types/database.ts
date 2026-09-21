@@ -840,6 +840,166 @@ export interface Database {
           }
         ]
       }
+      organization_billing_accounts: {
+        Row: {
+          id: string
+          organization_id: string
+          provider: 'stripe'
+          provider_customer_id: string
+          environment: 'TEST' | 'LIVE'
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          provider: 'stripe'
+          provider_customer_id: string
+          environment?: 'TEST' | 'LIVE'
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          provider?: 'stripe'
+          provider_customer_id?: string
+          environment?: 'TEST' | 'LIVE'
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_billing_accounts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      organization_subscriptions: {
+        Row: {
+          id: string
+          organization_id: string
+          billing_account_id: string
+          provider: 'stripe'
+          provider_subscription_id: string
+          provider_price_id: string | null
+          provider_status: string
+          normalized_status: 'PENDING' | 'ACTIVE' | 'GRACE' | 'SUSPENDED' | 'ENDED'
+          current_period_start: string | null
+          current_period_end: string | null
+          cancel_at_period_end: boolean
+          canceled_at: string | null
+          provider_state_updated_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          billing_account_id: string
+          provider: 'stripe'
+          provider_subscription_id: string
+          provider_price_id?: string | null
+          provider_status: string
+          normalized_status: 'PENDING' | 'ACTIVE' | 'GRACE' | 'SUSPENDED' | 'ENDED'
+          current_period_start?: string | null
+          current_period_end?: string | null
+          cancel_at_period_end?: boolean
+          canceled_at?: string | null
+          provider_state_updated_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          billing_account_id?: string
+          provider?: 'stripe'
+          provider_subscription_id?: string
+          provider_price_id?: string | null
+          provider_status?: string
+          normalized_status?: 'PENDING' | 'ACTIVE' | 'GRACE' | 'SUSPENDED' | 'ENDED'
+          current_period_start?: string | null
+          current_period_end?: string | null
+          cancel_at_period_end?: boolean
+          canceled_at?: string | null
+          provider_state_updated_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_subscriptions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "organization_subscriptions_account_org_provider_fkey"
+            columns: ["billing_account_id", "organization_id", "provider"]
+            isOneToOne: false
+            referencedRelation: "organization_billing_accounts"
+            referencedColumns: ["id", "organization_id", "provider"]
+          }
+        ]
+      }
+      billing_webhook_events: {
+        Row: {
+          id: string
+          provider: 'stripe'
+          provider_event_id: string
+          event_type: string
+          processing_status: 'RECEIVED' | 'PROCESSING' | 'PROCESSED' | 'IGNORED' | 'FAILED'
+          payload_hash: string
+          organization_id: string | null
+          provider_created_at: string | null
+          received_at: string
+          processed_at: string | null
+          error_code: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          provider: 'stripe'
+          provider_event_id: string
+          event_type: string
+          processing_status?: 'RECEIVED' | 'PROCESSING' | 'PROCESSED' | 'IGNORED' | 'FAILED'
+          payload_hash: string
+          organization_id?: string | null
+          provider_created_at?: string | null
+          received_at?: string
+          processed_at?: string | null
+          error_code?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          provider?: 'stripe'
+          provider_event_id?: string
+          event_type?: string
+          processing_status?: 'RECEIVED' | 'PROCESSING' | 'PROCESSED' | 'IGNORED' | 'FAILED'
+          payload_hash?: string
+          organization_id?: string | null
+          provider_created_at?: string | null
+          received_at?: string
+          processed_at?: string | null
+          error_code?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_webhook_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: Record<string, never>
     Functions: {

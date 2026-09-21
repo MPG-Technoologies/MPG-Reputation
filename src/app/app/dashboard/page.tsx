@@ -1,7 +1,10 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { deriveActivationReadiness, deriveDashboardSystemStatus } from '@/domain/activation'
+import { deriveLiveActivity } from '@/lib/dashboard/live-activity-projection'
 import { LiveDashboard } from './live-dashboard'
+import { DataLoadError } from '@/components/ui/data-load-error'
+import { PageShell } from '@/components/layout/page-shell'
 import type {
   DashboardSnapshot,
   AttentionItem,
@@ -31,13 +34,15 @@ export default async function DashboardPage() {
         <Link href="/onboarding" className="text-blue-400 underline">
           onboarding
         </Link>{' '}
-        to get started.
+        first.
       </div>
     )
   }
 
-  const orgData = activeMembership.organizations as { id: string; name: string } | null
-  const orgName = orgData?.name || 'Organization'
+  // Authoritative organization name
+  const orgName =
+    (activeMembership?.organizations as unknown as { name?: string })?.name ||
+    'Your Organization'
 
   // Performance Optimization: Parallelize all independent count, location, destination, and activity queries
   const [
@@ -49,9 +54,11 @@ export default async function DashboardPage() {
     { count: failedCount },
     { count: outboxFailedCount },
     { count: ineligibleCount },
-    { data: locations },
-    { data: destinations },
+    { data: locations, error: locationsError },
+    { data: destinations, error: destinationsError },
     { data: recentRequests },
+    { data: recentCompletions },
+    { data: ineligibleAuditEvents },
   ] = await Promise.all([
     supabase
       .from('customer_completion_events')
@@ -105,7 +112,28 @@ export default async function DashboardPage() {
       .eq('organization_id', orgId)
       .order('created_at', { ascending: false })
       .limit(10),
+    supabase
+      .from('customer_completion_events')
+      .select('id, customer_id, created_at')
+      .eq('organization_id', orgId)
+      .order('created_at', { ascending: false })
+      .limit(10),
+    supabase
+      .from('audit_events')
+      .select('id, event_type, metadata, created_at')
+      .eq('organization_id', orgId)
+      .eq('event_type', 'review_request.ineligible')
+      .order('created_at', { ascending: false })
+      .limit(20),
   ])
+
+  if (locationsError || destinationsError || !locations || !destinations) {
+    return (
+      <PageShell>
+        <DataLoadError title="Dashboard setup status could not be loaded" />
+      </PageShell>
+    )
+  }
 
   const readiness = deriveActivationReadiness(
     locations || [],
@@ -186,8 +214,23 @@ export default async function DashboardPage() {
     })
   }
 
-  // 3. Customer map for recent activity list
-  const customerIds = Array.from(new Set((recentRequests || []).map((r) => r.customer_id)))
+  // 3. Matched requests and customer map for recent activity lists
+  const completionIds = (recentCompletions || []).map((c) => c.id)
+  const { data: matchedRequests } =
+    completionIds.length > 0
+      ? await supabase
+          .from('review_requests')
+          .select('id, completion_event_id, status, created_at, updated_at')
+          .eq('organization_id', orgId)
+          .in('completion_event_id', completionIds)
+      : { data: [] }
+
+  const customerIds = Array.from(
+    new Set([
+      ...(recentRequests || []).map((r) => r.customer_id),
+      ...(recentCompletions || []).map((c) => c.customer_id),
+    ])
+  )
   let customerMap: Record<
     string,
     { first_name: string; last_name: string | null; email: string | null }
@@ -223,6 +266,14 @@ export default async function DashboardPage() {
     }
   })
 
+  const liveActivity = deriveLiveActivity(
+    recentCompletions || [],
+    matchedRequests || [],
+    ineligibleAuditEvents || [],
+    customerMap
+  )
+
+  const renderedAt = new Date().toISOString()
   const initialSnapshot: DashboardSnapshot = {
     kpis: {
       completedCount: completedCount ?? 0,
@@ -235,11 +286,13 @@ export default async function DashboardPage() {
       ineligibleCount: ineligibleCount ?? 0,
     },
     recentRequests: activityItems,
+    liveActivity,
     systemStatus,
     statusDescription,
     attentionItems,
     locationsNeedingDestinationCount: readiness.locationsNeedingDestinationCount,
     setupChecklist: readiness.checklist,
+    renderedAt,
   }
 
   return (
@@ -247,6 +300,7 @@ export default async function DashboardPage() {
       initialSnapshot={initialSnapshot}
       orgId={orgId}
       orgName={orgName}
+      renderedAt={renderedAt}
     />
   )
 }

@@ -31,12 +31,14 @@ interface LiveDashboardProps {
   initialSnapshot: DashboardSnapshot
   orgId: string
   orgName: string
+  renderedAt?: string
 }
 
 export function LiveDashboard({
   initialSnapshot,
   orgId,
   orgName,
+  renderedAt,
 }: LiveDashboardProps) {
   const { openQuickComplete } = useModal()
   const supabase = useMemo(() => createClient(), [])
@@ -62,7 +64,7 @@ export function LiveDashboard({
             type: 'SNAPSHOT_RECONCILED',
             snapshot,
             reason,
-            preserveLiveActivity: reason === 'focus',
+            preserveLiveActivity: true,
           })
           if (isSubscribedRef.current) {
             dispatch({ type: 'SET_CONNECTION_STATE', connectionState: 'LIVE' })
@@ -131,6 +133,7 @@ export function LiveDashboard({
                       type: 'SET_LIVE_ACTIVITY_CUSTOMER',
                       completionEventId: msg.payload.completionEventId,
                       customerName: proj.customerName,
+                      policyReason: proj.policyReason,
                     })
                   }
                 } catch {
@@ -186,9 +189,28 @@ export function LiveDashboard({
         .on(
           'broadcast',
           { event: 'review_request.ineligible' },
-          (msg: { payload: ReviewRequestIneligibleEvent }) => {
+          async (msg: { payload: ReviewRequestIneligibleEvent }) => {
             if (msg.payload) {
               dispatch({ type: 'EVENT_RECEIVED', event: msg.payload })
+
+              if (msg.payload.completionEventId) {
+                try {
+                  const proj = await getCompletionActivityProjection(
+                    orgId,
+                    msg.payload.completionEventId
+                  )
+                  if (proj && isMounted) {
+                    dispatch({
+                      type: 'SET_LIVE_ACTIVITY_CUSTOMER',
+                      completionEventId: msg.payload.completionEventId,
+                      customerName: proj.customerName,
+                      policyReason: proj.policyReason,
+                    })
+                  }
+                } catch {
+                  // Gracefully keep current labels
+                }
+              }
             }
           }
         )
@@ -264,7 +286,7 @@ export function LiveDashboard({
     month: 'short',
     day: 'numeric',
     year: 'numeric',
-  }).format(new Date())
+  }).format(renderedAt ? new Date(renderedAt) : new Date())
 
   return (
     <PageShell>
@@ -299,24 +321,40 @@ export function LiveDashboard({
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Date Selector Pill */}
-            <div className="hidden xl:flex items-center gap-2 px-3 py-2 bg-[#0E172B] border border-[#1C2846] rounded-lg text-xs font-medium text-slate-300">
-              <CalendarIcon className="w-4 h-4 text-slate-400" />
-              <span>{formattedDate}</span>
-              <ChevronDownIcon className="w-3.5 h-3.5 text-slate-400" />
+            {/* Realtime Status Indicator */}
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#0E162B] border border-[#1C2846] text-xs">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  state.connectionState === 'LIVE'
+                    ? 'bg-emerald-400 animate-pulse'
+                    : state.connectionState === 'SYNCING'
+                    ? 'bg-blue-400 animate-spin'
+                    : 'bg-amber-400'
+                }`}
+                aria-hidden="true"
+              />
+              <span className="text-slate-300 font-medium capitalize">
+                {state.connectionState.toLowerCase()}
+              </span>
             </div>
 
-            {/* Primary CTA: + Quick Complete */}
+            {/* Date Indicator */}
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#0E162B] border border-[#1C2846] text-xs text-slate-300">
+              <CalendarIcon className="w-3.5 h-3.5 text-slate-400" />
+              <span>{formattedDate}</span>
+            </div>
+
+            {/* Action Menu / Trigger */}
             <Link
               href="/app/quick-complete"
               onClick={(e) => {
                 e.preventDefault()
                 openQuickComplete()
               }}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg shadow-md shadow-blue-900/40 text-xs xl:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 transition-colors"
+              className="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition-colors shadow-sm shadow-blue-900/30"
             >
-              <span>+</span>
-              <span>Quick Complete</span>
+              <span>+ Quick Complete</span>
+              <ChevronDownIcon className="w-3 h-3 text-blue-200" />
             </Link>
           </div>
         </div>
@@ -369,6 +407,7 @@ export function LiveDashboard({
               recentRequests={state.recentRequests}
               orgName={orgName}
               highlightedRowId={state.highlightedRowId}
+              renderedAt={renderedAt || initialSnapshot.renderedAt}
             />
           </div>
 

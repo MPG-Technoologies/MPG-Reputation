@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import type { LiveActivityItem, ActivityRequestItem } from '@/lib/dashboard/realtime-types'
 import {
@@ -10,6 +10,7 @@ import {
   DocumentIcon,
   ClockIcon,
   AlertTriangleIcon,
+  AlertCircleIcon,
 } from '@/components/ui/icons'
 
 export interface ActivityPanelProps {
@@ -17,6 +18,7 @@ export interface ActivityPanelProps {
   recentRequests: ActivityRequestItem[]
   orgName: string
   highlightedRowId?: string | null
+  renderedAt?: string | number
 }
 
 const STATUS_BADGES: Record<string, string> = {
@@ -27,9 +29,11 @@ const STATUS_BADGES: Record<string, string> = {
   SCHEDULED: 'bg-amber-950/70 text-amber-300 border-amber-800/80',
 }
 
-function formatRelativeTime(dateString: string): string {
+export function formatRelativeTime(dateString: string, nowMs: number = Date.now()): string {
   try {
-    const diffMs = Date.now() - new Date(dateString).getTime()
+    const timestamp = new Date(dateString).getTime()
+    if (Number.isNaN(timestamp)) return 'recently'
+    const diffMs = Math.max(0, nowMs - timestamp)
     const diffSec = Math.floor(diffMs / 1000)
     if (diffSec < 60) return 'just now'
     const diffMin = Math.floor(diffSec / 60)
@@ -48,14 +52,31 @@ export const ActivityPanel = React.memo(function ActivityPanel({
   recentRequests = [],
   orgName,
   highlightedRowId,
+  renderedAt,
 }: ActivityPanelProps) {
   const [activeTab, setActiveTab] = useState<'live' | 'solicitations'>('live')
+
+  const [nowMs, setNowMs] = useState<number>(() => {
+    if (!renderedAt) return Date.now()
+    const parsed = typeof renderedAt === 'number' ? renderedAt : new Date(renderedAt).getTime()
+    return Number.isNaN(parsed) ? Date.now() : parsed
+  })
+
+  useEffect(() => {
+    setNowMs(Date.now())
+
+    const interval = window.setInterval(() => {
+      setNowMs(Date.now())
+    }, 60_000)
+
+    return () => window.clearInterval(interval)
+  }, [])
 
   // Combine real liveActivities and recentRequests into a unified chronological event list for the Live tab
   const liveEvents = useMemo(() => {
     interface DisplayEvent {
       id: string
-      type: 'completed' | 'sent' | 'clicked' | 'eligible' | 'checking' | 'failed'
+      type: 'completed' | 'sent' | 'clicked' | 'eligible' | 'checking' | 'failed' | 'bypassed'
       title: string
       subtitle: string
       timestamp: string
@@ -112,6 +133,26 @@ export const ActivityPanel = React.memo(function ActivityPanel({
           badgeStyle: 'bg-rose-950/60 border border-rose-800/60 text-rose-400',
           iconColor: '#EF4444',
         })
+      } else if (act.stage === 'BYPASSED') {
+        events.push({
+          id: `live-${act.completionEventId}-byp`,
+          type: 'bypassed',
+          title: 'Bypassed by policy',
+          subtitle: act.policyReason
+            ? `${act.customerName} – ${act.policyReason}`
+            : `${act.customerName} – Skipped by policy rules`,
+          timestamp: act.updatedAt || act.createdAt,
+          icon: AlertCircleIcon,
+          badgeStyle: 'bg-amber-950/60 border border-amber-800/60 text-amber-400',
+          iconColor: '#F59E0B',
+        })
+      }
+    }
+
+    const seenRequestIds = new Set<string>()
+    for (const act of liveActivities) {
+      if (act.requestId) {
+        seenRequestIds.add(act.requestId)
       }
     }
 
@@ -129,6 +170,12 @@ export const ActivityPanel = React.memo(function ActivityPanel({
           iconColor: '#14B8A6',
         })
       }
+
+      // If already tracked in liveActivities, do not add duplicate invitation sent or completed row
+      if (seenRequestIds.has(req.id)) {
+        continue
+      }
+
       if (req.sent_at) {
         events.push({
           id: `req-${req.id}-sent`,
@@ -295,7 +342,7 @@ export const ActivityPanel = React.memo(function ActivityPanel({
                   </div>
 
                   <div className="text-[11px] text-slate-400 shrink-0 ml-3 text-right whitespace-nowrap">
-                    {formatRelativeTime(evt.timestamp)}
+                    {formatRelativeTime(evt.timestamp, nowMs)}
                   </div>
                 </div>
               )
@@ -363,7 +410,7 @@ export const ActivityPanel = React.memo(function ActivityPanel({
                         </span>
                       </td>
                       <td className="px-3 py-2.5 text-slate-400 whitespace-nowrap text-[11px]">
-                        {formatRelativeTime(req.created_at)}
+                        {formatRelativeTime(req.created_at, nowMs)}
                       </td>
                       <td className="px-4 py-2.5 text-right whitespace-nowrap">
                         {trackingUrl ? (
@@ -392,7 +439,7 @@ export const ActivityPanel = React.memo(function ActivityPanel({
       {/* Panel Footer (Desktop & Tablet)                                 */}
       {/* ============================================================== */}
       <div className="px-5 py-3 border-t border-[#1C2846]/80 flex items-center justify-between text-xs text-slate-400 bg-[#0A1020]/40">
-        <span>Showing latest activity from today</span>
+        <span>Showing latest activity</span>
         <Link
           href="/app/customers"
           className="text-blue-400 hover:text-blue-300 font-medium inline-flex items-center gap-1"

@@ -2,6 +2,8 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { deriveActivationReadiness, deriveDashboardSystemStatus } from '@/domain/activation'
+import { formatPolicyReason } from '@/domain/eligibility'
+import { deriveLiveActivity } from '@/lib/dashboard/live-activity-projection'
 import type {
   DashboardSnapshot,
   AttentionItem,
@@ -42,9 +44,11 @@ export async function getDashboardSnapshot(
     { count: failedCount },
     { count: outboxFailedCount },
     { count: ineligibleCount },
-    { data: locations },
-    { data: destinations },
+    { data: locations, error: locationsError },
+    { data: destinations, error: destinationsError },
     { data: recentRequests },
+    { data: recentCompletions },
+    { data: ineligibleAuditEvents },
   ] = await Promise.all([
     supabase
       .from('customer_completion_events')
@@ -98,7 +102,23 @@ export async function getDashboardSnapshot(
       .eq('organization_id', organizationId)
       .order('created_at', { ascending: false })
       .limit(10),
+    supabase
+      .from('customer_completion_events')
+      .select('id, customer_id, created_at')
+      .eq('organization_id', organizationId)
+      .order('created_at', { ascending: false })
+      .limit(10),
+    supabase
+      .from('audit_events')
+      .select('id, event_type, metadata, created_at')
+      .eq('organization_id', organizationId)
+      .eq('event_type', 'review_request.ineligible')
+      .order('created_at', { ascending: false })
+      .limit(20),
   ])
+
+  // Keep the last successful snapshot when readiness cannot be verified.
+  if (locationsError || destinationsError || !locations || !destinations) return null
 
   const readiness = deriveActivationReadiness(
     locations || [],
@@ -178,7 +198,22 @@ export async function getDashboardSnapshot(
     })
   }
 
-  const customerIds = Array.from(new Set((recentRequests || []).map((r) => r.customer_id)))
+  const completionIds = (recentCompletions || []).map((c) => c.id)
+  const { data: matchedRequests } =
+    completionIds.length > 0
+      ? await supabase
+          .from('review_requests')
+          .select('id, completion_event_id, status, created_at, updated_at')
+          .eq('organization_id', organizationId)
+          .in('completion_event_id', completionIds)
+      : { data: [] }
+
+  const customerIds = Array.from(
+    new Set([
+      ...(recentRequests || []).map((r) => r.customer_id),
+      ...(recentCompletions || []).map((c) => c.customer_id),
+    ])
+  )
   let customerMap: Record<
     string,
     { first_name: string; last_name: string | null; email: string | null }
@@ -214,6 +249,13 @@ export async function getDashboardSnapshot(
     }
   })
 
+  const liveActivity = deriveLiveActivity(
+    recentCompletions || [],
+    matchedRequests || [],
+    ineligibleAuditEvents || [],
+    customerMap
+  )
+
   return {
     kpis: {
       completedCount: completedCount ?? 0,
@@ -226,12 +268,14 @@ export async function getDashboardSnapshot(
       ineligibleCount: ineligibleCount ?? 0,
     },
     recentRequests: activityItems,
+    liveActivity,
     systemStatus,
     statusDescription,
     attentionItems,
     locationsNeedingDestinationCount:
       readiness.locationsNeedingDestinationCount,
     setupChecklist: readiness.checklist,
+    renderedAt: new Date().toISOString(),
   }
 }
 
@@ -281,7 +325,7 @@ export async function getActivityRowProjection(
 export async function getCompletionActivityProjection(
   organizationId: string,
   completionEventId: string
-): Promise<{ customerName: string } | null> {
+): Promise<{ customerName: string; policyReason?: string } | null> {
   const supabase = await createClient()
   const {
     data: { user },
@@ -308,13 +352,42 @@ export async function getCompletionActivityProjection(
 
   if (!completion) return null
 
-  const { data: cust } = await supabase
-    .from('customers')
-    .select('first_name, last_name')
-    .eq('id', completion.customer_id)
-    .maybeSingle()
+  const [
+    { data: cust },
+    { data: ineligibleAudit },
+  ] = await Promise.all([
+    supabase
+      .from('customers')
+      .select('first_name, last_name')
+      .eq('id', completion.customer_id)
+      .eq('organization_id', organizationId)
+      .maybeSingle(),
+    supabase
+      .from('audit_events')
+      .select('metadata')
+      .eq('organization_id', organizationId)
+      .eq('event_type', 'review_request.ineligible')
+      .order('created_at', { ascending: false })
+      .limit(10),
+  ])
+
+  let policyReason: string | undefined
+  if (ineligibleAudit) {
+    const match = ineligibleAudit.find((a) => {
+      const meta = a.metadata as Record<string, unknown> | null
+      return (
+        meta?.completionEventId === completionEventId ||
+        meta?.eventId === completionEventId
+      )
+    })
+    if (match?.metadata) {
+      const meta = match.metadata as Record<string, string>
+      policyReason = formatPolicyReason(meta.reason, meta.decision)
+    }
+  }
 
   return {
     customerName: cust ? `${cust.first_name} ${cust.last_name || ''}`.trim() : 'Customer',
+    policyReason,
   }
 }

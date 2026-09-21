@@ -63,7 +63,7 @@ export const SystemStatusPanel = React.memo(function SystemStatusPanel({
     totalChecklist > 0 ? Math.round((completedChecklist / totalChecklist) * 100) : 0
 
   return (
-    <div className="bg-[#0E172B] border border-[#1C2846] rounded-xl overflow-hidden flex flex-col justify-between h-full p-5 space-y-5">
+    <div className="bg-[#0E172B] border border-[#1C2846] rounded-xl overflow-hidden flex flex-col h-full p-5 space-y-5">
       {/* ============================================================== */}
       {/* 1. SYSTEM STATUS HEADER                                        */}
       {/* ============================================================== */}

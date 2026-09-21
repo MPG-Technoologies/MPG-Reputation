@@ -66,6 +66,8 @@ export interface ReviewRequestIneligibleEvent {
   completionEventId?: string
   auditEventId: string
   createdAt: string
+  reason?: string
+  decision?: string
 }
 
 export type DashboardRealtimeEvent =
@@ -90,6 +92,7 @@ export interface LiveActivityItem {
   stage: LiveActivityStage
   createdAt: string
   updatedAt: string
+  policyReason?: string
 }
 
 export interface DashboardKpis {
@@ -144,12 +147,17 @@ export interface SetupChecklistItem {
 export interface DashboardSnapshot {
   kpis: DashboardKpis
   recentRequests: ActivityRequestItem[]
+  liveActivity?: LiveActivityItem[]
   systemStatus: SystemStatus
   statusDescription: string
   attentionItems: AttentionItem[]
   locationsNeedingDestinationCount: number
   setupChecklist?: SetupChecklistItem[]
+  renderedAt?: string
 }
+
+export { formatPolicyReason } from '@/domain/eligibility'
+
 
 export type ConnectionState =
   | 'LIVE'

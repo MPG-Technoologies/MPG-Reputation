@@ -6,6 +6,7 @@ import path from 'node:path'
 import {
   dashboardReducer,
   createInitialState,
+  mergeLiveActivity,
 } from '../../src/lib/dashboard/dashboard-reducer'
 import type {
   DashboardSnapshot,
@@ -14,8 +15,12 @@ import type {
   ReviewRequestUpdatedEvent,
   ReviewRequestIneligibleEvent,
   ReviewRequestCheckingEvent,
+  LiveActivityItem,
 } from '../../src/lib/dashboard/realtime-types'
 import { LiveActivity } from '../../src/app/app/dashboard/live-activity'
+import { ActivityPanel } from '../../src/app/app/dashboard/activity-panel'
+import { deriveLiveActivity } from '../../src/lib/dashboard/live-activity-projection'
+import { formatPolicyReason } from '../../src/domain/eligibility'
 import { RealtimeStatus } from '../../src/app/app/dashboard/realtime-status'
 import { DashboardKpis } from '../../src/app/app/dashboard/dashboard-kpis'
 import { RecentActivity } from '../../src/app/app/dashboard/recent-activity'
@@ -1651,6 +1656,345 @@ describe('Dashboard Realtime Synchronization Engine (Hardening Pass)', () => {
       // Header structure
       expect(code).toContain('Good morning,')
       expect(code).toContain('+ Quick Complete')
+    })
+  })
+
+  describe('N. Live Activity Data Integrity & BYPASSED Lifecycle (Staging Bug Fix)', () => {
+    const testOrgId = '655b20ad-b798-410c-8b14-14cab68040bd'
+
+    it('1. customer.completed immediately appears in Live Activity', () => {
+      const state = createInitialState(testOrgId, {
+        ...dummySnapshot,
+        liveActivity: [],
+      })
+      const event: CustomerCompletedEvent = {
+        id: 'evt-cce-1',
+        eventId: 'evt-cce-1',
+        type: 'customer.completed',
+        organizationId: testOrgId,
+        completionEventId: 'comp-100',
+        completedAt: '2026-09-20T08:00:00Z',
+        createdAt: '2026-09-20T08:00:00Z',
+      }
+
+      const next = dashboardReducer(state, { type: 'EVENT_RECEIVED', event })
+      expect(next.liveActivity.length).toBe(1)
+      expect(next.liveActivity[0].completionEventId).toBe('comp-100')
+      expect(next.liveActivity[0].stage).toBe('RECEIVED')
+      expect(next.liveActivity[0].customerName).toBe('Customer')
+      expect(next.kpis.completedCount).toBe(dummySnapshot.kpis.completedCount + 1)
+    })
+
+    it('2. review_request.ineligible transitions that item to BYPASSED with policyReason', () => {
+      const state = createInitialState(testOrgId, {
+        ...dummySnapshot,
+        liveActivity: [
+          {
+            completionEventId: 'comp-100',
+            customerName: 'Malcolm Patem',
+            stage: 'CHECKING',
+            createdAt: '2026-09-20T08:00:00Z',
+            updatedAt: '2026-09-20T08:00:01Z',
+          },
+        ],
+      })
+
+      const ineligEvent: ReviewRequestIneligibleEvent = {
+        id: 'audit-inelig-1',
+        auditEventId: 'audit-inelig-1',
+        type: 'review_request.ineligible',
+        organizationId: testOrgId,
+        completionEventId: 'comp-100',
+        decision: 'LOCATION_INACTIVE',
+        reason: 'Location status is NOT_FOUND',
+        createdAt: '2026-09-20T08:00:02Z',
+      }
+
+      const next = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: ineligEvent })
+      expect(next.liveActivity.length).toBe(1)
+      expect(next.liveActivity[0].completionEventId).toBe('comp-100')
+      expect(next.liveActivity[0].stage).toBe('BYPASSED')
+      expect(next.liveActivity[0].customerName).toBe('Malcolm Patem')
+      expect(next.liveActivity[0].policyReason).toBe(
+        formatPolicyReason(ineligEvent.reason, ineligEvent.decision)
+      )
+      expect(next.liveActivity[0].policyReason).toBe('Location inactive')
+      expect(next.kpis.ineligibleCount).toBe(1)
+      expect(next.recentRequests.length).toBe(dummySnapshot.recentRequests.length)
+    })
+
+    it('3. BYPASSED renders visibly in ActivityPanel with title, customer name, policy reason, and neutral/amber badge', () => {
+      const html = renderToString(
+        React.createElement(ActivityPanel, {
+          liveActivities: [
+            {
+              completionEventId: 'comp-100',
+              customerName: 'Malcolm Patem',
+              stage: 'BYPASSED',
+              policyReason: 'Location inactive',
+              createdAt: '2026-09-20T08:00:00Z',
+              updatedAt: '2026-09-20T08:00:02Z',
+            },
+          ],
+          recentRequests: [],
+          orgName: 'Northstar Dental Test',
+        })
+      )
+
+      expect(html).toContain('Bypassed by policy')
+      expect(html).toContain('Malcolm Patem – Location inactive')
+      expect(html).toContain('bg-amber-950/60')
+      expect(html).not.toContain('No recent activity recorded yet')
+    })
+
+    it('4. BYPASSED completion does NOT create a Recent Solicitation row', () => {
+      const state = createInitialState(testOrgId, {
+        ...dummySnapshot,
+        recentRequests: [],
+        liveActivity: [
+          {
+            completionEventId: 'comp-100',
+            customerName: 'Malcolm Patem',
+            stage: 'BYPASSED',
+            policyReason: 'Location inactive',
+            createdAt: '2026-09-20T08:00:00Z',
+            updatedAt: '2026-09-20T08:00:02Z',
+          },
+        ],
+      })
+
+      // Verification: Live Activity contains the bypassed completion, but recentRequests remains strictly empty
+      expect(state.liveActivity.length).toBe(1)
+      expect(state.liveActivity[0].stage).toBe('BYPASSED')
+      expect(state.recentRequests).toEqual([])
+
+      // Also verify when passed to ActivityPanel, recentRequests is empty
+      const html = renderToString(
+        React.createElement(ActivityPanel, {
+          liveActivities: state.liveActivity,
+          recentRequests: state.recentRequests,
+          orgName: 'Northstar Dental Test',
+        })
+      )
+
+      expect(html).toContain('Bypassed by policy')
+      expect(html).toContain('Malcolm Patem – Location inactive')
+      expect(html).not.toContain('Review request dispatched')
+      expect(html).not.toContain('Invitation sent')
+    })
+
+    it('5. dashboard reload/reconciliation retains recent persisted completion activity', () => {
+      const persistedActivity: LiveActivityItem[] = [
+        {
+          completionEventId: 'comp-persisted-1',
+          customerName: 'Malcolm Patem',
+          stage: 'BYPASSED',
+          policyReason: 'Location inactive',
+          createdAt: '2026-09-20T08:00:00Z',
+          updatedAt: '2026-09-20T08:00:02Z',
+        },
+      ]
+
+      // Initial state creation simulates initial page load
+      const state = createInitialState(testOrgId, {
+        ...dummySnapshot,
+        liveActivity: persistedActivity,
+      })
+      expect(state.liveActivity.length).toBe(1)
+      expect(state.liveActivity[0].stage).toBe('BYPASSED')
+      expect(state.liveActivity[0].customerName).toBe('Malcolm Patem')
+
+      // SNAPSHOT_RECONCILED simulates focus or reconnect
+      const reconciledSnapshot: DashboardSnapshot = {
+        ...dummySnapshot,
+        liveActivity: persistedActivity,
+      }
+
+      const next = dashboardReducer(state, {
+        type: 'SNAPSHOT_RECONCILED',
+        snapshot: reconciledSnapshot,
+        preserveLiveActivity: true,
+      })
+
+      expect(next.liveActivity.length).toBe(1)
+      expect(next.liveActivity[0].completionEventId).toBe('comp-persisted-1')
+      expect(next.liveActivity[0].stage).toBe('BYPASSED')
+    })
+
+    it('6. actual review_request creation appears in Recent Solicitations and updates Live Activity to PREPARING', () => {
+      const state = createInitialState(testOrgId, {
+        ...dummySnapshot,
+        recentRequests: [],
+        liveActivity: [
+          {
+            completionEventId: 'comp-eligible',
+            customerName: 'Claire Redfield',
+            stage: 'CHECKING',
+            createdAt: '2026-09-20T08:00:00Z',
+            updatedAt: '2026-09-20T08:00:01Z',
+          },
+        ],
+      })
+
+      const createdEvent: ReviewRequestCreatedEvent = {
+        id: 'evt-rr-create',
+        eventId: 'evt-rr-create',
+        type: 'review_request.created',
+        organizationId: testOrgId,
+        completionEventId: 'comp-eligible',
+        requestId: 'req-new-1',
+        customerId: 'cust-claire',
+        channel: 'email',
+        status: 'SCHEDULED',
+        scheduledFor: '2026-09-20T08:05:00Z',
+        createdAt: '2026-09-20T08:00:03Z',
+      }
+
+      const next = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: createdEvent })
+      expect(next.recentRequests.length).toBe(1)
+      expect(next.recentRequests[0].id).toBe('req-new-1')
+      expect(next.liveActivity[0].stage).toBe('PREPARING')
+      expect(next.liveActivity[0].requestId).toBe('req-new-1')
+      expect(next.kpis.eligibleCount).toBe(dummySnapshot.kpis.eligibleCount + 1)
+      expect(next.kpis.scheduledCount).toBe(dummySnapshot.kpis.scheduledCount + 1)
+    })
+
+    it('7. snapshot + realtime merging does not duplicate rows', () => {
+      const currentActivity: LiveActivityItem[] = [
+        {
+          completionEventId: 'comp-100',
+          customerName: 'Malcolm Patem',
+          stage: 'BYPASSED',
+          policyReason: 'Location inactive',
+          createdAt: '2026-09-20T08:00:00Z',
+          updatedAt: '2026-09-20T08:00:02Z',
+        },
+      ]
+
+      const incomingSnapshotActivity: LiveActivityItem[] = [
+        {
+          completionEventId: 'comp-100',
+          customerName: 'Customer',
+          stage: 'BYPASSED',
+          policyReason: 'Location inactive',
+          createdAt: '2026-09-20T08:00:00Z',
+          updatedAt: '2026-09-20T08:00:02Z',
+        },
+        {
+          completionEventId: 'comp-200',
+          customerName: 'Jill Valentine',
+          stage: 'SENT',
+          createdAt: '2026-09-20T07:00:00Z',
+          updatedAt: '2026-09-20T07:01:00Z',
+        },
+      ]
+
+      const merged = mergeLiveActivity(currentActivity, incomingSnapshotActivity)
+      expect(merged.length).toBe(2)
+      // comp-100 retains the enriched customerName 'Malcolm Patem'
+      const comp100 = merged.find((m) => m.completionEventId === 'comp-100')
+      expect(comp100?.customerName).toBe('Malcolm Patem')
+      expect(comp100?.stage).toBe('BYPASSED')
+      expect(comp100?.policyReason).toBe('Location inactive')
+    })
+
+    it('8. tenant isolation remains strictly enforced', () => {
+      const state = createInitialState(testOrgId, dummySnapshot)
+      const foreignOrgId = '99999999-9999-9999-9999-999999999999'
+
+      const foreignEvent: CustomerCompletedEvent = {
+        id: 'evt-foreign',
+        eventId: 'evt-foreign',
+        type: 'customer.completed',
+        organizationId: foreignOrgId,
+        completionEventId: 'comp-foreign',
+        completedAt: '2026-09-20T08:00:00Z',
+        createdAt: '2026-09-20T08:00:00Z',
+      }
+
+      const next = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: foreignEvent })
+      expect(next).toBe(state) // Exact referential equality, no mutations
+      expect(next.kpis.completedCount).toBe(dummySnapshot.kpis.completedCount)
+    })
+
+    it('9. duplicate completion event does not double-count completedCount KPI', () => {
+      const state = createInitialState(testOrgId, dummySnapshot)
+      const event: CustomerCompletedEvent = {
+        id: 'evt-dup',
+        eventId: 'evt-dup',
+        type: 'customer.completed',
+        organizationId: testOrgId,
+        completionEventId: 'comp-dup-1',
+        completedAt: '2026-09-20T08:00:00Z',
+        createdAt: '2026-09-20T08:00:00Z',
+      }
+
+      const once = dashboardReducer(state, { type: 'EVENT_RECEIVED', event })
+      expect(once.kpis.completedCount).toBe(dummySnapshot.kpis.completedCount + 1)
+
+      // Re-delivery of the exact same event ID
+      const twice = dashboardReducer(once, { type: 'EVENT_RECEIVED', event })
+      expect(twice.kpis.completedCount).toBe(once.kpis.completedCount)
+      expect(twice.liveActivity.length).toBe(1)
+    })
+
+    it('10. deriveLiveActivity pure projection correctly projects completions, requests, audits, and customer names', () => {
+      const completions = [
+        { id: 'c-1', customer_id: 'cust-1', created_at: '2026-09-20T08:00:00Z' },
+        { id: 'c-2', customer_id: 'cust-2', created_at: '2026-09-20T07:00:00Z' },
+        { id: 'c-3', customer_id: 'cust-3', created_at: '2026-09-20T06:00:00Z' },
+      ]
+
+      const requests = [
+        { id: 'req-1', completion_event_id: 'c-1', status: 'SENT', updated_at: '2026-09-20T08:01:00Z' },
+      ]
+
+      const auditEvents = [
+        {
+          id: 'ae-2',
+          metadata: { completionEventId: 'c-2', decision: 'NO_REVIEW_DESTINATION', reason: 'No Google place configured' },
+          created_at: '2026-09-20T07:00:01Z',
+        },
+      ]
+
+      const customerMap = {
+        'cust-1': { first_name: 'Alice', last_name: 'Walker' },
+        'cust-2': { first_name: 'Bob', last_name: 'Builder' },
+        'cust-3': { first_name: 'Charlie', last_name: null },
+      }
+
+      const projected = deriveLiveActivity(completions, requests, auditEvents, customerMap)
+      expect(projected.length).toBe(3)
+
+      expect(projected[0]).toEqual({
+        completionEventId: 'c-1',
+        requestId: 'req-1',
+        customerName: 'Alice Walker',
+        stage: 'SENT',
+        policyReason: undefined,
+        createdAt: '2026-09-20T08:00:00Z',
+        updatedAt: '2026-09-20T08:01:00Z',
+      })
+
+      expect(projected[1]).toEqual({
+        completionEventId: 'c-2',
+        requestId: undefined,
+        customerName: 'Bob Builder',
+        stage: 'BYPASSED',
+        policyReason: 'No review destination configured',
+        createdAt: '2026-09-20T07:00:00Z',
+        updatedAt: '2026-09-20T07:00:01Z',
+      })
+
+      expect(projected[2]).toEqual({
+        completionEventId: 'c-3',
+        requestId: undefined,
+        customerName: 'Charlie',
+        stage: 'RECEIVED',
+        policyReason: undefined,
+        createdAt: '2026-09-20T06:00:00Z',
+        updatedAt: '2026-09-20T06:00:00Z',
+      })
     })
   })
 })

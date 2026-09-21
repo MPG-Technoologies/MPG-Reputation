@@ -1,14 +1,15 @@
-import type {
-  DashboardState,
-  DashboardRealtimeEvent,
-  DashboardSnapshot,
-  ConnectionState,
-  ActivityRequestItem,
-  DashboardKpis,
-  AttentionItem,
-  SystemStatus,
-  LiveActivityItem,
-  LiveActivityStage,
+import {
+  formatPolicyReason,
+  type DashboardState,
+  type DashboardRealtimeEvent,
+  type DashboardSnapshot,
+  type ConnectionState,
+  type ActivityRequestItem,
+  type DashboardKpis,
+  type AttentionItem,
+  type SystemStatus,
+  type LiveActivityItem,
+  type LiveActivityStage,
 } from './realtime-types'
 
 export type DashboardAction =
@@ -32,6 +33,7 @@ export type DashboardAction =
       type: 'SET_LIVE_ACTIVITY_CUSTOMER'
       completionEventId: string
       customerName: string
+      policyReason?: string
     }
 
 const SCHEDULED_SET = new Set(['SCHEDULED'])
@@ -66,9 +68,10 @@ function updateLiveActivityList(
     targetStage: LiveActivityStage
     customerName?: string
     createdAt?: string
+    policyReason?: string
   }
 ): LiveActivityItem[] {
-  const { completionEventId, requestId, targetStage, customerName, createdAt } = params
+  const { completionEventId, requestId, targetStage, customerName, createdAt, policyReason } = params
   const now = new Date().toISOString()
 
   // Find existing item by completionEventId or requestId
@@ -88,6 +91,7 @@ function updateLiveActivityList(
       stage: updatedStage,
       requestId: requestId || existingItem.requestId,
       customerName: customerName || existingItem.customerName,
+      policyReason: policyReason || existingItem.policyReason,
       updatedAt: now,
     }
 
@@ -103,13 +107,55 @@ function updateLiveActivityList(
       requestId,
       customerName: customerName || 'Customer',
       stage: targetStage,
+      policyReason,
       createdAt: createdAt || now,
       updatedAt: now,
     }
-    return [newItem, ...currentList].slice(0, 5)
+    return [newItem, ...currentList].slice(0, 10)
   }
 
   return currentList
+}
+
+export function mergeLiveActivity(
+  currentList: LiveActivityItem[],
+  incomingList: LiveActivityItem[]
+): LiveActivityItem[] {
+  const byCompletionId = new Map<string, LiveActivityItem>()
+
+  // 1. Authoritative incoming list (e.g. from snapshot)
+  for (const item of incomingList) {
+    byCompletionId.set(item.completionEventId, { ...item })
+  }
+
+  // 2. Merge current in-memory items (e.g. recent in-flight realtime items)
+  for (const item of currentList) {
+    const existing = byCompletionId.get(item.completionEventId)
+    if (!existing) {
+      byCompletionId.set(item.completionEventId, { ...item })
+    } else {
+      const shouldAdvance = canAdvanceStage(item.stage, existing.stage)
+      const stage = shouldAdvance ? existing.stage : item.stage
+      byCompletionId.set(item.completionEventId, {
+        ...existing,
+        stage,
+        customerName:
+          item.customerName !== 'Customer'
+            ? item.customerName
+            : existing.customerName,
+        policyReason: existing.policyReason || item.policyReason,
+        requestId: existing.requestId || item.requestId,
+        updatedAt:
+          new Date(item.updatedAt).getTime() > new Date(existing.updatedAt).getTime()
+            ? item.updatedAt
+            : existing.updatedAt,
+      })
+    }
+  }
+
+  return Array.from(byCompletionId.values())
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 10)
 }
 
 function transitionCount(
@@ -137,7 +183,8 @@ export function createInitialState(
     organizationId,
     kpis: { ...snapshot.kpis },
     recentRequests: snapshot.recentRequests.map((r) => ({ ...r })),
-    liveActivity: [],
+    liveActivity: (snapshot.liveActivity ?? []).map((a) => ({ ...a })),
+
     systemStatus: snapshot.systemStatus,
     statusDescription: snapshot.statusDescription,
     attentionItems: snapshot.attentionItems.map((i) => ({ ...i })),
@@ -210,6 +257,7 @@ export function dashboardReducer(
           return {
             ...item,
             customerName: action.customerName,
+            policyReason: action.policyReason || item.policyReason,
             updatedAt: new Date().toISOString(),
           }
         }
@@ -225,17 +273,22 @@ export function dashboardReducer(
     case 'SNAPSHOT_RECONCILED': {
       const shouldPreserve =
         action.preserveLiveActivity ?? (action.reason === 'focus')
+      const incoming = (action.snapshot.liveActivity ?? []).map((a) => ({ ...a }))
+      const mergedLiveActivity = shouldPreserve
+        ? mergeLiveActivity(state.liveActivity, incoming)
+        : incoming
+
       return {
         ...state,
         kpis: { ...action.snapshot.kpis },
         recentRequests: action.snapshot.recentRequests.map((r) => ({ ...r })),
-        liveActivity: shouldPreserve ? state.liveActivity : [],
+        liveActivity: mergedLiveActivity,
         systemStatus: action.snapshot.systemStatus,
         statusDescription: action.snapshot.statusDescription,
         attentionItems: action.snapshot.attentionItems.map((i) => ({ ...i })),
-          setupChecklist: (action.snapshot.setupChecklist ?? []).map((i) => ({ ...i })),
-          locationsNeedingDestinationCount:
-            action.snapshot.locationsNeedingDestinationCount,
+        setupChecklist: (action.snapshot.setupChecklist ?? []).map((i) => ({ ...i })),
+        locationsNeedingDestinationCount:
+          action.snapshot.locationsNeedingDestinationCount,
       }
     }
 
@@ -533,9 +586,15 @@ export function dashboardReducer(
         }
 
         // Live Activity transitions to BYPASSED
+        const formattedReason =
+          event.reason || event.decision
+            ? formatPolicyReason(event.reason, event.decision)
+            : undefined
+
         const updatedLiveActivity = updateLiveActivityList(state.liveActivity, {
           completionEventId: event.completionEventId,
           targetStage: 'BYPASSED',
+          policyReason: formattedReason,
         })
 
         return {

@@ -104,8 +104,8 @@ export function LiveDashboard({
 
       if (!isMounted) return
 
-      // 2. Private tenant broadcast channel: tenant:{orgId}
-      const topic = `tenant:${orgId}`
+      // 2. Private organization dashboard broadcast channel: organization:{orgId}:dashboard
+      const topic = `organization:${orgId}:dashboard`
       const channel = supabase.channel(topic, {
         config: {
           private: true,

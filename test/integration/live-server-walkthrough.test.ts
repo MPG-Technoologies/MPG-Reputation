@@ -8,7 +8,7 @@ import { renderNeutralReviewEmail } from '../../src/providers/email/types'
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://127.0.0.1:54331'
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-const APP_URL = 'http://127.0.0.1:3000'
+const APP_URL = process.env.TEST_APP_URL || 'http://127.0.0.1:3000'
 
 describe('Live Local Server Founder Walkthrough (19 Steps against running Next.js server)', () => {
   let adminClient: SupabaseClient<Database>

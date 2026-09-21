@@ -42,14 +42,17 @@ export async function executeReviewRequestHandler({
     const supabase = createAdminClient()
     const { initialDelay, reminderDelay } = getWorkflowTimingPolicy()
 
-    // Helper to evaluate current eligibility from database
+    // Query failures must throw from the calling Inngest step so they can retry.
+    // Only successful reads may produce business ineligibility (including absence).
     async function checkEligibility() {
       // 1. Fetch Organization
-      const { data: org } = await supabase
+      const { data: org, error: organizationError } = await supabase
         .from('organizations')
         .select('id, name, status')
         .eq('id', organizationId)
-        .single()
+        .maybeSingle()
+
+      if (organizationError) throw new Error('Eligibility organization lookup failed')
 
       if (!org || org.status !== 'ACTIVE') {
         return {
@@ -66,11 +69,14 @@ export async function executeReviewRequestHandler({
       }
 
       // 2. Fetch Location
-      const { data: loc } = await supabase
+      const { data: loc, error: locationError } = await supabase
         .from('locations')
         .select('id, name, status, review_reply_to_email')
         .eq('id', locationId)
-        .single()
+        .eq('organization_id', organizationId)
+        .maybeSingle()
+
+      if (locationError) throw new Error('Eligibility location lookup failed')
 
       if (!loc || loc.status !== 'ACTIVE') {
         return {
@@ -87,11 +93,15 @@ export async function executeReviewRequestHandler({
       }
 
       // 3. Fetch Customer
-      const { data: cust } = await supabase
+      const { data: cust, error: customerError } = await supabase
         .from('customers')
         .select('id, first_name, email, permission_email')
         .eq('id', customerId)
-        .single()
+        .eq('organization_id', organizationId)
+        .eq('location_id', locationId)
+        .maybeSingle()
+
+      if (customerError) throw new Error('Eligibility customer lookup failed')
 
       if (!cust) {
         return {
@@ -108,18 +118,21 @@ export async function executeReviewRequestHandler({
       }
 
       // 4. Fetch Google Review Destination
-      const { data: dest } = await supabase
+      const { data: dest, error: destinationError } = await supabase
         .from('review_destinations')
         .select('id, status, canonical_url')
+        .eq('organization_id', organizationId)
         .eq('location_id', locationId)
         .eq('provider', 'google')
         .eq('status', 'CONFIRMED')
         .maybeSingle()
 
+      if (destinationError) throw new Error('Eligibility review destination lookup failed')
+
       // 5. Check Suppressions using standardized SHA-256 hash (Prompt Correction 10)
       const email = cust.email?.trim().toLowerCase() || ''
       const suppressionHash = hashSuppressionContact('email', email)
-      const { data: suppression } = await supabase
+      const { data: suppression, error: suppressionError } = await supabase
         .from('suppressions')
         .select('id')
         .eq('organization_id', organizationId)
@@ -127,18 +140,24 @@ export async function executeReviewRequestHandler({
         .eq('contact_hash', suppressionHash)
         .maybeSingle()
 
+      if (suppressionError) throw new Error('Eligibility suppression lookup failed')
+
       // 6. Check Recent Request (within 30 days, excluding current event to permit safe retries)
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
       let recentQuery = supabase
         .from('review_requests')
         .select('id')
+        .eq('organization_id', organizationId)
         .eq('customer_id', customerId)
         .gte('created_at', thirtyDaysAgo)
 
       if (eventId) {
         recentQuery = recentQuery.neq('completion_event_id', eventId)
       }
-      const { data: recentRequest } = await recentQuery.maybeSingle()
+      // This is an existence check: multiple recent requests still mean cooldown.
+      const { data: recentRequest, error: recentRequestError } = await recentQuery.limit(1).maybeSingle()
+
+      if (recentRequestError) throw new Error('Eligibility recent request lookup failed')
 
       const decision = evaluateReviewEligibility({
         organization: { id: org.id, status: org.status as 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' },

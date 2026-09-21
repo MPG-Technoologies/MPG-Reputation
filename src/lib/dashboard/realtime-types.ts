@@ -70,12 +70,24 @@ export interface ReviewRequestIneligibleEvent {
   decision?: string
 }
 
+export interface ReviewRequestBlockedByEntitlementEvent {
+  id?: string
+  eventId?: string
+  type: 'review_request.blocked_by_entitlement'
+  organizationId: string
+  completionEventId: string
+  auditEventId: string
+  createdAt: string
+  reason?: string
+}
+
 export type DashboardRealtimeEvent =
   | CustomerCompletedEvent
   | ReviewRequestCheckingEvent
   | ReviewRequestCreatedEvent
   | ReviewRequestUpdatedEvent
   | ReviewRequestIneligibleEvent
+  | ReviewRequestBlockedByEntitlementEvent
 
 export type LiveActivityStage =
   | 'RECEIVED'

@@ -6,6 +6,25 @@ export function formatPolicyReason(
   reason?: string | null,
   decision?: string | null
 ): string {
+  const normalizedReason = reason?.trim().toUpperCase()
+
+  if (
+    normalizedReason === 'TRIAL_NOT_ACTIVE' ||
+    normalizedReason === 'TRIAL_NOT_STARTED'
+  ) {
+    return 'Trial not active'
+  }
+
+  if (normalizedReason === 'TRIAL_EXPIRED') return 'Trial expired'
+  if (normalizedReason === 'TRIAL_SUSPENDED') return 'Trial suspended'
+
+  if (
+    normalizedReason === 'TRIAL_EXHAUSTED' ||
+    normalizedReason === 'TRIAL_LIMIT_REACHED'
+  ) {
+    return 'Usage limit reached'
+  }
+
   if (decision === 'NO_REVIEW_DESTINATION') return 'No review destination configured'
   if (decision === 'EMAIL_PERMISSION_UNKNOWN') return 'Email permission unconfirmed'
   if (decision === 'EMAIL_PERMISSION_DENIED') return 'Customer denied email consent'

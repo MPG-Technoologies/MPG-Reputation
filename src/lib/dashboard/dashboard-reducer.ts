@@ -562,7 +562,27 @@ export function dashboardReducer(
         }
       }
 
-      // E. Review Request Ineligible / Policy Bypass Event
+      // E. Review Request Blocked by Entitlement
+      if (event.type === 'review_request.blocked_by_entitlement') {
+        const policyReason = formatPolicyReason(event.reason)
+
+        const updatedLiveActivity = updateLiveActivityList(state.liveActivity, {
+          completionEventId: event.completionEventId,
+          targetStage: 'BYPASSED',
+          createdAt: event.createdAt,
+          policyReason,
+        })
+
+        return {
+          ...state,
+          liveActivity: updatedLiveActivity,
+          highlightedRowId: null,
+          announcement: `Review request not sent: ${policyReason}.`,
+          processedEventIds: nextEventIds,
+        }
+      }
+
+      // F. Review Request Ineligible / Policy Bypass Event
       if (event.type === 'review_request.ineligible') {
         const nextIneligibleCount = (state.kpis.ineligibleCount ?? 0) + 1
         const newKpis: DashboardKpis = {

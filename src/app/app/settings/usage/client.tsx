@@ -15,6 +15,17 @@ interface UsageClientProps {
   initialUsage: OrganizationUsageSummary | null
 }
 
+function formatUsageTimestamp(value: string): string {
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Invalid timestamp'
+  }
+
+  const iso = date.toISOString()
+  return `${iso.slice(0, 10)} ${iso.slice(11, 19)} UTC`
+}
+
 export function UsageClient({
   organizationId,
   userRole,
@@ -279,7 +290,7 @@ export function UsageClient({
             <span className="text-slate-400">Trial Started:</span>{' '}
             <span className="text-slate-300 font-mono text-[11px] ml-1">
               {entitlement?.startedAt
-                ? new Date(entitlement.startedAt).toLocaleString()
+                ? formatUsageTimestamp(entitlement.startedAt)
                 : 'Not started (awaiting explicit activation)'}
             </span>
           </div>
@@ -287,7 +298,7 @@ export function UsageClient({
             <span className="text-slate-400">Trial Expires:</span>{' '}
             <span className="text-slate-300 font-mono text-[11px] ml-1">
               {entitlement?.expiresAt
-                ? new Date(entitlement.expiresAt).toLocaleString()
+                ? formatUsageTimestamp(entitlement.expiresAt)
                 : `${entitlement?.durationDays ?? 30} days after start`}
             </span>
           </div>
@@ -358,7 +369,7 @@ export function UsageClient({
                   usage.recentEvents.map((ev) => (
                     <tr key={ev.id} className="hover:bg-[#131E38]/40 transition-colors">
                       <td className="py-3 px-5 font-sans text-slate-400 whitespace-nowrap text-xs">
-                        {new Date(ev.createdAt).toLocaleString()}
+                        {formatUsageTimestamp(ev.createdAt)}
                       </td>
                       <td className="py-3 px-4 text-white font-medium">{ev.eventType}</td>
                       <td className="py-3 px-4 text-slate-400">{ev.channel}</td>

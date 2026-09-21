@@ -112,7 +112,7 @@ export async function getDashboardSnapshot(
       .from('audit_events')
       .select('id, event_type, metadata, created_at')
       .eq('organization_id', organizationId)
-      .eq('event_type', 'review_request.ineligible')
+      .in('event_type', ['review_request.ineligible', 'review_request.blocked_by_entitlement'])
       .order('created_at', { ascending: false })
       .limit(20),
   ])
@@ -366,7 +366,7 @@ export async function getCompletionActivityProjection(
       .from('audit_events')
       .select('metadata')
       .eq('organization_id', organizationId)
-      .eq('event_type', 'review_request.ineligible')
+      .in('event_type', ['review_request.ineligible', 'review_request.blocked_by_entitlement'])
       .order('created_at', { ascending: false })
       .limit(10),
   ])

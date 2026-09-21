@@ -18,6 +18,7 @@ import type {
   ReviewRequestCreatedEvent,
   ReviewRequestUpdatedEvent,
   ReviewRequestIneligibleEvent,
+  ReviewRequestBlockedByEntitlementEvent,
   ReviewRequestCheckingEvent,
 } from '@/lib/dashboard/realtime-types'
 import { DashboardKpis } from './dashboard-kpis'
@@ -199,6 +200,35 @@ export function LiveDashboard({
                     orgId,
                     msg.payload.completionEventId
                   )
+                  if (proj && isMounted) {
+                    dispatch({
+                      type: 'SET_LIVE_ACTIVITY_CUSTOMER',
+                      completionEventId: msg.payload.completionEventId,
+                      customerName: proj.customerName,
+                      policyReason: proj.policyReason,
+                    })
+                  }
+                } catch {
+                  // Gracefully keep current labels
+                }
+              }
+            }
+          }
+        )
+        .on(
+          'broadcast',
+          { event: 'review_request.blocked_by_entitlement' },
+          async (msg: { payload: ReviewRequestBlockedByEntitlementEvent }) => {
+            if (msg.payload) {
+              dispatch({ type: 'EVENT_RECEIVED', event: msg.payload })
+
+              if (msg.payload.completionEventId) {
+                try {
+                  const proj = await getCompletionActivityProjection(
+                    orgId,
+                    msg.payload.completionEventId
+                  )
+
                   if (proj && isMounted) {
                     dispatch({
                       type: 'SET_LIVE_ACTIVITY_CUSTOMER',

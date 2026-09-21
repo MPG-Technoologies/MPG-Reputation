@@ -5,6 +5,7 @@ import { QuickCompleteForm } from './form'
 import { PageShell, PageHeader } from '@/components/layout/page-shell'
 import { Panel } from '@/components/layout/panels'
 import { PlusCircleIcon } from '@/components/ui/icons'
+import { DataLoadError } from '@/components/ui/data-load-error'
 
 export default async function QuickCompletePage() {
   const supabase = await createClient()
@@ -29,7 +30,7 @@ export default async function QuickCompletePage() {
     )
   }
 
-  const [{ data: locations }, { data: destinations }] = await Promise.all([
+  const [{ data: locations, error: locationsError }, { data: destinations, error: destinationsError }] = await Promise.all([
     supabase
       .from('locations')
       .select('id, name, status')
@@ -39,6 +40,10 @@ export default async function QuickCompletePage() {
       .select('location_id, status, canonical_url')
       .eq('organization_id', orgId),
   ])
+
+  if (locationsError || destinationsError || !locations || !destinations) {
+    return <PageShell><DataLoadError title="Quick Complete setup status could not be loaded" /></PageShell>
+  }
 
   const readiness = deriveActivationReadiness(
     locations || [],

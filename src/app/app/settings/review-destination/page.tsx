@@ -4,6 +4,7 @@ import { PageShell, PageHeader } from '@/components/layout/page-shell'
 import { DestinationReadyBanner } from './ready-banner'
 import { DestinationForm } from './form'
 import { LinkIcon } from '@/components/ui/icons'
+import { DataLoadError } from '@/components/ui/data-load-error'
 
 export default async function ReviewDestinationPage() {
   const supabase = await createClient()
@@ -28,7 +29,7 @@ export default async function ReviewDestinationPage() {
   }
 
   // Parallelize locations and destinations queries
-  const [{ data: locations }, { data: destinations }] = await Promise.all([
+  const [{ data: locations, error: locationsError }, { data: destinations, error: destinationsError }] = await Promise.all([
     supabase
       .from('locations')
       .select('id, name, status')
@@ -39,6 +40,10 @@ export default async function ReviewDestinationPage() {
       .select('id, location_id, url, canonical_url, status, confirmed_at')
       .eq('organization_id', orgId),
   ])
+
+  if (locationsError || destinationsError || !locations || !destinations) {
+    return <PageShell><DataLoadError title="Review destination setup could not be loaded" /></PageShell>
+  }
 
   const readiness = deriveActivationReadiness(
     locations || [],

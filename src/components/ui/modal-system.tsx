@@ -10,6 +10,7 @@ import React, {
 } from 'react'
 import { QuickCompleteForm } from '@/app/app/quick-complete/form'
 import { XIcon } from '@/components/ui/icons'
+import { DataLoadError } from '@/components/ui/data-load-error'
 
 export interface ReadyLocation {
   id: string
@@ -37,6 +38,7 @@ export interface ModalProviderProps {
   organizationId: string
   readyLocations: ReadyLocation[]
   isReady: boolean
+  readinessError?: boolean
 }
 
 export function ModalProvider({
@@ -44,6 +46,7 @@ export function ModalProvider({
   organizationId,
   readyLocations,
   isReady,
+  readinessError = false,
 }: ModalProviderProps) {
   const [isOpen, setIsOpen] = useState(false)
   const previousActiveElement = useRef<HTMLElement | null>(null)
@@ -147,7 +150,9 @@ export function ModalProvider({
 
             {/* Modal Body */}
             <div className="p-6 overflow-y-auto min-h-0 flex-1">
-              {!isReady && readyLocations.length === 0 ? (
+              {readinessError ? (
+                <DataLoadError title="Quick Complete setup status could not be loaded" />
+              ) : !isReady && readyLocations.length === 0 ? (
                 <div className="p-4 rounded-lg bg-amber-950/40 border border-amber-800 text-xs text-amber-200 leading-relaxed">
                   <div className="font-semibold text-amber-100 mb-1">
                     Setup required before Quick Complete can dispatch

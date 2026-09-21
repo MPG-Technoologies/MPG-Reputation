@@ -4,6 +4,7 @@ import { SubmitButton } from '@/components/ui/submit-button'
 import { PageShell, PageHeader } from '@/components/layout/page-shell'
 import { Panel, PanelHeader } from '@/components/layout/panels'
 import { MapPinIcon } from '@/components/ui/icons'
+import { DataLoadError } from '@/components/ui/data-load-error'
 
 export default async function LocationSettingsPage() {
   const supabase = await createClient()
@@ -13,10 +14,14 @@ export default async function LocationSettingsPage() {
 
   if (!user) return null
 
-  const { data: userOrgs } = await supabase
+  const { data: userOrgs, error: membershipError } = await supabase
     .from('organization_users')
     .select('organization_id, role')
     .eq('user_id', user.id)
+
+  if (membershipError) {
+    return <PageShell><DataLoadError title="Locations could not be loaded" /></PageShell>
+  }
 
   const activeOrg = userOrgs?.[0]
   const orgId = activeOrg?.organization_id
@@ -28,11 +33,15 @@ export default async function LocationSettingsPage() {
     )
   }
 
-  const { data: locations } = await supabase
+  const { data: locations, error: locationsError } = await supabase
     .from('locations')
     .select('id, name, address, country, timezone, status, review_reply_to_email, created_at')
     .eq('organization_id', orgId)
     .order('created_at', { ascending: true })
+
+  if (locationsError || !locations) {
+    return <PageShell><DataLoadError title="Locations could not be loaded" /></PageShell>
+  }
 
   const canManage = ['OWNER', 'ADMIN'].includes(activeOrg.role)
 
@@ -57,10 +66,10 @@ export default async function LocationSettingsPage() {
         <Panel className="min-w-0">
           <PanelHeader
             title="Active Locations"
-            subtitle={`${locations?.length ?? 0} configured location(s)`}
+            subtitle={`${locations.length} configured location(s)`}
           />
           <div className="divide-y divide-[#1C2846]/70">
-            {!locations || locations.length === 0 ? (
+            {locations.length === 0 ? (
               <div className="p-6 text-center text-xs text-slate-400">
                 No locations configured yet. Add your first location to activate review workflows.
               </div>

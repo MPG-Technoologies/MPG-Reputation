@@ -35,7 +35,7 @@ export default async function AppLayout({
   const orgName = orgData?.name || 'My Business'
 
   // Parallelize notifications badge count and Quick Complete readiness queries
-  const [{ count: failedRequestsCount }, { data: locations }, { data: destinations }] =
+  const [{ count: failedRequestsCount }, { data: locations, error: locationsError }, { data: destinations, error: destinationsError }] =
     await Promise.all([
       supabase
         .from('review_requests')
@@ -52,8 +52,9 @@ export default async function AppLayout({
         .eq('organization_id', orgId),
     ])
 
-  const readiness = deriveActivationReadiness(locations || [], destinations || [])
-  const readyLocationIds = new Set(readiness.readyLocationIds)
+  const readinessError = !!(locationsError || destinationsError || !locations || !destinations)
+  const readiness = readinessError ? null : deriveActivationReadiness(locations, destinations)
+  const readyLocationIds = new Set(readiness?.readyLocationIds ?? [])
   const readyLocations = (locations || [])
     .filter((loc) => readyLocationIds.has(loc.id))
     .map((loc) => ({ id: loc.id, name: loc.name }))
@@ -64,7 +65,8 @@ export default async function AppLayout({
       <ModalProvider
         organizationId={orgId}
         readyLocations={readyLocations}
-        isReady={readiness.ready}
+        isReady={readiness?.ready ?? false}
+        readinessError={readinessError}
       >
         <AppShell
           orgName={orgName}

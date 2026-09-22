@@ -6,6 +6,7 @@ import type { SupportAccess } from './access'
 type SupportAuditEvent =
   | 'support.organization_inspection'
   | 'support.exception_queue_inspection'
+  | 'support.health_snapshot_inspection'
 
 async function recordSupportAudit(
   access: SupportAccess,
@@ -49,6 +50,17 @@ export async function recordSupportExceptionQueueInspection(
   return recordSupportAudit(
     access,
     'support.exception_queue_inspection',
+    outcome
+  )
+}
+/** Fixed, minimal audit for the MR-6C health snapshot. */
+export async function recordSupportHealthSnapshotInspection(
+  access: SupportAccess,
+  outcome: 'AVAILABLE' | 'UNAVAILABLE'
+): Promise<boolean> {
+  return recordSupportAudit(
+    access,
+    'support.health_snapshot_inspection',
     outcome
   )
 }

@@ -263,3 +263,55 @@ Later MR-6 slices remain responsible for deliverability/health telemetry, contro
 ### Remaining MR-6 work
 
 MR-6B does not provide platform health telemetry or recovery mutations. The next slice is **MR-6C — health and deliverability observability**, followed by **MR-6D — bounded audited support/recovery actions**.
+
+## 13. MR-6C local implementation evidence
+
+**Implementation status:** IMPLEMENTED AND VERIFIED LOCALLY on 2026-09-22. This does not close MR-6 and does not authorize hosted support rollout, live customer messaging, live billing, pilot operation, lifecycle ACTIVE, marketing, public launch, or Company Stage 2+.
+
+### Implemented scope
+
+- Added a read-only, organization-scoped operational health snapshot for explicitly authorized MPG support operators.
+- Reused the existing MR-6 support boundary requiring both current tenant membership and a current explicit `MPG_ADMIN` support grant.
+- Added fixed mandatory audit event `support.health_snapshot_inspection`; health data is withheld when audit persistence fails.
+- Reauthorized support access after telemetry reads and before audit/return.
+- Added truthful 24-hour and 7-day stored messaging telemetry for send records and persisted Resend lifecycle events including delivered, delayed, bounced, complained, failed and suppressed outcomes.
+- Added incomplete persisted provider-webhook counts using the existing `processed_at IS NULL` observation contract.
+- Added organization-scoped outbox counts for untouched pending, retrying, stale untouched, dispatched and failed work plus oldest pending age.
+- Added safe messaging-configuration state reporting without returning API keys, webhook secrets, sender values or other secret material.
+- Added `/admin/organizations/[organizationId]/health` as a dynamic read-only internal route and reciprocal navigation between organization inspection, operational exceptions and operational health.
+- No recovery, retry, replay, provider mutation, entitlement mutation, billing mutation or arbitrary support action was added.
+- No database schema change was required.
+
+### Truthfulness constraints
+
+- Missing or failed required telemetry returns `UNAVAILABLE`; absence of readable data is never presented as proof of health.
+- Deliverability percentages are intentionally reported as `UNKNOWN` with reason `COHORT_SAFE_DENOMINATOR_NOT_CALCULATED`.
+- MR-6C does not divide raw lifecycle-event counts into a deliverability percentage because multiple provider lifecycle events can exist for one provider message.
+- Messaging configuration reports only safe presence/state booleans and provider intent; secret values and sender addresses are not returned.
+- Health telemetry does not read customer identity, completion payload, review token or raw outbox-error content.
+
+### Local acceptance evidence
+
+- MR-6C targeted integration suite passed 13/13 tests.
+- Integration coverage verified factual 24-hour and 7-day telemetry, organization isolation, minimized data, safe configuration-state reporting, `UNKNOWN` deliverability ratios, required-source failure behavior, audit returned-error behavior, audit thrown-error behavior, post-read authorization recheck and read-only operation.
+- Initial browser access correctly failed closed when the synthetic support grant had expired.
+- The local synthetic grant was refreshed for browser acceptance only; no hosted grant or hosted database was changed.
+- Browser acceptance then passed for the synthetic support organization with messaging mode `CONSOLE`, live email disabled, safe configuration presence reporting, outbox telemetry, 24-hour and 7-day telemetry, one stored synthetic bounce, one incomplete persisted webhook and an explicit `UNKNOWN` deliverability ratio.
+- Reciprocal navigation between organization inspection, operational exceptions and operational health was verified in the browser.
+- Sensitive customer data, tokens, raw payloads, raw operational errors, API keys, webhook secrets and sender values were not displayed in the accepted support views.
+- Controlled complete regression passed 55/55 test files and 662/662 tests with `--maxWorkers=4`.
+- Expected simulated provider and immediate Inngest dispatch failures remained inside passing recovery/failure-path tests.
+- `next typegen` passed.
+- `pnpm lint` passed.
+- `pnpm typecheck` passed.
+- Local Supabase schema lint passed with no schema errors.
+- `pnpm build` passed and included all three dynamic internal organization support routes: inspection, exceptions and health.
+- `git diff --check` passed.
+- `.gitignore` remained untouched.
+- No hosted application, database, support grant, billing configuration or live-email configuration was changed by MR-6C acceptance.
+
+### Remaining MR-6 work
+
+MR-6C provides truthful read-only operational observability but does not provide support intervention. The next engineering slice is **MR-6D — bounded, explicitly allowlisted and audited support/recovery actions**.
+
+After MR-6D is implemented and stabilized, the functional internal admin workspace is ready for the separately controlled admin UI refinement stage. Visual refinement must not weaken authorization, audit, tenant isolation, minimized data contracts, read-only telemetry semantics or recovery-action safety.

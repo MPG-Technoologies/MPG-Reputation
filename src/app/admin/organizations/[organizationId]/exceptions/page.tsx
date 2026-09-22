@@ -94,12 +94,24 @@ export default async function SupportExceptionsPage({
           </p>
         </div>
 
-        <a
-          href={`/admin/organizations/${organizationId}`}
-          className="text-sm font-medium text-slate-300 underline underline-offset-4 hover:text-white"
+        <nav
+          aria-label="Organization support views"
+          className="flex flex-wrap gap-4 text-sm font-medium"
         >
-          Organization inspection
-        </a>
+          <a
+            href={`/admin/organizations/${organizationId}`}
+            className="text-slate-300 underline underline-offset-4 hover:text-white"
+          >
+            Organization inspection
+          </a>
+
+          <a
+            href={`/admin/organizations/${organizationId}/health`}
+            className="text-slate-300 underline underline-offset-4 hover:text-white"
+          >
+            Operational health
+          </a>
+        </nav>
       </div>
 
       <dl className="mt-6 grid gap-4 sm:grid-cols-4">

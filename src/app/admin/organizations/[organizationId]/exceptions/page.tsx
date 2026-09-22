@@ -1,6 +1,10 @@
 import { headers } from 'next/headers'
 import { getSupportExceptionQueue } from '@/lib/support/exception-queue'
 import { retryOutboxExceptionAction } from './actions'
+import {
+  AdminEmpty, AdminFacts, AdminFailure, AdminNotice, AdminSection, AdminStatus,
+  AdminTable, OrganizationHeader, adminStyles as ui, type AdminTone,
+} from '@/components/admin/admin-ui'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,78 +14,69 @@ const UUID =
 function recoveryNotice(
   status: string | undefined
 ): {
-  className: string
+  tone: AdminTone
   message: string
 } | null {
   switch (status) {
     case 'DISPATCHED':
       return {
-        className:
-          'border-emerald-800 bg-emerald-950/30 text-emerald-200',
+        tone: 'success',
         message:
           'The eligible pending outbox event was dispatched. The refreshed queue reflects the latest stored state.',
       }
 
     case 'RETRY_FAILED':
       return {
-        className:
-          'border-amber-800 bg-amber-950/30 text-amber-200',
+        tone: 'warning',
         message:
           'The retry attempt failed and the event remains pending. Raw provider or transport errors are not displayed here.',
       }
 
     case 'NO_LONGER_ELIGIBLE':
       return {
-        className:
-          'border-slate-700 bg-slate-900 text-slate-300',
+        tone: 'neutral',
         message:
           'The record changed before mutation and was no longer eligible for the bounded retry.',
       }
 
     case 'OUTCOME_UNKNOWN':
       return {
-        className:
-          'border-amber-800 bg-amber-950/30 text-amber-200',
+        tone: 'warning',
         message:
           'The recovery outcome could not be confirmed. Do not retry blindly; inspect the refreshed queue and audit action ID.',
       }
 
     case 'OUTCOME_UNAVAILABLE':
       return {
-        className:
-          'border-amber-800 bg-amber-950/30 text-amber-200',
+        tone: 'warning',
         message:
           'The action may have occurred, but the mandatory result audit could not be confirmed. Do not retry blindly.',
       }
 
     case 'UNAVAILABLE':
       return {
-        className:
-          'border-red-900 bg-red-950/30 text-red-200',
+        tone: 'danger',
         message:
           'Recovery could not proceed because a required support dependency was unavailable.',
       }
 
     case 'NOT_ELIGIBLE':
       return {
-        className:
-          'border-slate-700 bg-slate-900 text-slate-300',
+        tone: 'neutral',
         message:
           'That record is not eligible for the bounded recovery action.',
       }
 
     case 'DENIED':
       return {
-        className:
-          'border-red-900 bg-red-950/30 text-red-200',
+        tone: 'danger',
         message:
           'Support authorization was not current when the recovery action ran.',
       }
 
     case 'CONFIRMATION_REQUIRED':
       return {
-        className:
-          'border-amber-800 bg-amber-950/30 text-amber-200',
+        tone: 'warning',
         message:
           'Explicit retry confirmation is required before this support action can run.',
       }
@@ -157,18 +152,18 @@ export default async function SupportExceptionsPage({
 
   if (result.status === 'DENIED') {
     return (
-      <p role="alert">
+      <AdminFailure>
         This exception queue is not available to you.
-      </p>
+      </AdminFailure>
     )
   }
 
   if (result.status === 'UNAVAILABLE') {
     return (
-      <p role="alert">
+      <AdminFailure unavailable>
         Operational exception data is temporarily unavailable.
         No queue snapshot is displayed.
-      </p>
+      </AdminFailure>
     )
   }
 
@@ -187,394 +182,134 @@ export default async function SupportExceptionsPage({
 
   return (
     <>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-sm text-slate-400">
-            Organization
-          </p>
-
-          <p className="mt-1 break-all font-mono text-xs text-slate-300">
-            {organizationId}
-          </p>
-
-          <h1 className="mt-4 text-2xl font-semibold">
-            Operational exceptions
-          </h1>
-
-          <p className="mt-2 max-w-3xl text-sm text-slate-400">
-            Operational signals requiring inspection. MR-6D permits
-            only one audited retry of an eligible pending
-            customer.completed outbox record. Webhook replay, FAILED
-            reset, bulk recovery, review-request resend, and billing
-            mutation remain unavailable.
-          </p>
-        </div>
-
-        <nav
-          aria-label="Organization support views"
-          className="flex flex-wrap gap-4 text-sm font-medium"
-        >
-          <a
-            href={`/admin/organizations/${organizationId}`}
-            className="text-slate-300 underline underline-offset-4 hover:text-white"
-          >
-            Organization inspection
-          </a>
-
-          <a
-            href={`/admin/organizations/${organizationId}/health`}
-            className="text-slate-300 underline underline-offset-4 hover:text-white"
-          >
-            Operational health
-          </a>
-        </nav>
-      </div>
-
+      <OrganizationHeader organizationId={organizationId} active="exceptions"
+        title="Operational exceptions" snapshotAt={snapshotAt}
+        description="Operational signals requiring inspection." />
       {notice && (
-        <div
-          role="status"
-          className={`mt-6 rounded-lg border p-4 text-sm ${notice.className}`}
-        >
-          <p>
-            {notice.message}
-          </p>
-
-          {safeActionId && (
-            <p className="mt-2 break-all font-mono text-xs">
-              Action ID: {safeActionId}
-            </p>
-          )}
-        </div>
+        <AdminNotice tone={notice.tone} title="Recovery result">
+          <p>{notice.message}</p>
+          {safeActionId && <p className={ui.id}>Action ID: {safeActionId}</p>}
+        </AdminNotice>
       )}
-
-      <dl className="mt-6 grid gap-4 sm:grid-cols-4">
-        <div className="rounded-lg border border-slate-800 p-4">
-          <dt className="text-sm text-slate-400">
-            Total visible
-          </dt>
-          <dd className="mt-1 text-2xl font-semibold">
-            {total}
-          </dd>
-        </div>
-
-        <div className="rounded-lg border border-slate-800 p-4">
-          <dt className="text-sm text-slate-400">
-            Outbox
-          </dt>
-          <dd className="mt-1 text-2xl font-semibold">
-            {outbox.length}
-          </dd>
-        </div>
-
-        <div className="rounded-lg border border-slate-800 p-4">
-          <dt className="text-sm text-slate-400">
-            Webhooks
-          </dt>
-          <dd className="mt-1 text-2xl font-semibold">
-            {webhooks.length}
-          </dd>
-        </div>
-
-        <div className="rounded-lg border border-slate-800 p-4">
-          <dt className="text-sm text-slate-400">
-            Failed requests
-          </dt>
-          <dd className="mt-1 text-2xl font-semibold">
-            {reviewRequests.length}
-          </dd>
-        </div>
-      </dl>
-
-      <p className="mt-4 text-xs text-slate-500">
-        Snapshot UTC:{' '}
-        <time dateTime={snapshotAt}>
-          {snapshotAt}
-        </time>
-      </p>
-
+      <AdminFacts metrics items={[
+        { label: 'Total visible', value: total },
+        { label: 'Outbox', value: outbox.length },
+        { label: 'Webhooks', value: webhooks.length },
+        { label: 'Failed requests', value: reviewRequests.length },
+      ]} />
+      <AdminNotice title="Bounded recovery">
+        MR-6D permits only one audited retry of an eligible pending customer.completed
+        outbox record. Webhook replay, FAILED reset, bulk recovery, review-request
+        resend, and billing mutation remain unavailable.
+      </AdminNotice>
       {total === 0 && (
-        <div className="mt-8 rounded-lg border border-slate-800 p-5">
-          <h2 className="font-semibold">
-            No current operational exceptions
-          </h2>
-
-          <p className="mt-2 text-sm text-slate-400">
-            No exception matched the current bounded MR-6B
-            rules at snapshot time. This is not a claim that
-            every external dependency is healthy.
+        <AdminEmpty>
+          <h2>No current operational exceptions</h2>
+          <p className={ui.description}>
+            No exception matched the current bounded MR-6B rules at snapshot time.
+            This is not a claim that every external dependency is healthy.
           </p>
-        </div>
+        </AdminEmpty>
       )}
-
-      <section className="mt-8">
-        <h2 className="text-lg font-semibold">
-          Outbox exceptions
-        </h2>
-
-        <p className="mt-2 text-sm text-slate-400">
-          Retrying work, stale untouched work, and explicit failed
-          records. Raw payloads and error strings are not displayed.
-        </p>
-
-        {truncated.outbox && (
-          <p
-            className="mt-3 text-sm text-amber-300"
-            role="status"
-          >
-            Outbox results are truncated. Additional matching
-            records exist.
-          </p>
-        )}
-
-        {outbox.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-400">
-            No outbox exceptions.
-          </p>
-        ) : (
-          <div className="mt-4 overflow-x-auto rounded-lg border border-slate-800">
-            <table className="w-full text-left text-sm">
-              <caption className="sr-only">
-                Operational outbox exceptions
-              </caption>
-
-              <thead className="bg-slate-900 text-slate-300">
-                <tr>
-                  <th scope="col" className="p-4">State</th>
-                  <th scope="col" className="p-4">Event</th>
-                  <th scope="col" className="p-4">Aggregate</th>
-                  <th scope="col" className="p-4">Attempts</th>
-                  <th scope="col" className="p-4">Age</th>
-                  <th scope="col" className="p-4">Recovery</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {outbox.map((item) => (
-                  <tr
-                    key={item.id}
-                    className="border-t border-slate-800"
-                  >
-                    <td className="p-4 font-medium">
-                      {item.kind}
-                    </td>
-
-                    <td className="p-4">
-                      <div>{item.eventType}</div>
-                      <div className="mt-1 font-mono text-xs text-slate-500">
-                        {item.id}
-                      </div>
-                    </td>
-
-                    <td className="p-4">
-                      <div>{item.aggregateType}</div>
-                      <div className="mt-1 font-mono text-xs text-slate-500">
-                        {item.aggregateId}
-                      </div>
-                    </td>
-
-                    <td className="p-4">
-                      {item.attemptCount}
-                    </td>
-
-                    <td className="p-4">
-                      {ageLabel(item.ageMinutes)}
-                    </td>
-
-                    <td className="p-4">
-                      {(
-                        (
-                          item.kind === 'RETRYING' ||
-                          item.kind === 'STALE'
-                        ) &&
-                        item.eventType === 'customer.completed' &&
-                        item.aggregateType ===
-                          'customer_completion_event'
-                      ) ? (
-                        <form
-                          action={retryOutboxExceptionAction.bind(
-                            null,
-                            organizationId,
-                            item.id
-                          )}
-                          className="min-w-48 space-y-2"
-                        >
-                          <label className="flex items-start gap-2 text-xs text-slate-400">
-                            <input
-                              type="checkbox"
-                              name="confirmation"
-                              value="retry"
-                              required
-                              className="mt-0.5"
-                            />
-
-                            <span>
-                              Confirm one bounded retry
-                            </span>
-                          </label>
-
-                          <button
-                            type="submit"
-                            className="rounded-md border border-slate-600 px-3 py-2 text-xs font-medium text-slate-100 hover:border-slate-400 hover:bg-slate-900"
-                          >
-                            Retry pending event
-                          </button>
-                        </form>
-                      ) : (
-                        <span className="text-xs text-slate-500">
-                          Not available
-                        </span>
+      <AdminSection title="Outbox exceptions" description="Retrying work, stale untouched work, and explicit failed records. Raw payloads and error strings are not displayed.">
+        {truncated.outbox && <AdminNotice tone="warning">Outbox results are truncated. Additional matching records exist.</AdminNotice>}
+        {outbox.length === 0 ? <AdminEmpty>No outbox exceptions.</AdminEmpty> : (
+          <AdminTable wide caption="Operational outbox exceptions"
+            headings={['State', 'Event', 'Aggregate', 'Attempts', 'Age', 'Recovery']}>
+            {outbox.map((item) => (
+              <tr key={item.id}>
+                <td><AdminStatus tone={item.kind === 'FAILED' ? 'danger' : 'warning'}>{item.kind}</AdminStatus></td>
+                <th scope="row">
+                  <div>{item.eventType}</div>
+                  <span className={ui.id}>{item.id}</span>
+                </th>
+                <td>
+                  <div>{item.aggregateType}</div>
+                  <span className={ui.id}>{item.aggregateId}</span>
+                </td>
+                <td className={ui.number}>{item.attemptCount}</td>
+                <td className={ui.number}>{ageLabel(item.ageMinutes)}</td>
+                <td>
+                  {(
+                    (
+                      item.kind === 'RETRYING' ||
+                      item.kind === 'STALE'
+                    ) &&
+                    item.eventType === 'customer.completed' &&
+                    item.aggregateType ===
+                      'customer_completion_event'
+                  ) ? (
+                    <form
+                      action={retryOutboxExceptionAction.bind(
+                        null,
+                        organizationId,
+                        item.id
                       )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      className={ui.recovery}
+                    >
+                      <label className={ui.confirmation}>
+                        <input
+                          type="checkbox"
+                          name="confirmation"
+                          value="retry"
+                          required
+                        />
+
+                        <span>
+                          Confirm one bounded retry
+                        </span>
+                      </label>
+
+                      <button
+                        type="submit"
+                        className={ui.retryButton}
+                      >
+                        Retry pending event
+                      </button>
+                    </form>
+                  ) : (
+                    <span className={ui.unavailableAction}>
+                      Not available
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </AdminTable>
         )}
-      </section>
-
-      <section className="mt-8">
-        <h2 className="text-lg font-semibold">
-          Incomplete provider webhooks
-        </h2>
-
-        <p className="mt-2 text-sm text-slate-400">
-          Provider events that remain incomplete beyond the
-          MR-6B observation window.
-        </p>
-
-        {truncated.webhooks && (
-          <p
-            className="mt-3 text-sm text-amber-300"
-            role="status"
-          >
-            Webhook results are truncated. Additional matching
-            records exist.
-          </p>
+      </AdminSection>
+      <AdminSection title="Incomplete provider webhooks" description="Provider events that remain incomplete beyond the MR-6B observation window.">
+        {truncated.webhooks && <AdminNotice tone="warning">Webhook results are truncated. Additional matching records exist.</AdminNotice>}
+        {webhooks.length === 0 ? <AdminEmpty>No incomplete provider webhook exceptions.</AdminEmpty> : (
+          <AdminTable caption="Incomplete provider webhook exceptions"
+            headings={['Provider', 'Event', 'Stored status', 'Review request', 'Age']}>
+            {webhooks.map((item) => (
+              <tr key={item.id}>
+                <td>{item.provider}</td>
+                <th scope="row">{item.eventType}</th>
+                <td>{item.status}</td>
+                <td><span className={ui.id}>{item.reviewRequestId}</span></td>
+                <td className={ui.number}>{ageLabel(item.ageMinutes)}</td>
+              </tr>
+            ))}
+          </AdminTable>
         )}
-
-        {webhooks.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-400">
-            No incomplete provider webhook exceptions.
-          </p>
-        ) : (
-          <div className="mt-4 overflow-x-auto rounded-lg border border-slate-800">
-            <table className="w-full text-left text-sm">
-              <caption className="sr-only">
-                Incomplete provider webhook exceptions
-              </caption>
-
-              <thead className="bg-slate-900 text-slate-300">
-                <tr>
-                  <th scope="col" className="p-4">Provider</th>
-                  <th scope="col" className="p-4">Event</th>
-                  <th scope="col" className="p-4">Stored status</th>
-                  <th scope="col" className="p-4">Review request</th>
-                  <th scope="col" className="p-4">Age</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {webhooks.map((item) => (
-                  <tr
-                    key={item.id}
-                    className="border-t border-slate-800"
-                  >
-                    <td className="p-4">
-                      {item.provider}
-                    </td>
-
-                    <td className="p-4">
-                      {item.eventType}
-                    </td>
-
-                    <td className="p-4">
-                      {item.status}
-                    </td>
-
-                    <td className="p-4 font-mono text-xs">
-                      {item.reviewRequestId}
-                    </td>
-
-                    <td className="p-4">
-                      {ageLabel(item.ageMinutes)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      </AdminSection>
+      <AdminSection title="Failed review requests" description="Failed workflow records are shown without customer identity, destination, token, or raw error content.">
+        {truncated.reviewRequests && <AdminNotice tone="warning">Failed request results are truncated. Additional matching records exist.</AdminNotice>}
+        {reviewRequests.length === 0 ? <AdminEmpty>No failed review requests.</AdminEmpty> : (
+          <AdminTable caption="Failed review request exceptions" headings={['Request', 'Location', 'Channel', 'Age']}>
+            {reviewRequests.map((item) => (
+              <tr key={item.id}>
+                <th scope="row"><span className={ui.id}>{item.id}</span></th>
+                <td><span className={ui.id}>{item.locationId}</span></td>
+                <td>{item.channel}</td>
+                <td className={ui.number}>{ageLabel(item.ageMinutes)}</td>
+              </tr>
+            ))}
+          </AdminTable>
         )}
-      </section>
-
-      <section className="mt-8">
-        <h2 className="text-lg font-semibold">
-          Failed review requests
-        </h2>
-
-        <p className="mt-2 text-sm text-slate-400">
-          Failed workflow records are shown without customer
-          identity, destination, token, or raw error content.
-        </p>
-
-        {truncated.reviewRequests && (
-          <p
-            className="mt-3 text-sm text-amber-300"
-            role="status"
-          >
-            Failed request results are truncated. Additional
-            matching records exist.
-          </p>
-        )}
-
-        {reviewRequests.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-400">
-            No failed review requests.
-          </p>
-        ) : (
-          <div className="mt-4 overflow-x-auto rounded-lg border border-slate-800">
-            <table className="w-full text-left text-sm">
-              <caption className="sr-only">
-                Failed review request exceptions
-              </caption>
-
-              <thead className="bg-slate-900 text-slate-300">
-                <tr>
-                  <th scope="col" className="p-4">Request</th>
-                  <th scope="col" className="p-4">Location</th>
-                  <th scope="col" className="p-4">Channel</th>
-                  <th scope="col" className="p-4">Age</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {reviewRequests.map((item) => (
-                  <tr
-                    key={item.id}
-                    className="border-t border-slate-800"
-                  >
-                    <td className="p-4 font-mono text-xs">
-                      {item.id}
-                    </td>
-
-                    <td className="p-4 font-mono text-xs">
-                      {item.locationId}
-                    </td>
-
-                    <td className="p-4">
-                      {item.channel}
-                    </td>
-
-                    <td className="p-4">
-                      {ageLabel(item.ageMinutes)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      </AdminSection>
     </>
   )
 }

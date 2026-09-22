@@ -1,0 +1,125 @@
+/* Internal operations tokens are scoped away from the customer application.
+ * Space: 4/8/12/16/24/32px. Radius: 4px controls, 6px surfaces.
+ * No motion, decorative elevation, or inferred health styling.
+ */
+.workspace {
+  --ops-bg: #101317;
+  --ops-surface: #181c22;
+  --ops-secondary: #20262e;
+  --ops-border: #343d49;
+  --ops-text: #f1f4f8;
+  --ops-secondary-text: #c4cbd5;
+  --ops-muted: #a1acba;
+  --ops-success: #95d7b3;
+  --ops-warning: #eac180;
+  --ops-danger: #f0a4aa;
+  --ops-info: #c4cbd5;
+  --ops-focus: #b2d4ff;
+  min-height: 100vh;
+  background: var(--ops-bg);
+  color: var(--ops-text);
+  color-scheme: dark;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.workspace :is(a, button, input, [tabindex]):focus-visible {
+  outline: 2px solid var(--ops-focus);
+  outline-offset: 4px;
+}
+.workspaceBar { border-bottom: 1px solid var(--ops-border); background: var(--ops-surface); }
+.workspaceIdentity {
+  max-width: 1440px; margin: auto; min-height: 64px; padding: 12px 40px;
+  display: flex; align-items: center; gap: 24px;
+}
+.wordmark { font-size: 16px; font-weight: 650; letter-spacing: -.4px; white-space: nowrap; }
+.wordmark span { font-weight: 450; margin-left: 4px; }
+.workspaceLabel { border-left: 1px solid var(--ops-border); padding-left: 24px; color: var(--ops-muted); font-size: 12px; }
+.content { max-width: 1440px; margin: auto; padding: 24px 40px 64px; min-width: 0; }
+.skipLink { position: absolute; top: 8px; left: 16px; z-index: 50; transform: translateY(-200%); background: var(--ops-text); color: var(--ops-bg); padding: 12px; border-radius: 4px; }
+.skipLink:focus { transform: translateY(0); }
+.context { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 16px; }
+.eyebrow { color: var(--ops-muted); font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; }
+.id { font-family: var(--font-geist-mono), monospace; font-size: 12px; font-weight: 400; color: var(--ops-muted); overflow-wrap: anywhere; }
+.navigation { display: flex; gap: 24px; border-bottom: 1px solid var(--ops-border); }
+.navigation a { display: flex; align-items: center; min-height: 48px; padding: 0 4px; border-bottom: 2px solid transparent; color: var(--ops-muted); font-weight: 500; }
+.navigation a:hover { color: var(--ops-text); background: var(--ops-surface); }
+.navigation a[aria-current='page'] { color: var(--ops-text); border-bottom-color: var(--ops-text); }
+.pageHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px 32px; padding: 28px 0 24px; }
+.workspace h1 { font-size: 24px; font-weight: 600; line-height: 1.3; letter-spacing: -.6px; }
+.workspace h2 { font-size: 15px; font-weight: 600; line-height: 1.5; }
+.description { color: var(--ops-muted); font-size: 13px; line-height: 1.65; margin-top: 6px; max-width: 85ch; }
+.snapshot { flex-shrink: 0; display: grid; gap: 6px; padding-top: 3px; }
+.snapshot time { font-family: var(--font-geist-mono), monospace; color: var(--ops-secondary-text); font-size: 11px; overflow-wrap: anywhere; }
+.section { margin-top: 28px; min-width: 0; }
+.sectionHeading { margin-bottom: 12px; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); background: var(--ops-surface); border: 1px solid var(--ops-border); border-radius: 6px; overflow: hidden; }
+.facts > div { padding: 16px 20px; min-width: 0; border-right: 1px solid var(--ops-border); }
+.facts > div:last-child { border-right: 0; }
+.facts dt { font-size: 12px; color: var(--ops-muted); }
+.facts dd { margin-top: 8px; color: var(--ops-text); font-weight: 500; overflow-wrap: anywhere; }
+.metrics { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.metrics dd { font-size: 22px; line-height: 1.3; font-weight: 550; font-variant-numeric: tabular-nums; letter-spacing: -.4px; }
+.healthGrid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 24px; align-items: start; }
+.healthGrid .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.healthGrid .facts > div { border-bottom: 1px solid var(--ops-border); padding: 16px; }
+.healthGrid .facts > div:nth-child(2n) { border-right: 0; }
+.healthGrid .facts > div:nth-last-child(-n+2) { border-bottom: 0; }
+.tableContainer { border: 1px solid var(--ops-border); border-radius: 6px; background: var(--ops-surface); }
+.tableScroll { overflow-x: auto; border-radius: 6px; scrollbar-color: #657080 var(--ops-surface); scrollbar-width: thin; }
+.tableScroll::-webkit-scrollbar { height: 10px; }
+.tableScroll::-webkit-scrollbar-thumb { background: #657080; border: 2px solid var(--ops-surface); }
+.tableScroll::-webkit-scrollbar-track { background: var(--ops-surface); }
+.table { width: 100%; text-align: left; font-size: 13px; border-collapse: collapse; }
+.table thead { background: var(--ops-secondary); color: var(--ops-secondary-text); }
+.table th, .table td { padding: 12px 16px; vertical-align: top; }
+.table thead th { font-size: 11px; font-weight: 600; white-space: nowrap; }
+.table tbody th { font-weight: 500; }
+.table tbody tr { border-top: 1px solid var(--ops-border); }
+.table tbody tr:hover { background: #1d2229; }
+.table td { color: var(--ops-secondary-text); }
+.table .id { display: block; min-width: 180px; max-width: 260px; margin-top: 4px; }
+.wideTable { min-width: 1060px; }
+.number { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.status { display: inline-flex; align-items: center; padding: 3px 7px; font-size: 11px; line-height: 1.4; font-weight: 550; border: 1px solid var(--ops-border); border-radius: 4px; white-space: nowrap; }
+.neutral { color: var(--ops-info); background: var(--ops-secondary); }
+.success { color: var(--ops-success); background: #1b2b25; border-color: #3b5b4b; }
+.warning { color: var(--ops-warning); background: #2b261e; border-color: #65533a; }
+.danger { color: var(--ops-danger); background: #2e2228; border-color: #634149; }
+.notice { margin: 16px 0; border: 1px solid var(--ops-border); border-left: 3px solid currentColor; border-radius: 4px; padding: 16px 20px; font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.noticeTitle { font-weight: 600; margin-bottom: 4px; }
+.empty { padding: 24px; border: 1px solid var(--ops-border); border-radius: 6px; background: var(--ops-surface); color: var(--ops-muted); font-size: 13px; }
+.failure { max-width: 640px; padding: 48px 0; }
+.failure h1 { margin-top: 12px; }
+.recovery { min-width: 220px; display: grid; gap: 8px; }
+.confirmation { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 12px; cursor: pointer; }
+.confirmation input { flex-shrink: 0; width: 18px; height: 18px; accent-color: var(--ops-warning); }
+.retryButton { min-height: 44px; padding: 10px 14px; text-align: center; background: var(--ops-secondary); color: var(--ops-text); border: 1px solid #778392; border-radius: 4px; font-size: 12px; font-weight: 550; cursor: pointer; }
+.retryButton:hover { background: #303943; border-color: var(--ops-text); }
+.unavailableAction { color: var(--ops-muted); font-size: 12px; white-space: nowrap; }
+.scrollHint { display: none; font-size: 11px; color: var(--ops-muted); padding: 10px 16px; border-top: 1px solid var(--ops-border); }
+@media (max-width: 1100px) {
+  .pageHeader { flex-direction: column; }
+  .snapshot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+  .healthGrid { grid-template-columns: 1fr; }
+  .scrollHint { display: block; }
+}
+@media (max-width: 600px) {
+  .workspaceIdentity { padding: 16px; align-items: flex-start; flex-direction: column; gap: 4px; }
+  .workspaceLabel { border: 0; padding: 0; }
+  .content { padding: 20px 16px 40px; }
+  .context { display: grid; gap: 4px; }
+  .navigation { gap: 20px; }
+  .pageHeader { padding-top: 24px; }
+  .workspace h1 { font-size: 22px; }
+  .facts { grid-template-columns: 1fr; }
+  .facts > div { border-right: 0; border-bottom: 1px solid var(--ops-border); padding: 16px; }
+  .facts > div:last-child { border-bottom: 0; }
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metrics > div:nth-child(odd) { border-right: 1px solid var(--ops-border); }
+  .metrics > div:nth-last-child(-n+2) { border-bottom: 0; }
+  .healthGrid { gap: 0; }
+  .healthGrid .facts { grid-template-columns: 1fr; }
+  .healthGrid .facts > div:nth-last-child(2) { border-bottom: 1px solid var(--ops-border); }
+  .table th, .table td { padding: 12px; }
+  .notice { padding: 16px; }
+}

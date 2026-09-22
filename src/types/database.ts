@@ -884,6 +884,7 @@ export interface Database {
           organization_id: string
           billing_account_id: string
           provider: 'stripe'
+          environment: 'TEST' | 'LIVE'
           provider_subscription_id: string
           provider_price_id: string | null
           provider_status: string
@@ -901,6 +902,7 @@ export interface Database {
           organization_id: string
           billing_account_id: string
           provider: 'stripe'
+          environment?: 'TEST' | 'LIVE'
           provider_subscription_id: string
           provider_price_id?: string | null
           provider_status: string
@@ -918,6 +920,7 @@ export interface Database {
           organization_id?: string
           billing_account_id?: string
           provider?: 'stripe'
+          environment?: 'TEST' | 'LIVE'
           provider_subscription_id?: string
           provider_price_id?: string | null
           provider_status?: string
@@ -939,11 +942,11 @@ export interface Database {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "organization_subscriptions_account_org_provider_fkey"
-            columns: ["billing_account_id", "organization_id", "provider"]
+            foreignKeyName: "organization_subscriptions_account_org_provider_env_fkey"
+            columns: ["billing_account_id", "organization_id", "provider", "environment"]
             isOneToOne: false
             referencedRelation: "organization_billing_accounts"
-            referencedColumns: ["id", "organization_id", "provider"]
+            referencedColumns: ["id", "organization_id", "provider", "environment"]
           }
         ]
       }
@@ -951,6 +954,7 @@ export interface Database {
         Row: {
           id: string
           provider: 'stripe'
+          environment: 'TEST' | 'LIVE'
           provider_event_id: string
           event_type: string
           processing_status: 'RECEIVED' | 'PROCESSING' | 'PROCESSED' | 'IGNORED' | 'FAILED'
@@ -965,6 +969,7 @@ export interface Database {
         Insert: {
           id?: string
           provider: 'stripe'
+          environment?: 'TEST' | 'LIVE'
           provider_event_id: string
           event_type: string
           processing_status?: 'RECEIVED' | 'PROCESSING' | 'PROCESSED' | 'IGNORED' | 'FAILED'
@@ -979,6 +984,7 @@ export interface Database {
         Update: {
           id?: string
           provider?: 'stripe'
+          environment?: 'TEST' | 'LIVE'
           provider_event_id?: string
           event_type?: string
           processing_status?: 'RECEIVED' | 'PROCESSING' | 'PROCESSED' | 'IGNORED' | 'FAILED'

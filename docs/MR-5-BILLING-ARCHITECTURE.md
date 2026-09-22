@@ -4,7 +4,7 @@
 |---|---|
 | Product | MPG Reputation |
 | Milestone | MR-5 — Billing |
-| Status | MR-5A ENGINEERING BASELINE |
+| Status | MR-5 ACTIVE — MR-5C ENVIRONMENT ISOLATION COMPLETE |
 | Governing Decision | MPG-DEC-048 |
 | Final Pricing | NOT APPROVED |
 | Live Billing | NOT AUTHORIZED |
@@ -52,6 +52,7 @@ Stripe webhooks must never directly bypass MPG domain rules or replace the exist
 - organization_id
 - billing_account_id
 - provider
+- environment
 - provider_subscription_id
 - provider_price_id
 - provider_status
@@ -68,6 +69,7 @@ Candidate normalized states: `PENDING`, `ACTIVE`, `GRACE`, `SUSPENDED`, `ENDED`.
 ### billing_webhook_events
 - id
 - provider
+- environment
 - provider_event_id
 - event_type
 - processing_status
@@ -78,7 +80,11 @@ Candidate normalized states: `PENDING`, `ACTIVE`, `GRACE`, `SUSPENDED`, `ENDED`.
 - error_code
 - created_at
 
-`provider_event_id` must be unique so duplicate webhook delivery cannot duplicate business effects.
+Provider identifiers are isolated by billing environment. `provider_customer_id`, `provider_subscription_id`, and `provider_event_id` are namespaced by `TEST` or `LIVE` where persisted.
+
+Subscriptions must match their billing account across `organization_id`, `provider`, and `environment`. Webhook-event deduplication occurs within `(provider, environment, provider_event_id)`.
+
+Schema support for `LIVE` exists only to enforce a safe provider boundary. It does not authorize live billing, real-customer charging, final pricing, checkout, entitlement activation, or public launch.
 
 ## Provider Boundary
 

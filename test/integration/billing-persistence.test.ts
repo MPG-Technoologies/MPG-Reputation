@@ -8,7 +8,9 @@ const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'dummy_anon_key'
 
 const isDbAvailable = !!SERVICE_ROLE_KEY && SERVICE_ROLE_KEY !== 'dummy_service_role_key'
 
-describe.skipIf(!isDbAvailable)('MR-5B Billing Persistence & RLS Real PostgreSQL Tests', () => {
+describe.skipIf(!isDbAvailable)(
+  'MR-5 Billing Persistence, RLS & Environment Isolation Real PostgreSQL Tests',
+  () => {
   let adminClient: ReturnType<typeof createClient<Database>>
   let ownerAClient: ReturnType<typeof createClient<Database>>
   let adminAClient: ReturnType<typeof createClient<Database>>
@@ -377,7 +379,7 @@ describe.skipIf(!isDbAvailable)('MR-5B Billing Persistence & RLS Real PostgreSQL
     expect(error?.code).toBe('23505')
   })
 
-  it('deduplicates provider webhook events by provider event id', async () => {
+  it('deduplicates provider webhook events within the same environment', async () => {
     const duplicate = {
       provider: 'stripe' as const,
       provider_event_id: `${eventPrefix}-duplicate`,
@@ -415,7 +417,7 @@ describe.skipIf(!isDbAvailable)('MR-5B Billing Persistence & RLS Real PostgreSQL
     expect(error?.code).toBe('23503')
   })
 
-  it('rejects duplicate provider subscription ids', async () => {
+  it('rejects duplicate provider subscription ids within the same environment', async () => {
     const { error } = await adminClient.from('organization_subscriptions').insert({
       organization_id: orgAId,
       billing_account_id: accountAId,
@@ -429,6 +431,163 @@ describe.skipIf(!isDbAvailable)('MR-5B Billing Persistence & RLS Real PostgreSQL
     expect(error?.code).toBe('23505')
   })
 
+  it('allows the same provider webhook event id in TEST and LIVE while deduplicating within each environment', async () => {
+    const sharedEventId = `${eventPrefix}-cross-environment`
+
+    const { error: testInsertError } = await adminClient
+      .from('billing_webhook_events')
+      .insert({
+        provider: 'stripe',
+        environment: 'TEST',
+        provider_event_id: sharedEventId,
+        event_type: 'customer.subscription.updated',
+        processing_status: 'RECEIVED',
+        payload_hash: 'test-environment-hash',
+        organization_id: orgAId,
+      })
+
+    expect(testInsertError).toBeNull()
+
+    const { error: liveInsertError } = await adminClient
+      .from('billing_webhook_events')
+      .insert({
+        provider: 'stripe',
+        environment: 'LIVE',
+        provider_event_id: sharedEventId,
+        event_type: 'customer.subscription.updated',
+        processing_status: 'RECEIVED',
+        payload_hash: 'live-environment-hash',
+        organization_id: orgAId,
+      })
+
+    expect(liveInsertError).toBeNull()
+
+    const { data: rows, error: rowsError } = await adminClient
+      .from('billing_webhook_events')
+      .select('environment')
+      .eq('provider', 'stripe')
+      .eq('provider_event_id', sharedEventId)
+      .order('environment')
+
+    expect(rowsError).toBeNull()
+    expect(rows?.map((row) => row.environment)).toEqual(['LIVE', 'TEST'])
+
+    const { error: duplicateTestError } = await adminClient
+      .from('billing_webhook_events')
+      .insert({
+        provider: 'stripe',
+        environment: 'TEST',
+        provider_event_id: sharedEventId,
+        event_type: 'customer.subscription.updated',
+        processing_status: 'RECEIVED',
+        payload_hash: 'duplicate-test-hash',
+        organization_id: orgAId,
+      })
+
+    expect(duplicateTestError).toBeDefined()
+    expect(duplicateTestError?.code).toBe('23505')
+  })
+
+  it('allows the same provider subscription id in TEST and LIVE when billing-account environments match', async () => {
+    const sharedSubscriptionId = `sub_cross_environment_${timestamp}`
+
+    const { data: liveAccount, error: liveAccountError } = await adminClient
+      .from('organization_billing_accounts')
+      .insert({
+        organization_id: orgAId,
+        provider: 'stripe',
+        provider_customer_id: `cus_mr5b_a_${timestamp}`,
+        environment: 'LIVE',
+      })
+      .select('id')
+      .single()
+
+    expect(liveAccountError).toBeNull()
+    expect(liveAccount).toBeDefined()
+
+    if (!liveAccount) {
+      throw new Error('Expected LIVE billing account to be created.')
+    }
+
+    const { error: subscriptionsError } = await adminClient
+      .from('organization_subscriptions')
+      .insert([
+        {
+          organization_id: orgAId,
+          billing_account_id: accountAId,
+          provider: 'stripe',
+          environment: 'TEST',
+          provider_subscription_id: sharedSubscriptionId,
+          provider_status: 'active',
+          normalized_status: 'ACTIVE',
+        },
+        {
+          organization_id: orgAId,
+          billing_account_id: liveAccount.id,
+          provider: 'stripe',
+          environment: 'LIVE',
+          provider_subscription_id: sharedSubscriptionId,
+          provider_status: 'active',
+          normalized_status: 'ACTIVE',
+        },
+      ])
+
+    expect(subscriptionsError).toBeNull()
+
+    const { data: rows, error: rowsError } = await adminClient
+      .from('organization_subscriptions')
+      .select('environment')
+      .eq('provider', 'stripe')
+      .eq('provider_subscription_id', sharedSubscriptionId)
+      .order('environment')
+
+    expect(rowsError).toBeNull()
+    expect(rows?.map((row) => row.environment)).toEqual(['LIVE', 'TEST'])
+
+    await adminClient
+      .from('organization_subscriptions')
+      .delete()
+      .eq('provider_subscription_id', sharedSubscriptionId)
+
+    await adminClient
+      .from('organization_billing_accounts')
+      .delete()
+      .eq('id', liveAccount.id)
+  })
+
+  it('rejects a subscription whose environment does not match its billing account', async () => {
+    const { error } = await adminClient
+      .from('organization_subscriptions')
+      .insert({
+        organization_id: orgAId,
+        billing_account_id: accountAId,
+        provider: 'stripe',
+        environment: 'LIVE',
+        provider_subscription_id: `sub_environment_mismatch_${timestamp}`,
+        provider_status: 'active',
+        normalized_status: 'ACTIVE',
+      })
+
+    expect(error).toBeDefined()
+    expect(error?.code).toBe('23503')
+  })
+
+  it('rejects unsupported billing environments at the database boundary', async () => {
+    const { error } = await adminClient
+      .from('billing_webhook_events')
+      .insert({
+        provider: 'stripe',
+        environment: 'STAGING' as never,
+        provider_event_id: `${eventPrefix}-invalid-environment`,
+        event_type: 'customer.subscription.updated',
+        processing_status: 'RECEIVED',
+        payload_hash: 'invalid-environment-hash',
+        organization_id: orgAId,
+      })
+
+    expect(error).toBeDefined()
+    expect(error?.code).toBe('23514')
+  })
   it('rejects invalid normalized billing states at the database boundary', async () => {
     const { error } = await adminClient.from('organization_subscriptions').insert({
       organization_id: orgAId,

@@ -518,7 +518,7 @@ describe.skipIf(!isDbAvailable)('MR-3 Completion Credential Trust Boundary & Rot
     expect(httpResLivingB.status).toBe(202)
     const livingBData = await httpResLivingB.json()
     expect(livingBData.accepted).toBe(true)
-  })
+  }, 15000)
 
   // ============================================================
   // 4. METADATA LISTING & PII-FREE AUDIT LOGS

@@ -77,6 +77,42 @@ export interface Database {
           }
         ]
       }
+      support_access_grants: {
+        Row: {
+          id: string
+          organization_id: string
+          user_id: string
+          support_role: 'MPG_ADMIN'
+          created_at: string
+          expires_at: string
+          revoked_at: string | null
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          user_id: string
+          support_role: 'MPG_ADMIN'
+          created_at?: string
+          expires_at: string
+          revoked_at?: string | null
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          user_id?: string
+          support_role?: 'MPG_ADMIN'
+          created_at?: string
+          expires_at?: string
+          revoked_at?: string | null
+        }
+        Relationships: [{
+          foreignKeyName: 'support_access_grants_membership_fkey'
+          columns: ['organization_id', 'user_id']
+          isOneToOne: true
+          referencedRelation: 'organization_users'
+          referencedColumns: ['organization_id', 'user_id']
+        }]
+      }
       locations: {
         Row: {
           id: string

@@ -123,3 +123,99 @@ Company OS `docs/19-backlog.md` owns program-level backlog status; this handoff 
 ## 10. Recommended NEXT ACTION
 
 Implement **MR-6A: the audited, read-only organization/location inspection page with explicit expiring support grants plus existing tenant membership**, using the bounded file/table/route scope and acceptance tests above, after both repositories' pause/status reconciliation is clean.
+
+## 11. MR-6A local implementation evidence
+
+**Implementation status:** IMPLEMENTED AND VERIFIED LOCALLY on 2026-09-22. This does not close MR-6 and does not authorize hosted support rollout, real support grants, public launch, live billing, live customer messaging, pilot operation, lifecycle ACTIVE, marketing, or Company Stage 2+.
+
+### Implemented scope
+
+- Added `public.support_access_grants` with `MPG_ADMIN`, expiry, revocation, unique organization/user identity, composite membership foreign key, cascade-on-membership-delete, RLS, authenticated read-only access, and service-role administration.
+- Added server-only support authorization requiring both current `organization_users` membership and a current explicit `MPG_ADMIN` support grant.
+- Added bounded organization inspection using authenticated tenant-scoped RLS reads only.
+- Added a fixed server-authored support inspection audit event. The service-role client is restricted to the audit insert path.
+- Added `/admin/organizations/[organizationId]` as a dynamic, read-only internal inspection route with no business navigation entry, no mutation controls, no search, no impersonation, no billing operation and no support-grant management UI.
+- Added allowlisted organization/location/destination-state DTOs with 50-location bounded results and truthful truncation.
+- Added real PostgreSQL/RLS integration coverage for grant boundaries, tenant isolation, self-elevation denial, membership deletion, expiry/revocation, audit behavior, unavailable states and data minimization.
+- Updated generated database types for `support_access_grants`.
+
+### Local migration evidence
+
+Migration:
+
+`supabase/migrations/20260922071808_mr6_support_access.sql`
+
+Local Supabase migration history confirms `20260922071808` is applied to the local synthetic database. No hosted migration push, migration repair, or hosted migration-history modification was performed as part of this slice.
+
+### Authorization evidence
+
+Synthetic local browser acceptance used:
+
+- organization: `MPG Synthetic Support Org`
+- organization ID: `60000000-0000-4000-8000-000000000001`
+- normal tenant role: `VIEWER`
+- support role: `MPG_ADMIN`
+- grant state: current, unrevoked and expiring
+- location: `Synthetic HQ`
+
+The authorized browser route loaded successfully and displayed only the bounded organization/location inspection surface. This demonstrates that business `VIEWER` membership alone is not the support authority; the separate `MPG_ADMIN` grant is required.
+
+### Targeted security acceptance
+
+`test/integration/support-access.test.ts`
+
+- 24 / 24 tests passed.
+- Valid member + grant succeeds.
+- OWNER, ADMIN, OPERATOR and VIEWER without support grant are denied.
+- Foreign-tenant, expired, revoked and missing-membership access is denied.
+- Editable user metadata cannot elevate to MPG support access.
+- Anonymous access and authenticated self-grant INSERT/UPDATE/DELETE are denied.
+- Grant reads remain user-scoped.
+- Membership deletion cascades the support grant.
+- Recreated membership does not restore deleted support authorization.
+- Invalid/tampered target IDs fail closed.
+- Database lookup failures fail closed.
+
+`test/integration/support-organization-inspection.test.ts`
+
+- 20 / 20 tests passed.
+- DTO fields are allowlisted and exclude customer/contact/token/URL/billing/cost/private payload data.
+- Reads use authenticated tenant-scoped GETs with explicit target predicates.
+- Results are capped at 50 locations with truthful truncation.
+- Empty results remain distinct from database/query failure.
+- Foreign and nonexistent organizations are denied generically.
+- Audit actor and organization derive from verified access.
+- Audit failure withholds the snapshot.
+- Inspection does not mutate organization, location, destination, entitlement or outbox state.
+- Authorization is rechecked after membership/grant removal and before audit.
+
+### Full local regression evidence
+
+On 2026-09-22:
+
+- `pnpm lint` — PASS
+- `pnpm typecheck` — PASS
+- `pnpm test` — PASS: 53 test files, 635 tests
+- `npx supabase db lint --local` — PASS: no schema errors
+- `pnpm build` — PASS
+- production route manifest contains dynamic `/admin/organizations/[organizationId]`
+- `git diff --check` — PASS
+- `.gitignore` — untouched
+
+The Vitest/Vite native-config-loader message remains a future-compatibility warning and did not fail validation.
+
+### Browser acceptance limitation
+
+The permitted synthetic inspection path was manually walked in the browser and refreshed successfully. Denied, query-unavailable and audit-failure states are covered by the real integration suites; those failure states were not all manually induced in the browser because doing so would require deliberately altering otherwise-correct local infrastructure or introducing test-only runtime hooks.
+
+### Remaining MR-6 work
+
+MR-6A establishes the secure read-only support foundation only. MR-6 remains incomplete.
+
+Next bounded slice:
+
+**MR-6B — operational exception queue**
+
+Initial focus should be truthful, bounded visibility into operational exceptions such as retrying/stuck outbox work and incomplete processing, with sanitized data, explicit age/attempt signals, tenant isolation, unavailable-state handling and no recovery mutation yet.
+
+Later MR-6 slices remain responsible for deliverability/health telemetry, controlled audited recovery/support actions, final admin-workspace UX refinement and milestone-level acceptance.

@@ -5,6 +5,7 @@ import {
   billingEnvironmentFromVerifiedStripeEvent,
   createStripeClient,
   getStripeWebhookSecret,
+  verifyStripeWebhookEvent,
 } from '../../src/lib/billing/stripe'
 
 const originalSecretKey = process.env.STRIPE_SECRET_KEY
@@ -95,4 +96,78 @@ describe('Stripe billing server adapter', () => {
       assertStripeEventEnvironmentAllowed({ livemode: true })
     ).toThrow('Live Stripe billing is disabled.')
   })
-})
+
+  it('verifies an authentic Stripe webhook signature using the raw body', () => {
+    process.env.STRIPE_SECRET_KEY = 'sk_test_mr5c_fixture'
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_mr5c_fixture'
+
+    const rawBody = JSON.stringify({
+      id: 'evt_mr5c_verified',
+      object: 'event',
+      api_version: null,
+      created: 1_700_000_000,
+      data: {
+        object: {
+          id: 'sub_mr5c_fixture',
+          object: 'subscription',
+        },
+      },
+      livemode: false,
+      pending_webhooks: 1,
+      request: {
+        id: null,
+        idempotency_key: null,
+      },
+      type: 'customer.subscription.updated',
+    })
+
+    const stripe = createStripeClient()
+    const signature = stripe.webhooks.generateTestHeaderString({
+      payload: rawBody,
+      secret: 'whsec_mr5c_fixture',
+    })
+
+    const event = verifyStripeWebhookEvent(rawBody, signature)
+
+    expect(event.id).toBe('evt_mr5c_verified')
+    expect(event.type).toBe('customer.subscription.updated')
+    expect(event.livemode).toBe(false)
+  })
+
+  it('rejects a tampered webhook body after the signature was generated', () => {
+    process.env.STRIPE_SECRET_KEY = 'sk_test_mr5c_fixture'
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_mr5c_fixture'
+
+    const rawBody = JSON.stringify({
+      id: 'evt_mr5c_tamper',
+      object: 'event',
+      created: 1_700_000_000,
+      data: { object: {} },
+      livemode: false,
+      type: 'customer.subscription.updated',
+    })
+
+    const stripe = createStripeClient()
+    const signature = stripe.webhooks.generateTestHeaderString({
+      payload: rawBody,
+      secret: 'whsec_mr5c_fixture',
+    })
+
+    const tamperedBody = rawBody.replace(
+      'customer.subscription.updated',
+      'customer.subscription.deleted'
+    )
+
+    expect(() =>
+      verifyStripeWebhookEvent(tamperedBody, signature)
+    ).toThrow()
+  })
+
+  it('fails closed when the Stripe-Signature header is missing or blank', () => {
+    process.env.STRIPE_SECRET_KEY = 'sk_test_mr5c_fixture'
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_mr5c_fixture'
+
+    expect(() =>
+      verifyStripeWebhookEvent('{}', '   ')
+    ).toThrow('Stripe-Signature header is required.')
+  })})

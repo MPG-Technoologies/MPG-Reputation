@@ -21,6 +21,25 @@ export function getStripeWebhookSecret() {
   return webhookSecret
 }
 
+export function verifyStripeWebhookEvent(
+  rawBody: string | Buffer,
+  signature: string
+): Stripe.Event {
+  const normalizedSignature = signature.trim()
+
+  if (!normalizedSignature) {
+    throw new Error('Stripe-Signature header is required.')
+  }
+
+  const stripe = createStripeClient()
+  const webhookSecret = getStripeWebhookSecret()
+
+  return stripe.webhooks.constructEvent(
+    rawBody,
+    normalizedSignature,
+    webhookSecret
+  )
+}
 /**
  * Call this only after Stripe cryptographic signature verification succeeds.
  * Stripe Event.livemode is the trusted provider signal for TEST/LIVE isolation.

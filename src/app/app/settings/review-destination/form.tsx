@@ -261,9 +261,7 @@ export function DestinationForm({
               {activeDestination.status === 'CONFIRMED'
                 ? `Confirmed on: ${
                     activeDestination.confirmed_at
-                      ? new Date(
-                          activeDestination.confirmed_at
-                        ).toLocaleString()
+                      ? new Date(activeDestination.confirmed_at).toISOString().slice(0, 19).replace('T', ' ') + ' UTC'
                       : 'Unknown'
                   }`
                 : activeDestination.status === 'INACTIVE'

@@ -219,3 +219,47 @@ Next bounded slice:
 Initial focus should be truthful, bounded visibility into operational exceptions such as retrying/stuck outbox work and incomplete processing, with sanitized data, explicit age/attempt signals, tenant isolation, unavailable-state handling and no recovery mutation yet.
 
 Later MR-6 slices remain responsible for deliverability/health telemetry, controlled audited recovery/support actions, final admin-workspace UX refinement and milestone-level acceptance.
+
+## 12. MR-6B local implementation evidence
+
+**Implementation status:** IMPLEMENTED AND VERIFIED LOCALLY on 2026-09-22. This does not close MR-6 and does not authorize hosted support rollout, public launch, live billing, live customer messaging, pilot operation, lifecycle ACTIVE, marketing, or Company Stage 2+.
+
+### Implemented scope
+
+- Added a read-only operational exception queue for an explicitly authorized organization.
+- Added bounded visibility for retrying, stale and failed outbox work; incomplete persisted provider webhook processing; and failed review requests.
+- Kept support reads organization-scoped and rechecked support authorization before audit and return.
+- Added mandatory fixed support audit event `support.exception_queue_inspection`; queue data is withheld when audit persistence fails.
+- Added minimized support DTOs that exclude customer names, email addresses, phone numbers, review tokens, destination URLs, provider message IDs, payloads, raw operational errors and private provider metadata.
+- Limited each source category to 20 visible records plus truthful truncation detection.
+- Kept MR-6B inspection read-only. No retry, replay, provider mutation, billing mutation, entitlement mutation or arbitrary support action was added.
+- Added `/admin/organizations/[organizationId]/exceptions` and reciprocal navigation from the existing organization inspection page.
+- No hosted database, hosted support grant, live provider configuration or billing configuration was changed.
+
+### Operational classification
+
+- Outbox `FAILED` records are surfaced as failed work.
+- Outbox `PENDING` records with `attempt_count > 0` are surfaced as retrying work.
+- Untouched outbox `PENDING` records older than 10 minutes are surfaced as stale work.
+- Persisted provider message events with `processed_at IS NULL` older than 5 minutes are surfaced as incomplete processing.
+- Review requests in `FAILED` status are surfaced as failed requests.
+- Missing or failed source reads return `UNAVAILABLE`; absence of readable data is never reported as proof of health.
+
+### Local acceptance evidence
+
+- MR-6B targeted integration suite: 14/14 passed.
+- Synthetic browser acceptance showed three safe operational exceptions: one outbox exception, one incomplete provider-processing exception and one failed review request, with sensitive fixture fields absent from the rendered support view.
+- The existing eligibility query-error suite passed 33/33 in three consecutive isolated runs.
+- The first default-concurrency full regression produced one failure in that pre-existing eligibility suite under 54-worker local load; MR-6B itself passed 14/14 in that run.
+- The complete controlled regression then passed 54/54 test files and 649/649 tests with `--maxWorkers=4`.
+- `next typegen` passed.
+- `pnpm lint` passed.
+- `pnpm typecheck` passed.
+- Local Supabase schema lint passed with no schema errors.
+- `pnpm build` passed and included both dynamic internal admin routes.
+- `git diff --check` passed.
+- `.gitignore` remained untouched.
+
+### Remaining MR-6 work
+
+MR-6B does not provide platform health telemetry or recovery mutations. The next slice is **MR-6C — health and deliverability observability**, followed by **MR-6D — bounded audited support/recovery actions**.

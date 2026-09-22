@@ -3,9 +3,13 @@ import 'server-only'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { SupportAccess } from './access'
 
-/** The only privileged support operation: a fixed, minimal audit insert. */
-export async function recordSupportInspection(
+type SupportAuditEvent =
+  | 'support.organization_inspection'
+  | 'support.exception_queue_inspection'
+
+async function recordSupportAudit(
   access: SupportAccess,
+  eventType: SupportAuditEvent,
   outcome: 'AVAILABLE' | 'UNAVAILABLE'
 ): Promise<boolean> {
   try {
@@ -13,13 +17,38 @@ export async function recordSupportInspection(
       organization_id: access.organizationId,
       actor_type: 'user',
       actor_id: access.actorId,
-      event_type: 'support.organization_inspection',
+      event_type: eventType,
       entity_type: 'organization',
       entity_id: access.organizationId,
       metadata: { outcome },
     })
+
     return !error
   } catch {
     return false
   }
+}
+
+/** Fixed, minimal audit for the MR-6A organization inspection. */
+export async function recordSupportInspection(
+  access: SupportAccess,
+  outcome: 'AVAILABLE' | 'UNAVAILABLE'
+): Promise<boolean> {
+  return recordSupportAudit(
+    access,
+    'support.organization_inspection',
+    outcome
+  )
+}
+
+/** Fixed, minimal audit for the MR-6B operational exception queue. */
+export async function recordSupportExceptionQueueInspection(
+  access: SupportAccess,
+  outcome: 'AVAILABLE' | 'UNAVAILABLE'
+): Promise<boolean> {
+  return recordSupportAudit(
+    access,
+    'support.exception_queue_inspection',
+    outcome
+  )
 }

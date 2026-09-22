@@ -36,7 +36,15 @@ export default async function OrganizationInspectionPage({ params }: {
   const { organization, locations, truncated, snapshotAt } = result.snapshot
   return (
     <>
-      <h1 className="text-2xl font-semibold">Organization inspection</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-2xl font-semibold">Organization inspection</h1>
+        <a
+          href={`/admin/organizations/${organizationId}/exceptions`}
+          className="text-sm font-medium text-slate-300 underline underline-offset-4 hover:text-white"
+        >
+          Operational exceptions
+        </a>
+      </div>
       <dl className="mt-6 grid gap-4 rounded-lg border border-slate-800 p-5 sm:grid-cols-2">
         <div><dt className="text-sm text-slate-400">Organization</dt><dd>{organization.name}</dd></div>
         <div><dt className="text-sm text-slate-400">Status</dt><dd>{organization.status}</dd></div>

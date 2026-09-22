@@ -20,11 +20,17 @@ Automated, neutral review collection and reputation management for local busines
 |---|---|
 | **Program** | **Market-Ready Build Program** authorized under `MPG-DEC-046` |
 | **Status** | V0.1 Technical Foundation Accepted (`MPG-DEC-045`); V0.2 Controlled Staging & Usability Proven Baseline |
-| **Current Milestone** | **MR-2 Customer Activation — COMPLETE / ACCEPTED; MR-3 Completion Source Platform is NEXT / NOT YET STARTED. MR-1B-H hosted domain validation remains deferred.** |
+| **Current Milestone** | **MR-4 COMPLETE / ACCEPTED (`MPG-DEC-048`); MR-5 PAUSED / INCOMPLETE; MR-6 Admin / Support / Observability ACTIVE NEXT (`MPG-DEC-049`). MR-1B-H hosted domain validation remains deferred.** |
 | **Commercial Release** | **GATED** — The product is NOT yet publicly launched; commercial release and marketing approval remain gated |
 | **Customer Messaging** | **OFF** — Live customer messaging remains disabled until separately authorized |
 
 ---
+
+## Current execution handoff
+
+MR-5 is **PAUSED AT SAFE ENGINEERING CHECKPOINT / EXTERNAL BILLING PROVIDER DEPENDENCY**, not complete or accepted. Checkpoint `d654656b59810877502d2e737dd236ae83b9c379` preserves billing persistence, signature/environment controls, durable webhook intake and the provider-truth organization resolver. MR-5C processor wiring, projection and recovery remain unfinished; MR-5D/E/F are deferred / paused. Billing-provider/account eligibility, verification and setup remain unresolved; Stripe has not been declared unavailable or automatically replaced.
+
+Under accepted `MPG-DEC-049`, MR-6 is the next active engineering milestone; this change prepares its [bounded execution handoff](docs/MR-6-EXECUTION-HANDOFF.md) without implementing it. MR-7 remains after MR-6. Remaining MR-5 work must resume when the external dependency is resolved and complete before any billing-dependent gate. MR-8 remains gated pending deliberate prerequisite reconciliation. Company Stage 1 remains active; Stage 2 and later stages remain inactive. Live billing, real charging, final pricing/terms, live messaging, pilot, lifecycle ACTIVE, marketing and launch remain unauthorized.
 
 ## Architecture Summary
 

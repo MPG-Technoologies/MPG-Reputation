@@ -5,11 +5,11 @@
 | Product | MPG Reputation (`PROD-REP-001`) |
 | Document | Market-Ready Product Development Engineering Roadmap |
 | Status | ACTIVE ENGINEERING EXECUTION PLAN |
-| Authority | `MPG-DEC-046` (Owner Direction recorded 2026-09-19) |
+| Authority | `MPG-DEC-046` through `MPG-DEC-049` (sequencing exception accepted 2026-09-22) |
 | Governance Source of Truth | `E:\MPG` (Company OS) |
 | Public Safe | Yes |
 
-This document defines the sequential engineering and operational build program for MPG Reputation to progress from the proven V0.2 controlled staging baseline into a fully market-ready product. 
+This document defines the sequential engineering and operational build program for MPG Reputation to progress from the proven V0.2 controlled staging baseline into a fully market-ready product.
 
 This is an **engineering execution specification**, not marketing copy. Inclusion in this roadmap authorizes architectural design, engineering development, and controlled synthetic/staging testing within bounded milestone limits. It **does not** imply that subsequent milestones are completed or that consequential launch/commercial gates have been passed.
 
@@ -33,16 +33,16 @@ This is an **engineering execution specification**, not marketing copy. Inclusio
 [MR-4: Trial / Usage / Economics] (COMPLETE / ACCEPTED — MPG-DEC-048)
        │
        ▼
-[MR-5: Billing] (ACTIVE — MPG-DEC-048)
+[MR-5: Billing] (SAFE CHECKPOINT; REMAINDER PAUSED / INCOMPLETE — MPG-DEC-049)
        │
        ▼
-[MR-6: Admin / Support / Observability]
+[MR-6: Admin / Support / Observability] (ACTIVE NEXT — MPG-DEC-049)
        │
        ▼
 [MR-7: Trust / Security / Compliance]
        │
        ▼
-[MR-8: Controlled Pilot]
+[MR-8: Controlled Pilot] (GATED; RECONCILE ALL PREREQUISITES INCLUDING MR-5)
        │
        ▼
 [MR-9: Product Website / Acquisition Funnel]
@@ -55,6 +55,14 @@ This is an **engineering execution specification**, not marketing copy. Inclusio
 ```
 
 Each transition is strictly evidence- and gate-controlled.
+
+### Accepted sequencing exception — MPG-DEC-049
+
+The original MR-0 through MR-11 sequence and dependency requirements remain the historical roadmap intent. The owner accepted a bounded exception on 2026-09-22: MR-5 safe checkpoint → remaining MR-5 PAUSED → MR-6 ACTIVE NEXT → MR-7 remains after MR-6 unless a later owner decision changes it. MR-5C remaining processor/projection/recovery and MR-5D/E/F resume when billing-provider/account eligibility, verification and setup are resolved; MR-5 must complete before any gate materially dependent on production billing or commercial charging. MR-8 remains gated until prerequisites are deliberately reconciled, including unfinished MR-5 and deferred MR-1B-H.
+
+Safe MR-5 checkpoint: `d654656b59810877502d2e737dd236ae83b9c379` (parent `8d6629aa70498fa13de19e43614c2d5f95b891f4`), verified synchronized to both product remotes before documentation work. This preserves completed billing work; it does not accept or close MR-5. Provider research may proceed separately. Stripe is not declared unavailable or automatically replaced. See [billing pause details](MR-5-BILLING-ARCHITECTURE.md) and [MR-6 execution handoff](MR-6-EXECUTION-HANDOFF.md).
+
+This exception does not activate Company Stage 2 or later stages, live Stripe billing, real customer charging, final pricing or commercial billing policy (including payment terms, refunds, discounts and grace periods), real-customer pilot, live messaging, lifecycle ACTIVE, marketing or public launch.
 
 ---
 
@@ -134,13 +142,13 @@ Each transition is strictly evidence- and gate-controlled.
 
 | Dimension | Specification |
 |---|---|
-| **Status** | **ACTIVE ENGINEERING MILESTONE** (`MPG-DEC-048`) |
+| **Status** | **PAUSED AT SAFE ENGINEERING CHECKPOINT / EXTERNAL BILLING PROVIDER DEPENDENCY** (`MPG-DEC-049`); **INCOMPLETE — not accepted or closed** |
 | **Objective** | Integrate Stripe for recurring subscription billing, payment collection, entitlement management, and automated dunning/cancellation workflows. |
-| **Dependencies** | MR-4 complete / accepted under `MPG-DEC-048`. Bounded billing architecture and test-mode implementation are authorized. Final pricing, plan limits, payment terms, refund policy, and live commercial enablement remain owner-gated. |
+| **Dependencies** | MR-4 complete / accepted under `MPG-DEC-048`. Bounded billing architecture and test-mode implementation were authorized under `MPG-DEC-048`; remaining implementation is now paused under `MPG-DEC-049`. Final pricing, plan limits, payment terms, refund policy, and live commercial enablement remain owner-gated. |
 | **Implementation Scope** | 1. Stripe Checkout integration for subscription checkout.<br>2. Stripe Customer Portal integration for card updates, invoice history, and cancellation.<br>3. Webhook handler (`/api/webhooks/stripe`) with cryptographic signature verification.<br>4. Subscription state synchronization (`trialing`, `active`, `past_due`, `canceled`, `unpaid`).<br>5. Automated grace period enforcement and automation suspension on payment failure. |
 | **Exit Evidence** | Stripe test suite passing; end-to-end checkout, renewal, card update, failed payment, and cancellation flows validated in Stripe test mode; zero RLS or webhook race conditions. |
 | **Explicit Non-Assumptions** | Pricing numbers remain hypotheses until formally authorized by the owner in Company OS. Engineering remains price-configurable and test-mode-first. Live Stripe mode, real-customer charging, final pricing, refund/commercial policy, public launch, and production customer messaging remain unauthorized. |
-| **Gate Required** | Bounded MR-5 engineering is authorized under `MPG-DEC-048`. A separate owner decision approving the commercial model, final prices, payment terms, refund policy, and live billing is required before consequential commercial enablement. |
+| **Gate Required** | Historical MR-5 engineering authority is `MPG-DEC-048`; `MPG-DEC-049` pauses the remaining implementation pending the external billing-provider dependency. Resume and complete remaining billing work before any materially billing-dependent gate. A separate owner decision approving the commercial model, final prices, payment terms, refund policy, and live billing is required before consequential commercial enablement. |
 
 ---
 
@@ -148,9 +156,9 @@ Each transition is strictly evidence- and gate-controlled.
 
 | Dimension | Specification |
 |---|---|
-| **Status** | PLANNED |
+| **Status** | **ACTIVE NEXT / EXECUTION HANDOFF PREPARED** (`MPG-DEC-049`); first feature not implemented by this reconciliation |
 | **Objective** | Build secure administrative and operational tooling for MPG staff to monitor product health, troubleshoot customer issues, and handle exceptions without direct database access. |
-| **Dependencies** | MR-1 through MR-5 complete. |
+| **Dependencies** | Original requirement: MR-1 through MR-5 complete. **Accepted `MPG-DEC-049` exception:** non-billing-dependent MR-6 work may proceed while MR-5 remains paused/incomplete and MR-1B-H remains deferred. This does not satisfy or waive those dependencies for later consequential gates. |
 | **Implementation Scope** | 1. Internal administrative console restricted by `MPG_ADMIN` role.<br>2. Organization and location search, inspection, and status audit view.<br>3. Deliverability telemetry dashboard (bounce rates, spam complaints, delivery latency).<br>4. Exception management queue for failed webhooks, broken destination URLs, and stuck workflows.<br>5. Audit logging for all administrative actions and support interventions. |
 | **Exit Evidence** | Operational walkthrough demonstrating resolution of common support scenarios (e.g. updating destination URL, investigating bounced email, reviewing usage) entirely via admin UI without SQL commands. |
 | **Explicit Non-Assumptions** | Admin tooling is internal-only and never exposed to business users; admin capabilities must not bypass tenant security controls or leak customer PII across organizations. |
@@ -164,7 +172,7 @@ Each transition is strictly evidence- and gate-controlled.
 |---|---|
 | **Status** | PLANNED |
 | **Objective** | Harden application security, enforce privacy standards, implement data lifecycle controls, and implement technical controls intended to support applicable US and Canadian messaging, privacy, and suppression requirements, subject to qualified legal review. |
-| **Dependencies** | MR-1 through MR-6 complete. |
+| **Dependencies** | Original requirement: MR-1 through MR-6 complete. MR-7 remains after MR-6 under the `MPG-DEC-049` sequence; reconcile incomplete MR-5 and deferred MR-1B-H explicitly before dependent MR-7 work or exit claims. MR-7 is not activated by this MR-6 preparation. |
 | **Implementation Scope** | 1. Comprehensive PostgreSQL RLS audit with negative penetration tests verifying complete cross-tenant denial.<br>2. Customer data retention, export, and deletion pipelines supporting data subject request workflows.<br>3. Cross-channel durable suppression registry ensuring unsubscribed contacts cannot be messaged by any trigger.<br>4. Technical requirements to evaluate for applicable US (e.g. CAN-SPAM) and Canadian (e.g. CASL) regimes as implementation candidates subject to jurisdiction and use-case review (physical business address in footer, clear sender identification, functional one-click unsubscribe, durable opt-out processing), not blanket legal conclusions.<br>5. Product Terms of Service and Privacy Policy technical enforcement controls. |
 | **Exit Evidence** | Automated penetration test report showing zero cross-tenant data leaks; verified end-to-end data deletion test; verified suppression check blocking sends to unsubscribed contacts; documented technical controls audit prepared for qualified legal review. |
 | **Explicit Non-Assumptions** | Technical compliance features do not substitute for qualified legal review (`REP-LEGAL-001`); technical controls are intended to support compliance requirements but cannot guarantee compliance without qualified legal/professional review; no compliance certification or legal approval is claimed; no health information (PHI/HIPAA) is ever accepted or stored. |
@@ -178,7 +186,7 @@ Each transition is strictly evidence- and gate-controlled.
 |---|---|
 | **Status** | PLANNED |
 | **Objective** | Execute a bounded, supervised pilot with a small, owner-approved bounded pilot cohort under controlled conditions to evaluate product reliability, deliverability, support burden, and operator feedback. |
-| **Dependencies** | MR-1 through MR-7 exit criteria verified; explicit owner pilot authorization (`REP-PILOT-001`). |
+| **Dependencies** | MR-1 through MR-7 exit criteria verified; explicitly reconcile incomplete MR-5 and deferred MR-1B-H before activation. `MPG-DEC-049` does not waive billing dependencies. Explicit owner pilot authorization (`REP-PILOT-001`) remains required. |
 | **Implementation Scope** | 1. Pilot participant onboarding package and participant agreements.<br>2. Supervised activation of a small, owner-approved bounded pilot cohort (final cohort size determined by operational capacity, legal/compliance readiness, support capacity, risk controls, and pilot objectives).<br>3. High-frequency monitoring of delivery, click-through, and review request accounting.<br>4. Structured feedback capture interviews with participating business operators.<br>5. Operational metrics report measuring support burden, error rates, and failure modes. |
 | **Exit Evidence** | Comprehensive pilot evaluation report documenting product reliability, deliverability evidence, support burden, operator/customer feedback, review-integrity compliance, observed failure modes, unit economics where measurable, and an explicit recommendation: proceed / revise / pause / stop. |
 | **Explicit Non-Assumptions** | Pilot is invitation-only under controlled supervision; does NOT constitute open public availability or general market release; pilot results are not pre-decided (a legitimate pilot may succeed, partially succeed, or disprove assumptions; no positive validation is guaranteed or assumed). |
@@ -230,7 +238,7 @@ Each transition is strictly evidence- and gate-controlled.
 
 ## Roadmap Governance Rules
 
-1. **Sequential Progression**: Milestones must be executed in order unless explicit owner authorization permits parallel preparation.
+1. **Sequential Progression**: Milestones follow the historical order unless explicit owner authorization changes sequencing. `MPG-DEC-049` is the accepted bounded MR-5 pause / MR-6 execution exception above; it does not waive billing-dependent gates.
 2. **Evidence Over Assertion**: No milestone may be marked completed without documented exit evidence satisfying its stated criteria.
 3. **Strict Gate Enforcement**: Reaching a milestone's development scope does not waive the required gate before consequential activation.
 4. **No Premature Implementation**: Do not build billing in MR-1, do not build public funnels in MR-3, and do not enable live messaging until authorized.

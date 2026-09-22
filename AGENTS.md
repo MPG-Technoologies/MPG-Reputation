@@ -7,9 +7,9 @@
 | Product / WIP subject | MPG Reputation / Review & Reputation Automation — `PROD-REP-001` |
 | Scope | Market-Ready Build Program (MR-0 through MR-11) |
 | Current Program | MPG Reputation Market-Ready Development |
-| Current Engineering Milestone | MR-3 — Completion Source Platform ACCEPTED (`MPG-DEC-047`); MR-4 — Trial / Usage / Economics COMPLETE / READY FOR OWNER REVIEW |
+| Current Engineering Milestone | MR-4 COMPLETE / ACCEPTED (`MPG-DEC-048`); MR-5 PAUSED / INCOMPLETE; MR-6 Admin / Support / Observability ACTIVE NEXT (`MPG-DEC-049`) |
 | Governance Source of Truth | `E:\MPG` (Company OS) |
-| Authority | `MPG-DEC-038` through `MPG-DEC-047` |
+| Authority | `MPG-DEC-038` through `MPG-DEC-049` |
 | Public Safe | Yes |
 
 These instructions apply to Codex, ChatGPT, Antigravity, Claude, Gemini, automated development tools, and all future agents working in this repository.
@@ -19,11 +19,13 @@ These instructions apply to Codex, ChatGPT, Antigravity, Claude, Gemini, automat
 1. **Company OS is the Governance Source of Truth**: Business intent, commercial scope, product authorization, stage boundaries, and governance decisions are defined in `E:\MPG`. This repository contains the technical implementation code.
 2. **Market-Ready Build Program Authorized**: Under `MPG-DEC-046` and `MPG-DEC-047`, MPG Reputation is developed independently through a complete market-ready build program (MR-0 through MR-11) before broad MPG company/brand development resumes.
 3. **Market-Ready STATUS is Not Yet Achieved**: Market-ready development is authorized, but market-ready STATUS is not yet achieved. Building commercial infrastructure does NOT itself grant `PILOT_READY`, `DELIVERY_READY`, `MARKET_APPROVED`, `ACTIVE`, marketing approval, public launch, real-customer messaging, final pricing, or legal/compliance approval.
-4. **MR-3 Completion Source Platform is ACCEPTED (`MPG-DEC-047`); MR-4 Trial / Usage / Economics is COMPLETE / READY FOR OWNER REVIEW; MR-5 Billing is NEXT / STRICTLY GATED**:
+4. **MR-4 is ACCEPTED (`MPG-DEC-048`); MR-5 is PAUSED AT SAFE ENGINEERING CHECKPOINT / EXTERNAL BILLING PROVIDER DEPENDENCY; MR-6 is ACTIVE NEXT (`MPG-DEC-049`)**:
    - Production messaging architecture (Resend email, domain authentication, bounce/complaint handling, delivery monitoring) is built with synthetic verification.
    - **LIVE customer messaging remains OFF** until separately authorized.
    - SMS remains strictly gated.
-   - Billing (Stripe) belongs to milestone MR-5 and must not be implemented prematurely.
+   - MR-5 remains INCOMPLETE, not accepted or closed. Preserve safe checkpoint `d654656b59810877502d2e737dd236ae83b9c379`; MR-5C processor/projection/recovery and MR-5D/E/F remain paused while billing-provider/account eligibility, verification and setup are unresolved. No automatic provider replacement.
+   - `MPG-DEC-049` permits non-billing-dependent MR-6 Admin / Support / Observability work before MR-5 completion. Follow `docs/MR-6-EXECUTION-HANDOFF.md`; do not restart billing. MR-7 remains after MR-6.
+   - Resume and complete remaining MR-5 before any gate materially dependent on production billing or commercial charging. MR-8 stays gated until prerequisites, including MR-5, are explicitly reconciled. No live billing, charging, final pricing/terms, pilot, lifecycle ACTIVE, marketing, launch or later Company Stage activation follows.
    - Do not prematurely implement unrelated roadmap phases.
 5. **No Unsupported Launch Claims**: Do not mark the product active, market-approved, delivery-ready, or publicly launched in code, documentation, or commits.
 

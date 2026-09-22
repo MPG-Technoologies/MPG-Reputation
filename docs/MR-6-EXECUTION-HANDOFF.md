@@ -315,3 +315,126 @@ MR-6B does not provide platform health telemetry or recovery mutations. The next
 MR-6C provides truthful read-only operational observability but does not provide support intervention. The next engineering slice is **MR-6D — bounded, explicitly allowlisted and audited support/recovery actions**.
 
 After MR-6D is implemented and stabilized, the functional internal admin workspace is ready for the separately controlled admin UI refinement stage. Visual refinement must not weaken authorization, audit, tenant isolation, minimized data contracts, read-only telemetry semantics or recovery-action safety.
+
+## 14. MR-6D local implementation evidence
+
+**Implementation status:** IMPLEMENTED AND VERIFIED LOCALLY on 2026-09-22. This does not close MR-6 and does not authorize hosted support rollout, live customer messaging, live billing, pilot operation, lifecycle ACTIVE, marketing, public launch, or Company Stage 2+.
+
+### Implemented scope
+
+- Added one bounded support recovery action for an explicitly targeted eligible `PENDING` `customer.completed` outbox event.
+- Recovery is limited to `customer.completed` records with aggregate type `customer_completion_event`.
+- A record is eligible only while `PENDING` and either already retried (`attempt_count > 0`) or old enough to qualify as stale under the existing operational queue threshold.
+- Added exact outbox-ID targeting to the existing dispatcher while preserving its existing organization and `PENDING` constraints.
+- Added mandatory `support.outbox_retry` REQUEST audit persistence before mutation.
+- Added mandatory RESULT audit persistence after mutation with fixed allowlisted outcomes and no raw provider error, payload, customer contact, token or free-text support notes.
+- Authorization is rechecked after inspection/request audit and immediately before mutation. The target record is reread before dispatch so a changed or no-longer-eligible record is not intentionally retried by the support action.
+- The result contract distinguishes `DISPATCHED`, `RETRY_FAILED`, `NO_LONGER_ELIGIBLE`, `OUTCOME_UNKNOWN`, `OUTCOME_UNAVAILABLE`, authorization denial and unavailable/precondition states.
+- If mutation may have occurred but the mandatory result audit cannot be persisted, the action returns `OUTCOME_UNAVAILABLE` rather than claiming a successful audited result.
+- Added a server action requiring explicit confirmation before invoking the bounded recovery operation.
+- Added the recovery control only to eligible RETRYING or STALE `customer.completed` exception rows. FAILED outbox records and non-allowlisted exception categories remain non-actionable.
+- No webhook replay, FAILED-state reset, bulk outbox recovery, review-request resend, billing mutation, arbitrary event replay or generalized support mutation was added.
+
+### Browser acceptance
+
+Synthetic browser acceptance was completed against the local environment.
+
+The selected RETRYING target was manually recovered through the MR-6D support control and changed from `PENDING` with `attempt_count = 2` to `DISPATCHED` with `attempt_count = 3`.
+
+The manual action persisted exactly two `support.outbox_retry` audit records for the target:
+
+- REQUEST / REQUESTED
+- RESULT / DISPATCHED
+
+Both audit records carried the same server-generated action ID.
+
+A separate STALE sibling received no `support.outbox_retry` audit from the manual action. It remained visible immediately after the targeted browser recovery and was subsequently dispatched by the pre-existing five-minute automatic outbox recovery job. Inngest logs showed the scheduled timer and sibling dispatch at the later recovery boundary.
+
+The FAILED control record remained FAILED and was not made recoverable by MR-6D.
+
+This acceptance also confirmed that the existing automatic recovery worker can race with synthetic PENDING browser fixtures. MR-6D therefore relies on its exact-target eligibility recheck and truthful changed/outcome states rather than assuming a PENDING fixture remains stationary while an operator is viewing the queue.
+
+### Automated recovery safety coverage
+
+`test/integration/support-recovery.test.ts` adds seven real local-database integration scenarios covering:
+
+1. exact eligible target dispatch while leaving another eligible pending event untouched by the support action;
+2. invalid, foreign, fresh and FAILED target rejection without dispatch;
+3. fail-closed behavior when the support grant is absent;
+4. mandatory REQUEST audit persistence before mutation;
+5. authorization recheck before mutation;
+6. dispatch failure returning `RETRY_FAILED` without leaking provider error detail; and
+7. successful dispatch with failed mandatory RESULT audit returning `OUTCOME_UNAVAILABLE`.
+
+The existing automatic outbox recovery integration test continued to pass.
+
+### Local acceptance and engineering gates
+
+MR-6D passed the following final local gates:
+
+- targeted recovery safety tests passed;
+- browser recovery acceptance passed;
+- corrected controlled full regression passed: **56 test files, 669 tests**;
+- `next typegen` passed;
+- `pnpm lint` passed;
+- `pnpm typecheck` passed;
+- local Supabase schema lint passed with no schema errors;
+- `pnpm build` passed and included the internal inspection, exception and health routes;
+- `git diff --check` passed;
+- `.gitignore` remained untouched.
+
+An earlier full-regression attempt produced four `ECONNREFUSED 127.0.0.1:3000` failures after the acceptance harness had stopped the Next.js development server. Those tests explicitly depend on the live local HTTP server. The server was restored and both affected suites passed before the complete 56-file / 669-test regression was rerun successfully.
+
+No Inngest dev server was required for the final full regression. Expected immediate Inngest dispatch failures in tests continued to fall back to the existing durable outbox behavior.
+
+### Synthetic acceptance cleanup
+
+MR-6D used fixed synthetic IDs for browser acceptance. During cleanup, one proposed completion-event ID was found to collide with a pre-existing MR-6B synthetic fixture:
+
+- source: `mr6b_browser_fixture`
+- source event: `mr6b-browser-failure-v1`
+- associated FAILED review request remained part of the MR-6B exception-queue fixture.
+
+Cleanup therefore failed closed instead of deleting the collided record.
+
+A targeted cleanup subsequently:
+
+- preserved the MR-6B completion fixture;
+- preserved the MR-6B FAILED review-request fixture;
+- removed eight MR-6D workflow audit artifacts;
+- removed two MR-6D `support.outbox_retry` audit artifacts;
+- removed two MR-6D usage rows and any directly linked cost rows;
+- removed the three MR-6D outbox fixture rows or verified they were already absent; and
+- left the source worktree unchanged.
+
+Future synthetic browser fixtures should use slice-specific non-overlapping ID namespaces rather than reusing fixed IDs across MR-6 slices.
+
+### Security and operational limits
+
+MR-6D does not create a generalized administrative mutation backend. It does not permit arbitrary replay, payload editing, provider-webhook reconstruction, FAILED-state rewriting, tenant bypass, impersonation, billing recovery or bulk actions.
+
+The support action continues to require the existing MR-6A access contract: authenticated identity, current tenant membership and an explicit current `MPG_ADMIN` grant.
+
+The recovery audit contains only fixed server-authored metadata required to correlate one action. Provider errors and customer payloads are not exposed through the support result.
+
+Automatic scheduled outbox recovery remains active product behavior and may independently process eligible PENDING records. The support action is an additional narrowly targeted operational recovery path, not a replacement for the automatic worker.
+
+### Remaining MR-6 work
+
+The functional MR-6A through MR-6D internal admin/support workspace is now ready for the separately controlled **admin UI refinement stage**.
+
+That refinement may improve layout, hierarchy, navigation, status presentation, tables, responsive behavior, accessibility and operator usability, but must not weaken or redesign:
+
+- support authorization;
+- tenant isolation;
+- audit requirements;
+- minimized support DTOs;
+- health/exception truth semantics;
+- recovery eligibility;
+- exact-target dispatch;
+- confirmation requirements; or
+- recovery result handling.
+
+After UI refinement is validated, **MR-6E — final acceptance, regression, durable documentation and owner review** remains before MR-6 can be considered complete.
+
+MR-5 remains paused under the accepted provider/account dependency and is not resumed by MR-6D.

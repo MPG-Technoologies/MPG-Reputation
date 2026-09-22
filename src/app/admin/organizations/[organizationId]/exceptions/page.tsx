@@ -1,7 +1,95 @@
 import { headers } from 'next/headers'
 import { getSupportExceptionQueue } from '@/lib/support/exception-queue'
+import { retryOutboxExceptionAction } from './actions'
 
 export const dynamic = 'force-dynamic'
+
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function recoveryNotice(
+  status: string | undefined
+): {
+  className: string
+  message: string
+} | null {
+  switch (status) {
+    case 'DISPATCHED':
+      return {
+        className:
+          'border-emerald-800 bg-emerald-950/30 text-emerald-200',
+        message:
+          'The eligible pending outbox event was dispatched. The refreshed queue reflects the latest stored state.',
+      }
+
+    case 'RETRY_FAILED':
+      return {
+        className:
+          'border-amber-800 bg-amber-950/30 text-amber-200',
+        message:
+          'The retry attempt failed and the event remains pending. Raw provider or transport errors are not displayed here.',
+      }
+
+    case 'NO_LONGER_ELIGIBLE':
+      return {
+        className:
+          'border-slate-700 bg-slate-900 text-slate-300',
+        message:
+          'The record changed before mutation and was no longer eligible for the bounded retry.',
+      }
+
+    case 'OUTCOME_UNKNOWN':
+      return {
+        className:
+          'border-amber-800 bg-amber-950/30 text-amber-200',
+        message:
+          'The recovery outcome could not be confirmed. Do not retry blindly; inspect the refreshed queue and audit action ID.',
+      }
+
+    case 'OUTCOME_UNAVAILABLE':
+      return {
+        className:
+          'border-amber-800 bg-amber-950/30 text-amber-200',
+        message:
+          'The action may have occurred, but the mandatory result audit could not be confirmed. Do not retry blindly.',
+      }
+
+    case 'UNAVAILABLE':
+      return {
+        className:
+          'border-red-900 bg-red-950/30 text-red-200',
+        message:
+          'Recovery could not proceed because a required support dependency was unavailable.',
+      }
+
+    case 'NOT_ELIGIBLE':
+      return {
+        className:
+          'border-slate-700 bg-slate-900 text-slate-300',
+        message:
+          'That record is not eligible for the bounded recovery action.',
+      }
+
+    case 'DENIED':
+      return {
+        className:
+          'border-red-900 bg-red-950/30 text-red-200',
+        message:
+          'Support authorization was not current when the recovery action ran.',
+      }
+
+    case 'CONFIRMATION_REQUIRED':
+      return {
+        className:
+          'border-amber-800 bg-amber-950/30 text-amber-200',
+        message:
+          'Explicit retry confirmation is required before this support action can run.',
+      }
+
+    default:
+      return null
+  }
+}
 
 function ageLabel(ageMinutes: number): string {
   if (ageMinutes < 60) {
@@ -18,8 +106,13 @@ function ageLabel(ageMinutes: number): string {
 
 export default async function SupportExceptionsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ organizationId: string }>
+  searchParams: Promise<{
+    recovery?: string | string[]
+    action?: string | string[]
+  }>
 }) {
   const requestHeaders = await headers()
 
@@ -37,6 +130,26 @@ export default async function SupportExceptionsPage({
   }
 
   const { organizationId } = await params
+
+  const query = await searchParams
+
+  const recovery =
+    typeof query.recovery === 'string'
+      ? query.recovery
+      : undefined
+
+  const action =
+    typeof query.action === 'string'
+      ? query.action
+      : undefined
+
+  const notice =
+    recoveryNotice(recovery)
+
+  const safeActionId =
+    action && UUID.test(action)
+      ? action
+      : null
 
   const result = await getSupportExceptionQueue(
     organizationId
@@ -89,8 +202,11 @@ export default async function SupportExceptionsPage({
           </h1>
 
           <p className="mt-2 max-w-3xl text-sm text-slate-400">
-            Read-only operational signals requiring inspection.
-            Recovery actions are intentionally unavailable in MR-6B.
+            Operational signals requiring inspection. MR-6D permits
+            only one audited retry of an eligible pending
+            customer.completed outbox record. Webhook replay, FAILED
+            reset, bulk recovery, review-request resend, and billing
+            mutation remain unavailable.
           </p>
         </div>
 
@@ -113,6 +229,23 @@ export default async function SupportExceptionsPage({
           </a>
         </nav>
       </div>
+
+      {notice && (
+        <div
+          role="status"
+          className={`mt-6 rounded-lg border p-4 text-sm ${notice.className}`}
+        >
+          <p>
+            {notice.message}
+          </p>
+
+          {safeActionId && (
+            <p className="mt-2 break-all font-mono text-xs">
+              Action ID: {safeActionId}
+            </p>
+          )}
+        </div>
+      )}
 
       <dl className="mt-6 grid gap-4 sm:grid-cols-4">
         <div className="rounded-lg border border-slate-800 p-4">
@@ -211,6 +344,7 @@ export default async function SupportExceptionsPage({
                   <th scope="col" className="p-4">Aggregate</th>
                   <th scope="col" className="p-4">Attempts</th>
                   <th scope="col" className="p-4">Age</th>
+                  <th scope="col" className="p-4">Recovery</th>
                 </tr>
               </thead>
 
@@ -244,6 +378,52 @@ export default async function SupportExceptionsPage({
 
                     <td className="p-4">
                       {ageLabel(item.ageMinutes)}
+                    </td>
+
+                    <td className="p-4">
+                      {(
+                        (
+                          item.kind === 'RETRYING' ||
+                          item.kind === 'STALE'
+                        ) &&
+                        item.eventType === 'customer.completed' &&
+                        item.aggregateType ===
+                          'customer_completion_event'
+                      ) ? (
+                        <form
+                          action={retryOutboxExceptionAction.bind(
+                            null,
+                            organizationId,
+                            item.id
+                          )}
+                          className="min-w-48 space-y-2"
+                        >
+                          <label className="flex items-start gap-2 text-xs text-slate-400">
+                            <input
+                              type="checkbox"
+                              name="confirmation"
+                              value="retry"
+                              required
+                              className="mt-0.5"
+                            />
+
+                            <span>
+                              Confirm one bounded retry
+                            </span>
+                          </label>
+
+                          <button
+                            type="submit"
+                            className="rounded-md border border-slate-600 px-3 py-2 text-xs font-medium text-slate-100 hover:border-slate-400 hover:bg-slate-900"
+                          >
+                            Retry pending event
+                          </button>
+                        </form>
+                      ) : (
+                        <span className="text-xs text-slate-500">
+                          Not available
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

@@ -438,3 +438,182 @@ That refinement may improve layout, hierarchy, navigation, status presentation, 
 After UI refinement is validated, **MR-6E — final acceptance, regression, durable documentation and owner review** remains before MR-6 can be considered complete.
 
 MR-5 remains paused under the accepted provider/account dependency and is not resumed by MR-6D.
+
+## 15. Admin UI refinement evidence
+
+**Implementation status:** IMPLEMENTED, REVIEWED AND SYNCHRONIZED on 2026-09-24 at commit `e83ce38d22cb7e94825c8737ae38c7d592714e76` (`refactor(admin): refine internal operations UI`).
+
+The refinement was presentation and operator-usability work only. It did not intentionally redesign or weaken the MR-6 authorization, tenant-isolation, audit, minimized DTO, telemetry-truth or bounded-recovery contracts.
+
+### Refined scope
+
+The accepted UI refinement changed exactly six application files:
+
+- `src/app/admin/layout.tsx`
+- `src/app/admin/organizations/[organizationId]/page.tsx`
+- `src/app/admin/organizations/[organizationId]/health/page.tsx`
+- `src/app/admin/organizations/[organizationId]/exceptions/page.tsx`
+- `src/components/admin/admin-ui.tsx`
+- `src/components/admin/admin-ui.module.css`
+
+The refinement added a consistent internal operations shell, organization context, Inspection / Health / Exceptions navigation, reusable presentational primitives, clearer status presentation, compact operational tables, responsive behavior, accessibility improvements and restrained internal-operations styling.
+
+No support authorization implementation, support-grant logic, recovery action implementation, audit persistence contract, dispatcher behavior, database migration, billing behavior, email/provider behavior, webhook behavior or tenant boundary was intentionally changed by the refinement.
+
+### Recovery and truth-contract preservation
+
+The exceptions view preserved the MR-6D bounded recovery contract:
+
+- only RETRYING or STALE `customer.completed` records with aggregate type `customer_completion_event` are eligible;
+- the action remains bound to the selected organization and exact outbox event ID;
+- explicit confirmation remains required with `confirmation=retry`;
+- the visible confirmation remains `Confirm one bounded retry`;
+- the action remains `Retry pending event`;
+- non-eligible records remain non-actionable;
+- no webhook replay, FAILED reset, bulk recovery, review-request resend, billing mutation or generalized support mutation was introduced.
+
+The health view continues to treat missing telemetry as unknown/unavailable rather than healthy and does not invent a deliverability percentage without a cohort-safe denominator.
+
+### UI validation
+
+The refinement was reviewed against the MR-6D checkpoint and browser-checked across desktop and mobile layouts.
+
+Validation included:
+
+- organization inspection;
+- operational health;
+- operational exceptions;
+- reciprocal navigation;
+- bounded recovery controls;
+- recovery-result notices;
+- empty states;
+- denied and unavailable states;
+- responsive layouts;
+- semantic tables/headings;
+- visible keyboard focus;
+- accessible labels and interaction targets.
+
+The six-file refinement was committed cleanly and synchronized to both the company mirror and isolated Vercel staging source at the same commit SHA.
+
+## 16. MR-6E final acceptance evidence
+
+**Engineering status:** FINAL LOCAL ENGINEERING VALIDATION PASSED on 2026-09-24.
+
+**Owner status:** REVIEW PENDING. This evidence does not by itself mark MR-6 ACCEPTED, activate MR-7, authorize real support operations or change Company OS stage/status.
+
+### Final regression
+
+The final regression was run against the accepted UI checkpoint:
+
+`e83ce38d22cb7e94825c8737ae38c7d592714e76`
+
+Two parallel full-suite attempts using `--maxWorkers=4` each produced one different isolated integration failure:
+
+1. `stripe-webhook-claim.test.ts` — one billing webhook claim scenario;
+2. `outbox-recovery.test.ts` — one automatic outbox recovery scenario.
+
+Each affected test passed immediately when rerun independently with one worker:
+
+- Stripe webhook claim suite: 8 / 8 passed;
+- automatic outbox recovery suite: 1 / 1 passed.
+
+Because the failures moved between unrelated real-database integration tests under parallel local execution, the acceptance run was repeated deterministically with one worker.
+
+The complete serial regression:
+
+`pnpm exec vitest run --maxWorkers=1`
+
+passed successfully.
+
+No product code was changed to suppress, skip or weaken either test.
+
+The parallel-run observation is treated as local shared-test-environment contention evidence, not as authorization to ignore deterministic failures. Future test-infrastructure work may improve isolation or concurrency safety separately.
+
+### Final engineering gates
+
+MR-6E passed:
+
+- `next typegen`;
+- `pnpm lint`;
+- `pnpm typecheck`;
+- deterministic complete Vitest regression with `--maxWorkers=1`;
+- local Supabase schema lint with no schema errors;
+- `pnpm build`;
+- `git diff --check`;
+- `.gitignore` unchanged;
+- final clean-worktree verification.
+
+The Supabase CLI was not available globally on PATH during the first schema-lint attempt. The required local lint was therefore run temporarily with:
+
+`pnpm dlx supabase@2.117.0 db lint --local`
+
+It reported:
+
+`No schema errors found`
+
+and did not modify the repository.
+
+### Production-build evidence
+
+The final Next.js 16.3.5 production build compiled successfully.
+
+The build route inventory included all three dynamic internal support routes:
+
+- `/admin/organizations/[organizationId]`
+- `/admin/organizations/[organizationId]/exceptions`
+- `/admin/organizations/[organizationId]/health`
+
+The final verified repository HEAD remained:
+
+`e83ce38d22cb7e94825c8737ae38c7d592714e76`
+
+and the worktree remained clean after the engineering gates.
+
+### MR-6 capability boundary at owner review
+
+MR-6 now has local engineering evidence for:
+
+- explicit internal `MPG_ADMIN` support authorization layered on current tenant membership;
+- bounded organization/location inspection;
+- mandatory support inspection auditing;
+- truthful operational exception visibility;
+- truthful health and deliverability telemetry;
+- minimized support-facing data contracts;
+- one explicitly allowlisted, exact-target, audited outbox recovery action;
+- internal admin workspace navigation and operator-focused UI;
+- final deterministic regression and production-build validation.
+
+MR-6 still does **not** establish a generalized administrative backend, unrestricted tenant access, impersonation, arbitrary mutation, billing recovery, bulk replay, FAILED-state rewriting, customer support ticketing, SLA commitments or cross-tenant aggregation.
+
+### Authorization boundary
+
+This engineering evidence does not authorize:
+
+- real support-grant rollout;
+- production customer support operations;
+- live billing or charging;
+- live customer messaging;
+- controlled pilot operation;
+- lifecycle ACTIVE;
+- public marketing;
+- public launch;
+- Company Stage 2 or later activation.
+
+MR-5 remains paused under the accepted billing-provider/account dependency.
+
+MR-7 Trust & Compliance must not be treated as activated until the owner explicitly accepts MR-6 completion and the Company OS source-of-truth documentation is reconciled.
+
+### Owner review gate
+
+The engineering work for MR-6A through MR-6E is ready for owner review.
+
+The next governance action is an explicit owner decision to either:
+
+- **ACCEPT MR-6 COMPLETE**, after which the Company OS project status and decision register should be updated and MR-7 may be activated under the accepted roadmap; or
+- keep MR-6 open with a specifically identified remaining requirement.
+
+No milestone transition is implied until that owner decision is made.
+
+### Backlog observation
+
+The Vite warning concerning future `configLoader: 'native'` behavior remains a non-blocking development-tooling compatibility item. It did not fail the accepted regression and should be handled separately rather than expanding MR-6 scope.

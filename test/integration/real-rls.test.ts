@@ -683,4 +683,110 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
     expect(selOutboxErr).toBeNull()
     expect(selOutbox).toHaveLength(1)
   })
+
+  it('enforces MR-7B.1 suppression delete restriction: authenticated users cannot delete suppressions; service_role can (Scenarios 25-29)', async () => {
+    // Insert a suppression in Org A via adminClient (service_role)
+    const contactHash = `hash_${Date.now()}_test`
+    const { data: supp, error: suppErr } = await adminClient.from('suppressions').insert({
+      organization_id: orgAId,
+      channel: 'email',
+      contact_hash: contactHash,
+      reason: 'UNSUBSCRIBE',
+    }).select('id').single()
+    expect(suppErr).toBeNull()
+    expect(supp).toBeDefined()
+
+    // 25. OWNER cannot directly DELETE suppression
+    const { data: ownerDel } = await userAClient.from('suppressions').delete().eq('id', supp!.id).select()
+    expect(ownerDel).toEqual([])
+
+    // 26. ADMIN cannot directly DELETE suppression
+    const { data: adminDel } = await adminUserClient.from('suppressions').delete().eq('id', supp!.id).select()
+    expect(adminDel).toEqual([])
+
+    // 27. OPERATOR cannot DELETE suppression
+    const { data: opDel } = await operatorClient.from('suppressions').delete().eq('id', supp!.id).select()
+    expect(opDel).toEqual([])
+
+    // 28. VIEWER cannot DELETE suppression
+    const { data: viDel } = await viewerClient.from('suppressions').delete().eq('id', supp!.id).select()
+    expect(viDel).toEqual([])
+
+    // Verify suppression still exists
+    const { data: stillExists } = await adminClient.from('suppressions').select('id').eq('id', supp!.id).maybeSingle()
+    expect(stillExists).toBeDefined()
+
+    // 29. service-role workflow remains capable of system-level correction if explicitly required
+    const { data: serviceDel, error: serviceDelErr } = await adminClient.from('suppressions').delete().eq('id', supp!.id).select()
+    expect(serviceDelErr).toBeNull()
+    expect(serviceDel).toHaveLength(1)
+  })
+
+  it('enforces MR-7B.1 messaging_authority_evidence RLS: system-controlled, tenants cannot mutate, cross-tenant isolation (Scenarios 30-33)', async () => {
+    // Create customer and completion in Org A
+    const { data: cust } = await adminClient.from('customers').insert({
+      organization_id: orgAId,
+      location_id: locAId,
+      first_name: 'Mae',
+      last_name: 'Evidence',
+      email: `mae.${Date.now()}@example.test`,
+    }).select('id').single()
+
+    const { data: cce } = await adminClient.from('customer_completion_events').insert({
+      organization_id: orgAId,
+      location_id: locAId,
+      customer_id: cust!.id,
+      source: 'quick_complete',
+      source_event_id: `mae_event_${Date.now()}`,
+      contact: { email: `mae.${Date.now()}@example.test` },
+      permission: { email: 'allowed' },
+    }).select('id').single()
+
+    // 30. authenticated tenant user cannot directly INSERT evidence
+    const { error: insErr } = await userAClient.from('messaging_authority_evidence').insert({
+      organization_id: orgAId,
+      customer_id: cust!.id,
+      completion_event_id: cce!.id,
+      channel: 'email',
+      asserted_state: 'allowed',
+      assertion_kind: 'OPERATIONAL_PERMISSION_STATE',
+      permission_source: 'forged',
+      completion_source: 'forged',
+      source_event_id: 'forged',
+    })
+    expect(insErr).not.toBeNull()
+    expect(insErr?.code).toBe('42501')
+
+    // Find any existing evidence created by trigger
+    const { data: existingEvidence } = await adminClient.from('messaging_authority_evidence')
+      .select('id')
+      .eq('completion_event_id', cce!.id)
+      .limit(1)
+
+    if (existingEvidence && existingEvidence.length > 0) {
+      const evidenceId = existingEvidence[0].id
+
+      // 31. authenticated tenant user cannot UPDATE evidence
+      const { data: upData } = await userAClient.from('messaging_authority_evidence').update({
+        asserted_state: 'denied',
+      }).eq('id', evidenceId).select()
+      expect(upData).toEqual([])
+
+      // 32. authenticated tenant user cannot DELETE evidence
+      const { data: delData } = await userAClient.from('messaging_authority_evidence').delete().eq('id', evidenceId).select()
+      expect(delData).toEqual([])
+
+      // 33. cross-tenant access remains impossible: userBClient cannot see or mutate Org A evidence
+      const { data: crossSelect } = await userBClient.from('messaging_authority_evidence').select('id').eq('id', evidenceId)
+      expect(crossSelect).toEqual([])
+
+      const { data: crossUpdate } = await userBClient.from('messaging_authority_evidence').update({
+        asserted_state: 'unknown',
+      }).eq('id', evidenceId).select()
+      expect(crossUpdate).toEqual([])
+
+      const { data: crossDelete } = await userBClient.from('messaging_authority_evidence').delete().eq('id', evidenceId).select()
+      expect(crossDelete).toEqual([])
+    }
+  })
 });

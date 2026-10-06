@@ -85,6 +85,49 @@ describe('MR-7B.1 Authority Evidence Foundation & Send-Time Suppression Invarian
       })
     })
 
+    it('returns NO_CONTACT when customer email is malformed (missing @, invalid structure)', async () => {
+      const mockSupabase = {
+        from: vi.fn().mockImplementation((table: string) => {
+          if (table === 'customers') {
+            return {
+              select: () => ({
+                eq: () => ({
+                  eq: () => ({
+                    eq: () => ({
+                      maybeSingle: async () => ({
+                        data: {
+                          id: 'cust_malformed',
+                          first_name: 'Taylor',
+                          email: 'not-an-email-address',
+                          permission_email: 'allowed',
+                        },
+                        error: null,
+                      }),
+                    }),
+                  }),
+                }),
+              }),
+            }
+          }
+          throw new Error(`Unexpected table ${table}`)
+        }),
+      } as unknown as ReturnType<typeof createAdminClient>
+
+      const result = await checkFinalEmailDispatchAuthority({
+        supabase: mockSupabase,
+        organizationId: 'org_1',
+        locationId: 'loc_1',
+        customerId: 'cust_malformed',
+      })
+
+      expect(result).toEqual({
+        allowed: false,
+        decision: 'NO_CONTACT',
+        customerEmail: null,
+        customerName: 'Taylor',
+      })
+    })
+
     it('returns SUPPRESSED when contact hash matches active suppression in organization', async () => {
       const email = 'patient@example.test'
       const suppressionHash = hashSuppressionContact('email', email)
@@ -785,6 +828,46 @@ describe('MR-7B.1 Authority Evidence Foundation & Send-Time Suppression Invarian
 
       expect(reminderCheck.allowed).toBe(false)
       expect(reminderCheck.decision).toBe('EMAIL_PERMISSION_DENIED')
+    })
+
+    it('regression: customer initially has valid allowed email, fresh send-time value becomes malformed -> blocks dispatch and provider is not called', async () => {
+      const mockSupabase = {
+        from: vi.fn().mockImplementation((table: string) => {
+          if (table === 'customers') {
+            return {
+              select: () => ({
+                eq: () => ({
+                  eq: () => ({
+                    eq: () => ({
+                      maybeSingle: async () => ({
+                        data: {
+                          id: 'cust_reg',
+                          first_name: 'Casey',
+                          email: 'corrupted-email-without-at',
+                          permission_email: 'allowed',
+                        },
+                        error: null,
+                      }),
+                    }),
+                  }),
+                }),
+              }),
+            }
+          }
+          throw new Error(`Unexpected table ${table}`)
+        }),
+      } as unknown as ReturnType<typeof createAdminClient>
+
+      const authority = await checkFinalEmailDispatchAuthority({
+        supabase: mockSupabase,
+        organizationId: 'org_reg',
+        locationId: 'loc_reg',
+        customerId: 'cust_reg',
+      })
+
+      expect(authority.allowed).toBe(false)
+      expect(authority.decision).toBe('NO_CONTACT')
+      expect(authority.customerEmail).toBeNull()
     })
   })
 })

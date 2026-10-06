@@ -34,6 +34,15 @@ describe('MR-7B.1 Integration: Database Authority Evidence & Send Invariant', ()
       .single()
     if (orgErr || !org) throw new Error(`Org setup failed: ${orgErr?.message}`)
 
+    await supabase.rpc('provision_organization_trial', {
+      p_org_id: org.id,
+      p_max_requests: 30,
+      p_duration_days: 30,
+    })
+    await supabase.rpc('activate_organization_trial', {
+      p_org_id: org.id,
+    })
+
     const { data: loc, error: locErr } = await supabase
       .from('locations')
       .insert({
@@ -216,6 +225,89 @@ describe('MR-7B.1 Integration: Database Authority Evidence & Send Invariant', ()
 
       expect(authority.allowed).toBe(false)
       expect(authority.decision).toBe('EMAIL_PERMISSION_DENIED')
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+
+  it('regression: customer initially has valid allowed email, fresh send-time value becomes malformed -> blocks dispatch and provider is not called', async () => {
+    if (!isDbAvailable) return
+
+    const fixture = await createFixture('send_race_malformed')
+    try {
+      // 1. Customer initially has valid allowed email in database and event
+      expect(fixture.email).toContain('@')
+
+      // Step runner that mutates customer email right before dispatch-review-email executes
+      let corruptedBeforeDispatch = false
+      const raceStep = {
+        run: async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+          if (name === 'dispatch-review-email' && !corruptedBeforeDispatch) {
+            corruptedBeforeDispatch = true
+            // Mutate database directly to simulate concurrent edit/malformed update right before dispatch
+            await supabase
+              .from('customers')
+              .update({ email: 'corrupted-invalid-email-no-domain' })
+              .eq('id', fixture.customerId)
+          }
+          return fn()
+        },
+        sleep: async (): Promise<void> => {},
+      }
+
+      // 2. Direct check before corruption proves initial eligibility
+      const authorityBefore = await checkFinalEmailDispatchAuthority({
+        supabase,
+        organizationId: fixture.orgId,
+        locationId: fixture.locId,
+        customerId: fixture.customerId,
+      })
+      expect(authorityBefore.allowed).toBe(true)
+      expect(authorityBefore.decision).toBe('ELIGIBLE')
+
+      // 3. Workflow execution: passes initial eligibility, but final authority check catches malformed email right before send
+      const result = await executeReviewRequestHandler({
+        event: { data: fixture.eventData },
+        step: raceStep,
+      })
+
+      expect(corruptedBeforeDispatch).toBe(true)
+      expect(result.processed).toBe(false)
+      expect(result.reason).toBe('aborted_due_to_ineligibility')
+
+      // 4. Final authority check blocked dispatch with NO_CONTACT
+      const authorityAfter = await checkFinalEmailDispatchAuthority({
+        supabase,
+        organizationId: fixture.orgId,
+        locationId: fixture.locId,
+        customerId: fixture.customerId,
+      })
+      expect(authorityAfter.allowed).toBe(false)
+      expect(authorityAfter.decision).toBe('NO_CONTACT')
+      expect(authorityAfter.customerEmail).toBeNull()
+
+      // 5. Review request transitioned to CANCELLED instead of SENT/DELIVERED
+      const { data: req } = await supabase
+        .from('review_requests')
+        .select('id, status, cancelled_at, sent_at')
+        .eq('completion_event_id', fixture.cceId)
+        .maybeSingle()
+
+      expect(req?.status).toBe('CANCELLED')
+      expect(req?.cancelled_at).not.toBeNull()
+      expect(req?.sent_at).toBeNull()
+
+      // 6. Audit event recorded dispatch_blocked with NO_CONTACT (and ZERO PII)
+      const { data: auditEvents } = await supabase
+        .from('audit_events')
+        .select('*')
+        .eq('entity_id', req!.id)
+        .eq('event_type', 'review_request.dispatch_blocked')
+
+      expect(auditEvents).toHaveLength(1)
+      expect(auditEvents![0].metadata).toMatchObject({
+        decision: 'NO_CONTACT',
+      })
     } finally {
       await fixture.cleanup()
     }

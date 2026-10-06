@@ -3,7 +3,7 @@ import { evaluateReviewEligibility } from '@/domain/eligibility'
 import { generateTrackingToken, buildTrackedReviewUrl } from '@/domain/tracking'
 import { generateUnsubscribeToken, buildUnsubscribeUrl } from '@/domain/unsubscribe'
 import { composeReviewRequestEmail, composeReviewReminderEmail } from '@/domain/email'
-import { getEmailProvider } from '@/providers/email'
+import { getEmailProvider, isValidEmailAddress } from '@/providers/email'
 import { hashSuppressionContact } from '@/domain/suppression'
 import { getWorkflowTimingPolicy, isRequestEligibleForReminder } from '@/domain/reminder'
 import { ALLOW_REMINDERS_AFTER_EXPIRATION, deriveTrialLifecycle } from '@/domain/entitlement'
@@ -74,7 +74,7 @@ export async function checkFinalEmailDispatchAuthority({
   }
 
   const rawEmail = cust.email?.trim() || ''
-  if (!rawEmail) {
+  if (!rawEmail || !isValidEmailAddress(rawEmail)) {
     return {
       allowed: false,
       decision: 'NO_CONTACT',

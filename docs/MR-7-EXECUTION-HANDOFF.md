@@ -114,15 +114,24 @@ CREATE TABLE IF NOT EXISTS public.messaging_authority_evidence (
 - `idx_mae_org_customer_channel_created` on `(organization_id, customer_id, channel, created_at DESC)`
 - `idx_mae_org_completion_event` on `(organization_id, completion_event_id)`
 
-### 2.3 Row Level Security (RLS)
+### 2.3 Row Level Security (RLS) & Privilege Boundaries
 - `ALTER TABLE public.messaging_authority_evidence ENABLE ROW LEVEL SECURITY;`
-- Service-role and system-controlled by default.
-- Authenticated tenant users and anonymous callers have zero direct `INSERT`, `UPDATE`, or `DELETE` grants or policies.
-- Prevents cross-tenant leakage or mutation of audit authority records.
+- Strictly **SYSTEM / SERVICE-ROLE CONTROLLED**.
+- Table permissions are explicitly revoked from `PUBLIC`, `anon`, and `authenticated`:
+  ```sql
+  REVOKE ALL ON public.messaging_authority_evidence FROM PUBLIC, anon, authenticated;
+  GRANT ALL ON public.messaging_authority_evidence TO service_role;
+  ```
+- Authenticated tenant users and anonymous callers have zero access (`SELECT`, `INSERT`, `UPDATE`, `DELETE` are completely denied with error `42501`).
+- Eliminates cross-tenant inspection, leakage, or tampering of messaging authority evidence.
 
-### 2.4 Suppression Policy Hardening
+### 2.4 Suppression Policy & Privilege Hardening
 - `DROP POLICY IF EXISTS sup_delete ON public.suppressions;`
-- Authenticated users (OWNER, ADMIN, OPERATOR, VIEWER) cannot delete suppression rows directly from client or API queries.
+- Explicit privilege revoke:
+  ```sql
+  REVOKE DELETE ON public.suppressions FROM authenticated;
+  ```
+- Authenticated users (OWNER, ADMIN, OPERATOR, VIEWER) cannot delete suppression rows directly from client or API queries (denied with error `42501`).
 - Public unsubscribe insertion and lookup remain fully operational.
 
 ### 2.5 Trigger on `customer_completion_events`

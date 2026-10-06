@@ -98,15 +98,19 @@ ON public.messaging_authority_evidence (
     completion_event_id
 );
 
--- 2. RLS: messaging_authority_evidence
--- Service-role / system-controlled by default.
--- Authenticated tenant users and anon have no direct INSERT, UPDATE, or DELETE access.
+-- 2. RLS & Privileges: messaging_authority_evidence
+-- Strictly service-role / system-controlled.
+-- Explicitly revoke all table permissions from PUBLIC, anon, and authenticated.
 ALTER TABLE public.messaging_authority_evidence ENABLE ROW LEVEL SECURITY;
 
--- 3. Hardening: Drop sup_delete policy on public.suppressions
+REVOKE ALL ON public.messaging_authority_evidence FROM PUBLIC, anon, authenticated;
+GRANT ALL ON public.messaging_authority_evidence TO service_role;
+
+-- 3. Hardening: Drop sup_delete policy and REVOKE DELETE on public.suppressions
 -- Prevents OWNER and ADMIN from directly deleting suppression rows.
 -- Suppression removal requires explicit, audited re-authorization workflows.
 DROP POLICY IF EXISTS sup_delete ON public.suppressions;
+REVOKE DELETE ON public.suppressions FROM authenticated;
 
 -- 4. Authority Evidence Capture Trigger Function
 CREATE OR REPLACE FUNCTION public.record_messaging_authority_evidence_from_completion()

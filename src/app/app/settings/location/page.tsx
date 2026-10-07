@@ -6,6 +6,8 @@ import { Panel, PanelHeader } from '@/components/layout/panels'
 import { MapPinIcon } from '@/components/ui/icons'
 import { DataLoadError } from '@/components/ui/data-load-error'
 
+import { LocationItem } from './location-item'
+
 export default async function LocationSettingsPage() {
   const supabase = await createClient()
   const {
@@ -75,36 +77,12 @@ export default async function LocationSettingsPage() {
               </div>
             ) : (
               locations.map((loc) => (
-                <div
+                <LocationItem
                   key={loc.id}
-                  className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#131E38]/40 transition-colors"
-                >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-white text-sm">{loc.name}</h3>
-                      <span
-                        className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${
-                          loc.status === 'ACTIVE'
-                            ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800/80'
-                            : 'bg-slate-800 text-slate-400 border-slate-700'
-                        }`}
-                      >
-                        {loc.status}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1">
-                      {loc.address || 'No business mailing address configured'}
-                    </p>
-                    {loc.review_reply_to_email && (
-                      <p className="text-xs text-sky-400 mt-1 font-mono">
-                        Reply-To: {loc.review_reply_to_email}
-                      </p>
-                    )}
-                    <span className="text-[11px] text-slate-500 mt-1.5 block">
-                      {loc.country} • {loc.timezone}
-                    </span>
-                  </div>
-                </div>
+                  organizationId={orgId}
+                  location={loc}
+                  canManage={canManage}
+                />
               ))
             )}
           </div>

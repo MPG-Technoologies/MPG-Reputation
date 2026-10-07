@@ -6,7 +6,6 @@ import {
   type ReviewRequestEventData,
 } from '../../src/inngest/functions/review-request'
 import * as emailProviderModule from '../../src/providers/email'
-import type { Database } from '../../src/types/database'
 
 describe('MR-7B.2 Integration: Sender Identity & Compliance Footer Invariant', () => {
   const supabase = createAdminClient()
@@ -358,6 +357,7 @@ describe('MR-7B.2 Integration: Sender Identity & Compliance Footer Invariant', (
 
         // Both initial and reminder dispatches succeed when address is valid
         expect(sendMock).toHaveBeenCalledTimes(2)
+        expect(capturedPayload).not.toBeNull()
         const initialPayload = sendMock.mock.calls[0][0] as emailProviderModule.SendEmailInput
         const reminderPayload = sendMock.mock.calls[1][0] as emailProviderModule.SendEmailInput
 
@@ -445,6 +445,7 @@ describe('MR-7B.2 Integration: Sender Identity & Compliance Footer Invariant', (
         })
 
         expect(sendMock).toHaveBeenCalled()
+        expect(retryPayload).not.toBeNull()
         const retryCall = sendMock.mock.calls[0][0] as emailProviderModule.SendEmailInput
         expect(retryCall.html).toContain('Business address: 999 Newly Configured Ave, Denver, CO 80202')
         expect(retryCall.text).toContain('999 Newly Configured Ave, Denver, CO 80202')

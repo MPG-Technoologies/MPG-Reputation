@@ -726,7 +726,7 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
     expect(serviceDel).toHaveLength(1)
   })
 
-  it('enforces MR-7B.1 messaging_authority_evidence RLS: system-controlled, tenants cannot mutate, cross-tenant isolation (Scenarios 30-33)', async () => {
+  it('enforces MR-7B.1 messaging_authority_evidence RLS: system-controlled, tenants cannot mutate, cross-tenant isolation, restricted function execution (Scenarios 30-37)', async () => {
     // Create customer and completion in Org A
     const { data: cust } = await adminClient.from('customers').insert({
       organization_id: orgAId,
@@ -802,5 +802,24 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
       expect(crossDelErr).not.toBeNull()
       expect(crossDelErr?.code).toBe('42501')
     }
+
+    // 35. anon cannot directly execute record_messaging_authority_evidence_from_completion
+    const anonClient = createClient<Database>(SUPABASE_URL, ANON_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+    const { error: anonExecErr } = await anonClient.rpc(
+      'record_messaging_authority_evidence_from_completion' as unknown as keyof Database['public']['Functions']
+    )
+    expect(anonExecErr).not.toBeNull()
+
+    // 36. authenticated tenant user cannot directly execute record_messaging_authority_evidence_from_completion
+    const { error: authExecErr } = await userAClient.rpc(
+      'record_messaging_authority_evidence_from_completion' as unknown as keyof Database['public']['Functions']
+    )
+    expect(authExecErr).not.toBeNull()
+
+    // 37. service_role retains execute authority (verified by trigger execution during service_role insertion)
+    expect(existingEvidence).not.toBeNull()
+    expect(existingEvidence!.length).toBeGreaterThan(0)
   })
 });

@@ -235,6 +235,14 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION
+public.record_messaging_authority_evidence_from_completion()
+FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION
+public.record_messaging_authority_evidence_from_completion()
+TO service_role;
+
 DROP TRIGGER IF EXISTS trg_record_messaging_authority_evidence ON public.customer_completion_events;
 
 CREATE TRIGGER trg_record_messaging_authority_evidence

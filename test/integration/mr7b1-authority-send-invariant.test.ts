@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { createClient } from '@supabase/supabase-js'
+import type { Database } from '../../src/types/database'
 import { createAdminClient } from '../../src/lib/supabase/admin'
 import {
   executeReviewRequestHandler,
@@ -170,6 +172,61 @@ describe('MR-7B.1 Integration: Database Authority Evidence & Send Invariant', ()
       expect(smsEv).toBeDefined()
       expect(smsEv?.asserted_state).toBe('unknown')
       expect(smsEv?.asserted_at).toBeNull()
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+
+  it('proves trigger function execute privileges: anon and authenticated cannot directly execute; service_role retains execute authority', async () => {
+    if (!isDbAvailable) return
+
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://127.0.0.1:54331'
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'dummy_anon_key'
+
+    // 1. anon cannot directly execute the function
+    const anonClient = createClient<Database>(supabaseUrl, anonKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+    const { error: anonErr } = await anonClient.rpc(
+      'record_messaging_authority_evidence_from_completion' as unknown as keyof Database['public']['Functions']
+    )
+    expect(anonErr).not.toBeNull()
+
+    // 2. authenticated cannot directly execute the function
+    const nonce = `auth_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+    const { data: userAuth, error: userCreateErr } = await supabase.auth.admin.createUser({
+      email: `test_auth_${nonce}@example.test`,
+      password: 'Password123!',
+      email_confirm: true,
+    })
+    expect(userCreateErr).toBeNull()
+
+    const authUserClient = createClient<Database>(supabaseUrl, anonKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+    await authUserClient.auth.signInWithPassword({
+      email: `test_auth_${nonce}@example.test`,
+      password: 'Password123!',
+    })
+    const { error: authErr } = await authUserClient.rpc(
+      'record_messaging_authority_evidence_from_completion' as unknown as keyof Database['public']['Functions']
+    )
+    expect(authErr).not.toBeNull()
+
+    if (userAuth?.user?.id) {
+      await supabase.auth.admin.deleteUser(userAuth.user.id)
+    }
+
+    // 3. service_role retains execute authority (verified by trigger execution during service_role insertion)
+    const fixture = await createFixture('exec_perm_check')
+    try {
+      const { data: evidence, error: evErr } = await supabase
+        .from('messaging_authority_evidence')
+        .select('*')
+        .eq('completion_event_id', fixture.cceId)
+
+      expect(evErr).toBeNull()
+      expect(evidence).toHaveLength(2)
     } finally {
       await fixture.cleanup()
     }

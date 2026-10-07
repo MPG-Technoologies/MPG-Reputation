@@ -349,4 +349,142 @@ describe.skipIf(!isDbAvailable)('Location Reply-To Authorization & Tenant Isolat
 
     expect(loc?.review_reply_to_email).toBe('admin-reply@northstar-a.test')
   })
+
+  it('6a. authorized same-organization OWNER address configuration succeeds and normalizes', async () => {
+    activeClient = ownerClient
+
+    const formData = new FormData()
+    formData.append('organizationId', orgAId)
+    formData.append('locationId', locAId)
+    formData.append('address', '  123 Main St\r\nSuite 100\tCity, CO 80202  ')
+
+    const result = await updateLocationSettings(formData)
+    expect(result.success).toBe(true)
+
+    // Verify DB update
+    const { data: loc } = await adminClient
+      .from('locations')
+      .select('address')
+      .eq('id', locAId)
+      .single()
+
+    expect(loc?.address).toBe('123 Main St Suite 100 City, CO 80202')
+
+    // Verify audit event exists and does NOT contain postal address
+    const { data: audits } = await adminClient
+      .from('audit_events')
+      .select('*')
+      .eq('organization_id', orgAId)
+      .eq('event_type', 'location.updated')
+      .eq('entity_id', locAId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    expect(audits?.[0]?.metadata).not.toHaveProperty('address')
+  })
+
+  it('6b. authorized same-organization ADMIN address configuration succeeds', async () => {
+    activeClient = adminUserClient
+
+    const formData = new FormData()
+    formData.append('organizationId', orgAId)
+    formData.append('locationId', locAId)
+    formData.append('address', '789 Admin Blvd, Suite 300, Denver, CO 80202')
+
+    const result = await updateLocationSettings(formData)
+    expect(result.success).toBe(true)
+
+    const { data: loc } = await adminClient
+      .from('locations')
+      .select('address')
+      .eq('id', locAId)
+      .single()
+
+    expect(loc?.address).toBe('789 Admin Blvd, Suite 300, Denver, CO 80202')
+  })
+
+  it('6c. unauthorized OPERATOR cannot update location address', async () => {
+    activeClient = operatorClient
+
+    const formData = new FormData()
+    formData.append('organizationId', orgAId)
+    formData.append('locationId', locAId)
+    formData.append('address', 'Hacked Address')
+
+    const result = await updateLocationSettings(formData)
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/Access denied: Only owners and administrators/)
+
+    const { data: loc } = await adminClient
+      .from('locations')
+      .select('address')
+      .eq('id', locAId)
+      .single()
+
+    expect(loc?.address).toBe('789 Admin Blvd, Suite 300, Denver, CO 80202')
+  })
+
+  it('6d. unauthorized VIEWER cannot update location address', async () => {
+    activeClient = viewerClient
+
+    const formData = new FormData()
+    formData.append('organizationId', orgAId)
+    formData.append('locationId', locAId)
+    formData.append('address', 'Viewer Hack Address')
+
+    const result = await updateLocationSettings(formData)
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/Access denied: Only owners and administrators/)
+
+    const { data: loc } = await adminClient
+      .from('locations')
+      .select('address')
+      .eq('id', locAId)
+      .single()
+
+    expect(loc?.address).toBe('789 Admin Blvd, Suite 300, Denver, CO 80202')
+  })
+
+  it('6e. cross-organization user cannot update location address', async () => {
+    activeClient = orgBClient
+
+    const formData = new FormData()
+    formData.append('organizationId', orgAId)
+    formData.append('locationId', locAId)
+    formData.append('address', 'Cross Org Address')
+
+    const result = await updateLocationSettings(formData)
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/Access denied: You are not a member of this organization/)
+
+    const { data: loc } = await adminClient
+      .from('locations')
+      .select('address')
+      .eq('id', locAId)
+      .single()
+
+    expect(loc?.address).toBe('789 Admin Blvd, Suite 300, Denver, CO 80202')
+  })
+
+  it('6f. control characters in address are sanitized safely', async () => {
+    activeClient = ownerClient
+
+    const formData = new FormData()
+    formData.append('organizationId', orgAId)
+    formData.append('locationId', locAId)
+    formData.append('address', 'Safe Street\0\x1f Suite 100')
+
+    const result = await updateLocationSettings(formData)
+    expect(result.success).toBe(true)
+
+    const { data: loc } = await adminClient
+      .from('locations')
+      .select('address')
+      .eq('id', locAId)
+      .single()
+
+    expect(loc?.address).toBe('Safe Street Suite 100')
+    expect(loc?.address).not.toContain('\0')
+    expect(loc?.address).not.toContain('\x1f')
+  })
 })

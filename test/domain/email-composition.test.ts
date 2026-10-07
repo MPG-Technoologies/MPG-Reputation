@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
   composeReviewRequestEmail,
+  composeReviewReminderEmail,
   extractCustomerFirstName,
   sanitizeDisplayName,
   formatSenderIdentity,
   sanitizeReplyToEmail,
+  sanitizePostalAddress,
 } from '../../src/domain/email'
 
 describe('Email Composition & Neutrality (MR-1B Section 20)', () => {
@@ -222,5 +224,124 @@ describe('Email Composition & Neutrality (MR-1B Section 20)', () => {
         fromAddress: 'invalid-email-format',
       })
     }).toThrow(/Valid fromAddress is required for sender identity/)
+  })
+
+  describe('MR-7B.2: Postal Address & Compliance Footer Enforcements', () => {
+    it('20. sanitizePostalAddress normalizes whitespace, trims, and strips control characters', () => {
+      expect(sanitizePostalAddress('   123 Main St,\tSuite 100\r\nCity, ST 12345   ')).toBe(
+        '123 Main St, Suite 100 City, ST 12345'
+      )
+      expect(sanitizePostalAddress('Northstar Dental\0\x1f Suite 400')).toBe('Northstar Dental Suite 400')
+      expect(sanitizePostalAddress(null)).toBeNull()
+      expect(sanitizePostalAddress(undefined)).toBeNull()
+      expect(sanitizePostalAddress('   \r\n\t  ')).toBeNull()
+      expect(sanitizePostalAddress('')).toBeNull()
+    })
+
+    it('21. sanitizePostalAddress enforces 300 character bound without throwing', () => {
+      const veryLong = 'A'.repeat(350)
+      const sanitized = sanitizePostalAddress(veryLong)
+      expect(sanitized).toHaveLength(300)
+    })
+
+    it('22. sanitizePostalAddress supports international addresses', () => {
+      const ukAddress = '10 Downing St, Westminster, London SW1A 2AA, United Kingdom'
+      expect(sanitizePostalAddress(ukAddress)).toBe(ukAddress)
+
+      const jpAddress = '1-1-2 Otemachi, Chiyoda-ku, Tokyo 100-0004, Japan'
+      expect(sanitizePostalAddress(jpAddress)).toBe(jpAddress)
+    })
+
+    it('23. Valid postal address renders in initial HTML footer with delivery attribution and unsubscribe', () => {
+      const email = composeReviewRequestEmail({
+        ...baseInput,
+        businessPostalAddress: '456 Healthcare Way, Suite 200, Denver, CO 80202',
+      })
+
+      expect(email.html).toContain('This review request was sent on behalf of Northstar Dental.<br>')
+      expect(email.html).toContain('Business address: 456 Healthcare Way, Suite 200, Denver, CO 80202')
+      expect(email.html).toContain('Delivered using MPG Reputation.')
+      expect(email.html).toContain('https://mpg-reputation.local/unsubscribe/unsub_xyz_789')
+      expect(email.html).toContain('opt out of future review-request emails')
+    })
+
+    it('24. Valid postal address renders in initial plain text footer with full address', () => {
+      const email = composeReviewRequestEmail({
+        ...baseInput,
+        businessPostalAddress: '456 Healthcare Way, Suite 200, Denver, CO 80202',
+      })
+
+      expect(email.text).toContain('This review request was sent on behalf of Northstar Dental.')
+      expect(email.text).toContain('Business address:\n456 Healthcare Way, Suite 200, Denver, CO 80202')
+      expect(email.text).toContain('Delivered using MPG Reputation.')
+      expect(email.text).toContain('To stop future review-request emails from Northstar Dental:')
+      expect(email.text).toContain('https://mpg-reputation.local/unsubscribe/unsub_xyz_789')
+    })
+
+    it('25. Reminder HTML email renders identical business and postal address footer', () => {
+      const email = composeReviewReminderEmail({
+        ...baseInput,
+        businessPostalAddress: '456 Healthcare Way, Suite 200, Denver, CO 80202',
+      })
+
+      expect(email.html).toContain('This review request was sent on behalf of Northstar Dental.<br>')
+      expect(email.html).toContain('Business address: 456 Healthcare Way, Suite 200, Denver, CO 80202')
+      expect(email.html).toContain('Delivered using MPG Reputation.')
+      expect(email.html).toContain('https://mpg-reputation.local/unsubscribe/unsub_xyz_789')
+    })
+
+    it('26. Reminder plain text email renders identical business and postal address footer', () => {
+      const email = composeReviewReminderEmail({
+        ...baseInput,
+        businessPostalAddress: '456 Healthcare Way, Suite 200, Denver, CO 80202',
+      })
+
+      expect(email.text).toContain('This review request was sent on behalf of Northstar Dental.')
+      expect(email.text).toContain('Business address:\n456 Healthcare Way, Suite 200, Denver, CO 80202')
+      expect(email.text).toContain('Delivered using MPG Reputation.')
+      expect(email.text).toContain('To stop future review-request emails from Northstar Dental:')
+      expect(email.text).toContain('https://mpg-reputation.local/unsubscribe/unsub_xyz_789')
+    })
+
+    it('27. Dangerous characters in postal address are escaped in HTML and stripped of control sequences', () => {
+      const dangerousAddress = '<script>alert("hack")</script> & "Suite" 100\r\nCity'
+      const email = composeReviewRequestEmail({
+        ...baseInput,
+        businessPostalAddress: dangerousAddress,
+      })
+
+      expect(email.html).not.toContain('<script>')
+      expect(email.html).toContain('&lt;script&gt;alert(&quot;hack&quot;)&lt;/script&gt; &amp; &quot;Suite&quot; 100 City')
+      expect(email.text).toContain('<script>alert("hack")</script> & "Suite" 100 City')
+    })
+
+    it('28. Missing postal address remains safe for synthetic composition', () => {
+      const email = composeReviewRequestEmail({
+        ...baseInput,
+        businessPostalAddress: null,
+      })
+
+      expect(email.html).toContain('This review request was sent on behalf of Northstar Dental using MPG Reputation.')
+      expect(email.text).toContain('This review request was sent on behalf of Northstar Dental using MPG Reputation.')
+      expect(email.html).not.toContain('Business address:')
+      expect(email.text).not.toContain('Business address:')
+    })
+
+    it('29. Neutral wording, unsubscribe headers, and Reply-To remain intact with address', () => {
+      const email = composeReviewRequestEmail({
+        ...baseInput,
+        businessPostalAddress: '100 Clinic Blvd, Toronto, ON M5V 1A1',
+        replyToEmail: 'inquiries@northstar.test',
+      })
+
+      expect(email.replyTo).toBe('inquiries@northstar.test')
+      expect(email.headers['List-Unsubscribe']).toBe('<https://mpg-reputation.local/unsubscribe/unsub_xyz_789>')
+      expect(email.headers['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click')
+
+      const combined = (email.subject + ' ' + email.html + ' ' + email.text).toLowerCase()
+      expect(combined).not.toContain('5-star')
+      expect(combined).not.toContain('guarantee')
+      expect(combined).not.toContain('incentive')
+    })
   })
 })

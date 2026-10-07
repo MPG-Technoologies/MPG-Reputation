@@ -4,13 +4,16 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sanitizeReplyToEmail } from '@/domain/email'
+import { sanitizeReplyToEmail, sanitizePostalAddress } from '@/domain/email'
 import type { Database } from '@/types/database'
 
 export async function createLocation(formData: FormData): Promise<void> {
   const organizationId = formData.get('organizationId') as string
   const name = (formData.get('name') as string)?.trim()
-  const address = (formData.get('address') as string)?.trim() || null
+  const rawAddress = formData.get('address') !== null
+    ? (formData.get('address') as string)
+    : null
+  const address = rawAddress !== null ? sanitizePostalAddress(rawAddress) : null
   const rawReplyTo = (formData.get('reviewReplyToEmail') as string) || null
 
   if (!organizationId || !name) {
@@ -93,9 +96,10 @@ export async function updateLocationSettings(
   const name = formData.get('name') !== null
     ? (formData.get('name') as string).trim()
     : null
-  const address = formData.get('address') !== null
-    ? (formData.get('address') as string).trim()
+  const rawAddress = formData.get('address') !== null
+    ? (formData.get('address') as string)
     : null
+  const address = rawAddress !== null ? sanitizePostalAddress(rawAddress) : null
 
   if (!organizationId || !locationId) {
     return { success: false, error: 'Organization ID and Location ID are required' }

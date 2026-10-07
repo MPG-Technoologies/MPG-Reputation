@@ -572,6 +572,90 @@ export interface Database {
         }
         Relationships: []
       }
+      messaging_authority_evidence: {
+        Row: {
+          id: string
+          organization_id: string
+          customer_id: string
+          completion_event_id: string
+          channel: 'email' | 'sms'
+          asserted_state: 'allowed' | 'unknown' | 'denied'
+          assertion_kind: 'OPERATIONAL_PERMISSION_STATE'
+          permission_source: string
+          completion_source: string
+          source_event_id: string
+          country: string | null
+          asserted_at: string | null
+          observed_at: string
+          basis_type: string | null
+          capture_method: string | null
+          evidence_reference: string | null
+          policy_version: string | null
+          actor_type: string
+          actor_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          customer_id: string
+          completion_event_id: string
+          channel: 'email' | 'sms'
+          asserted_state: 'allowed' | 'unknown' | 'denied'
+          assertion_kind?: 'OPERATIONAL_PERMISSION_STATE'
+          permission_source: string
+          completion_source: string
+          source_event_id: string
+          country?: string | null
+          asserted_at?: string | null
+          observed_at?: string
+          basis_type?: string | null
+          capture_method?: string | null
+          evidence_reference?: string | null
+          policy_version?: string | null
+          actor_type?: string
+          actor_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          customer_id?: string
+          completion_event_id?: string
+          channel?: 'email' | 'sms'
+          asserted_state?: 'allowed' | 'unknown' | 'denied'
+          assertion_kind?: 'OPERATIONAL_PERMISSION_STATE'
+          permission_source?: string
+          completion_source?: string
+          source_event_id?: string
+          country?: string | null
+          asserted_at?: string | null
+          observed_at?: string
+          basis_type?: string | null
+          capture_method?: string | null
+          evidence_reference?: string | null
+          policy_version?: string | null
+          actor_type?: string
+          actor_id?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'fk_mae_customer'
+            columns: ['customer_id', 'organization_id']
+            isOneToOne: false
+            referencedRelation: 'customers'
+            referencedColumns: ['id', 'organization_id']
+          },
+          {
+            foreignKeyName: 'fk_mae_completion'
+            columns: ['completion_event_id', 'organization_id']
+            isOneToOne: false
+            referencedRelation: 'customer_completion_events'
+            referencedColumns: ['id', 'organization_id']
+          },
+        ]
+      }
       organization_usage: {
         Row: {
           id: string

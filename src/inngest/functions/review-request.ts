@@ -3,7 +3,7 @@ import { evaluateReviewEligibility } from '@/domain/eligibility'
 import { generateTrackingToken, buildTrackedReviewUrl } from '@/domain/tracking'
 import { generateUnsubscribeToken, buildUnsubscribeUrl } from '@/domain/unsubscribe'
 import { composeReviewRequestEmail, composeReviewReminderEmail } from '@/domain/email'
-import { getEmailProvider } from '@/providers/email'
+import { getEmailProvider, isValidEmailAddress } from '@/providers/email'
 import { hashSuppressionContact } from '@/domain/suppression'
 import { getWorkflowTimingPolicy, isRequestEligibleForReminder } from '@/domain/reminder'
 import { ALLOW_REMINDERS_AFTER_EXPIRATION, deriveTrialLifecycle } from '@/domain/entitlement'
@@ -19,6 +19,120 @@ export interface ReviewRequestEventData {
   country?: string
   contact?: { email?: string; phone?: string }
   permission?: { email?: string; sms?: string; source?: string }
+}
+
+export type FinalEmailDispatchAuthorityDecision =
+  | 'ELIGIBLE'
+  | 'NO_CONTACT'
+  | 'EMAIL_PERMISSION_DENIED'
+  | 'EMAIL_PERMISSION_UNKNOWN'
+  | 'SUPPRESSED'
+
+export interface FinalEmailDispatchAuthorityResult {
+  allowed: boolean
+  decision: FinalEmailDispatchAuthorityDecision
+  customerEmail: string | null
+  customerName: string | null
+}
+
+/**
+ * MR-7B.1: Final Email Dispatch Authority & Suppression Invariant
+ * Freshly re-reads current permission + suppression from the database source of truth
+ * immediately before every provider email invocation (initial, retry, and reminder).
+ */
+export async function checkFinalEmailDispatchAuthority({
+  supabase,
+  organizationId,
+  locationId,
+  customerId,
+}: {
+  supabase: ReturnType<typeof createAdminClient>
+  organizationId: string
+  locationId: string
+  customerId: string
+}): Promise<FinalEmailDispatchAuthorityResult> {
+  // 1. Freshly retrieve the customer from the database
+  const { data: cust, error: customerError } = await supabase
+    .from('customers')
+    .select('id, first_name, email, permission_email')
+    .eq('id', customerId)
+    .eq('organization_id', organizationId)
+    .eq('location_id', locationId)
+    .maybeSingle()
+
+  if (customerError) {
+    throw new Error(`Final authority customer lookup failed: ${customerError.message}`)
+  }
+
+  if (!cust) {
+    return {
+      allowed: false,
+      decision: 'NO_CONTACT',
+      customerEmail: null,
+      customerName: null,
+    }
+  }
+
+  const rawEmail = cust.email?.trim() || ''
+  if (!rawEmail || !isValidEmailAddress(rawEmail)) {
+    return {
+      allowed: false,
+      decision: 'NO_CONTACT',
+      customerEmail: null,
+      customerName: cust.first_name || null,
+    }
+  }
+
+  const normalizedEmail = rawEmail.toLowerCase()
+
+  // 2. Check current suppression using standardized SHA-256 contact hash
+  const suppressionHash = hashSuppressionContact('email', normalizedEmail)
+  const { data: suppression, error: suppressionError } = await supabase
+    .from('suppressions')
+    .select('id')
+    .eq('organization_id', organizationId)
+    .eq('channel', 'email')
+    .eq('contact_hash', suppressionHash)
+    .maybeSingle()
+
+  if (suppressionError) {
+    throw new Error(`Final authority suppression lookup failed: ${suppressionError.message}`)
+  }
+
+  if (suppression) {
+    return {
+      allowed: false,
+      decision: 'SUPPRESSED',
+      customerEmail: normalizedEmail,
+      customerName: cust.first_name || null,
+    }
+  }
+
+  // 3. Check current permission_email
+  if (cust.permission_email === 'denied') {
+    return {
+      allowed: false,
+      decision: 'EMAIL_PERMISSION_DENIED',
+      customerEmail: normalizedEmail,
+      customerName: cust.first_name || null,
+    }
+  }
+
+  if (cust.permission_email !== 'allowed') {
+    return {
+      allowed: false,
+      decision: 'EMAIL_PERMISSION_UNKNOWN',
+      customerEmail: normalizedEmail,
+      customerName: cust.first_name || null,
+    }
+  }
+
+  return {
+    allowed: true,
+    decision: 'ELIGIBLE',
+    customerEmail: normalizedEmail,
+    customerName: cust.first_name || null,
+  }
 }
 
 export async function executeReviewRequestHandler({
@@ -484,6 +598,61 @@ export async function executeReviewRequestHandler({
         }
       }
 
+      // MR-7B.1: Final send authority & suppression invariant
+      // Re-read current permission + suppression immediately after claiming SENDING and BEFORE provider dispatch
+      const finalAuthority = await checkFinalEmailDispatchAuthority({
+        supabase,
+        organizationId,
+        locationId,
+        customerId,
+      })
+
+      if (!finalAuthority.allowed) {
+        if (finalAuthority.decision === 'SUPPRESSED') {
+          await supabase
+            .from('review_requests')
+            .update({
+              status: 'SUPPRESSED',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', reviewRequestId)
+        } else {
+          // NO_CONTACT, EMAIL_PERMISSION_DENIED, EMAIL_PERMISSION_UNKNOWN
+          await supabase
+            .from('review_requests')
+            .update({
+              status: 'CANCELLED',
+              cancelled_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', reviewRequestId)
+        }
+
+        // Bounded audit event: operational metadata only, ZERO PII
+        await supabase.from('audit_events').insert({
+          organization_id: organizationId,
+          actor_type: 'system',
+          event_type: 'review_request.dispatch_blocked',
+          entity_type: 'review_request',
+          entity_id: reviewRequestId,
+          metadata: {
+            reviewRequestId,
+            stage: 'initial',
+            decision: finalAuthority.decision,
+          },
+        })
+
+        return {
+          success: false,
+          aborted: true,
+          provider: 'abort',
+          messageId: `dispatch_blocked_${finalAuthority.decision.toLowerCase()}`,
+        }
+      }
+
+      const freshCustomerEmail = finalAuthority.customerEmail!
+      const recipientName = finalAuthority.customerName || postDelayCheck.customerName || 'there'
+
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
       const trackingUrl = buildTrackedReviewUrl(appUrl, reviewRequestToken)
       const unsubscribeUrl = buildUnsubscribeUrl(appUrl, reviewRequestUnsubscribeToken)
@@ -491,7 +660,7 @@ export async function executeReviewRequestHandler({
 
       const composed = composeReviewRequestEmail({
         businessName: postDelayCheck.businessName || 'our business',
-        customerFirstName: postDelayCheck.customerName,
+        customerFirstName: recipientName,
         reviewUrl: trackingUrl,
         unsubscribeUrl,
         replyToEmail: postDelayCheck.reviewReplyToEmail,
@@ -514,8 +683,8 @@ export async function executeReviewRequestHandler({
 
       try {
         const result = await emailProvider.send({
-          to: postDelayCheck.customerEmail!,
-          recipientName: postDelayCheck.customerName || 'there',
+          to: freshCustomerEmail,
+          recipientName,
           businessName: postDelayCheck.businessName || 'our business',
           trackingUrl,
           unsubscribeUrl,
@@ -795,6 +964,42 @@ export async function executeReviewRequestHandler({
         }
       }
 
+      // MR-7B.1: Final reminder authority & suppression invariant
+      // Re-read current permission + suppression immediately before reminder provider invocation
+      const finalAuthority = await checkFinalEmailDispatchAuthority({
+        supabase,
+        organizationId,
+        locationId,
+        customerId,
+      })
+
+      if (!finalAuthority.allowed) {
+        // Invariant: DO NOT regress SENT, DELIVERED, or CLICKED status!
+        // reminded_at remains NULL.
+        // Record bounded audit event: zero PII
+        await supabase.from('audit_events').insert({
+          organization_id: organizationId,
+          actor_type: 'system',
+          event_type: 'review_request.reminder_blocked',
+          entity_type: 'review_request',
+          entity_id: reviewRequestId,
+          metadata: {
+            reviewRequestId,
+            decision: finalAuthority.decision,
+          },
+        })
+
+        return {
+          success: false,
+          aborted: true,
+          provider: 'abort',
+          messageId: `reminder_blocked_${finalAuthority.decision.toLowerCase()}`,
+        }
+      }
+
+      const freshReminderEmail = finalAuthority.customerEmail!
+      const reminderRecipientName = finalAuthority.customerName || preReminderCheck.customerName || 'there'
+
       // 2. Compose neutral reminder email
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
       const trackingUrl = buildTrackedReviewUrl(appUrl, reviewRequestToken)
@@ -803,7 +1008,7 @@ export async function executeReviewRequestHandler({
 
       const composed = composeReviewReminderEmail({
         businessName: preReminderCheck.businessName || 'our business',
-        customerFirstName: preReminderCheck.customerName,
+        customerFirstName: reminderRecipientName,
         reviewUrl: trackingUrl,
         unsubscribeUrl,
         replyToEmail: preReminderCheck.reviewReplyToEmail,
@@ -826,8 +1031,8 @@ export async function executeReviewRequestHandler({
 
       try {
         const result = await emailProvider.send({
-          to: preReminderCheck.customerEmail!,
-          recipientName: preReminderCheck.customerName || 'there',
+          to: freshReminderEmail,
+          recipientName: reminderRecipientName,
           businessName: preReminderCheck.businessName || 'our business',
           trackingUrl,
           unsubscribeUrl,

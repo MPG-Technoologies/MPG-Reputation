@@ -683,4 +683,143 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
     expect(selOutboxErr).toBeNull()
     expect(selOutbox).toHaveLength(1)
   })
+
+  it('enforces MR-7B.1 suppression delete restriction: authenticated users cannot delete suppressions; service_role can (Scenarios 25-29)', async () => {
+    // Insert a suppression in Org A via adminClient (service_role)
+    const contactHash = `hash_${Date.now()}_test`
+    const { data: supp, error: suppErr } = await adminClient.from('suppressions').insert({
+      organization_id: orgAId,
+      channel: 'email',
+      contact_hash: contactHash,
+      reason: 'UNSUBSCRIBE',
+    }).select('id').single()
+    expect(suppErr).toBeNull()
+    expect(supp).toBeDefined()
+
+    // 25. OWNER cannot directly DELETE suppression
+    const { error: ownerDelErr } = await userAClient.from('suppressions').delete().eq('id', supp!.id)
+    expect(ownerDelErr).not.toBeNull()
+    expect(ownerDelErr?.code).toBe('42501')
+
+    // 26. ADMIN cannot directly DELETE suppression
+    const { error: adminDelErr } = await adminUserClient.from('suppressions').delete().eq('id', supp!.id)
+    expect(adminDelErr).not.toBeNull()
+    expect(adminDelErr?.code).toBe('42501')
+
+    // 27. OPERATOR cannot DELETE suppression
+    const { error: opDelErr } = await operatorClient.from('suppressions').delete().eq('id', supp!.id)
+    expect(opDelErr).not.toBeNull()
+    expect(opDelErr?.code).toBe('42501')
+
+    // 28. VIEWER cannot DELETE suppression
+    const { error: viDelErr } = await viewerClient.from('suppressions').delete().eq('id', supp!.id)
+    expect(viDelErr).not.toBeNull()
+    expect(viDelErr?.code).toBe('42501')
+
+    // Verify suppression still exists
+    const { data: stillExists } = await adminClient.from('suppressions').select('id').eq('id', supp!.id).maybeSingle()
+    expect(stillExists).toBeDefined()
+
+    // 29. service-role workflow remains capable of system-level correction if explicitly required
+    const { data: serviceDel, error: serviceDelErr } = await adminClient.from('suppressions').delete().eq('id', supp!.id).select()
+    expect(serviceDelErr).toBeNull()
+    expect(serviceDel).toHaveLength(1)
+  })
+
+  it('enforces MR-7B.1 messaging_authority_evidence RLS: system-controlled, tenants cannot mutate, cross-tenant isolation, restricted function execution (Scenarios 30-37)', async () => {
+    // Create customer and completion in Org A
+    const { data: cust } = await adminClient.from('customers').insert({
+      organization_id: orgAId,
+      location_id: locAId,
+      first_name: 'Mae',
+      last_name: 'Evidence',
+      email: `mae.${Date.now()}@example.test`,
+    }).select('id').single()
+
+    const { data: cce } = await adminClient.from('customer_completion_events').insert({
+      organization_id: orgAId,
+      location_id: locAId,
+      customer_id: cust!.id,
+      source: 'quick_complete',
+      source_event_id: `mae_event_${Date.now()}`,
+      contact: { email: `mae.${Date.now()}@example.test` },
+      permission: { email: 'allowed' },
+    }).select('id').single()
+
+    // 30. authenticated tenant user cannot directly INSERT evidence
+    const { error: insErr } = await userAClient.from('messaging_authority_evidence').insert({
+      organization_id: orgAId,
+      customer_id: cust!.id,
+      completion_event_id: cce!.id,
+      channel: 'email',
+      asserted_state: 'allowed',
+      assertion_kind: 'OPERATIONAL_PERMISSION_STATE',
+      permission_source: 'forged',
+      completion_source: 'forged',
+      source_event_id: 'forged',
+    })
+    expect(insErr).not.toBeNull()
+    expect(insErr?.code).toBe('42501')
+
+    // Find any existing evidence created by trigger
+    const { data: existingEvidence } = await adminClient.from('messaging_authority_evidence')
+      .select('id')
+      .eq('completion_event_id', cce!.id)
+      .limit(1)
+
+    if (existingEvidence && existingEvidence.length > 0) {
+      const evidenceId = existingEvidence[0].id
+
+      // 31. authenticated tenant user cannot SELECT evidence (REVOKE ALL FROM authenticated)
+      const { error: selErr } = await userAClient.from('messaging_authority_evidence').select('id').eq('id', evidenceId)
+      expect(selErr).not.toBeNull()
+      expect(selErr?.code).toBe('42501')
+
+      // 32. authenticated tenant user cannot UPDATE evidence
+      const { error: upErr } = await userAClient.from('messaging_authority_evidence').update({
+        asserted_state: 'denied',
+      }).eq('id', evidenceId)
+      expect(upErr).not.toBeNull()
+      expect(upErr?.code).toBe('42501')
+
+      // 33. authenticated tenant user cannot DELETE evidence
+      const { error: delErr } = await userAClient.from('messaging_authority_evidence').delete().eq('id', evidenceId)
+      expect(delErr).not.toBeNull()
+      expect(delErr?.code).toBe('42501')
+
+      // 34. cross-tenant tenant user B has zero access (REVOKE ALL FROM authenticated)
+      const { error: crossSelErr } = await userBClient.from('messaging_authority_evidence').select('id').eq('id', evidenceId)
+      expect(crossSelErr).not.toBeNull()
+      expect(crossSelErr?.code).toBe('42501')
+
+      const { error: crossUpErr } = await userBClient.from('messaging_authority_evidence').update({
+        asserted_state: 'unknown',
+      }).eq('id', evidenceId)
+      expect(crossUpErr).not.toBeNull()
+      expect(crossUpErr?.code).toBe('42501')
+
+      const { error: crossDelErr } = await userBClient.from('messaging_authority_evidence').delete().eq('id', evidenceId)
+      expect(crossDelErr).not.toBeNull()
+      expect(crossDelErr?.code).toBe('42501')
+    }
+
+    // 35. anon cannot directly execute record_messaging_authority_evidence_from_completion
+    const anonClient = createClient<Database>(SUPABASE_URL, ANON_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+    const { error: anonExecErr } = await anonClient.rpc(
+      'record_messaging_authority_evidence_from_completion' as unknown as keyof Database['public']['Functions']
+    )
+    expect(anonExecErr).not.toBeNull()
+
+    // 36. authenticated tenant user cannot directly execute record_messaging_authority_evidence_from_completion
+    const { error: authExecErr } = await userAClient.rpc(
+      'record_messaging_authority_evidence_from_completion' as unknown as keyof Database['public']['Functions']
+    )
+    expect(authExecErr).not.toBeNull()
+
+    // 37. service_role retains execute authority (verified by trigger execution during service_role insertion)
+    expect(existingEvidence).not.toBeNull()
+    expect(existingEvidence!.length).toBeGreaterThan(0)
+  })
 });

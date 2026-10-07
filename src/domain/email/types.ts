@@ -2,6 +2,7 @@ export type EmailMessageKind = 'initial_review_request' | 'review_request_remind
 
 export interface ReviewRequestEmailInput {
   businessName: string
+  businessPostalAddress?: string | null
   customerFirstName?: string | null
   reviewUrl: string
   unsubscribeUrl: string

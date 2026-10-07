@@ -100,13 +100,17 @@ export default async function OnboardingPage(props: {
 
             <div>
               <label htmlFor="address" className="block text-sm font-medium text-slate-300">
-                Location Address (optional)
+                Business Mailing Address
               </label>
+              <p className="mt-1 text-xs text-slate-400">
+                Used in review-request email footers. You can finish setup without it, but a complete business mailing address is required before live review emails can be sent.
+              </p>
               <div className="mt-1">
                 <input
                   id="address"
                   name="address"
                   type="text"
+                  maxLength={300}
                   placeholder="123 Example Street, Suite 100"
                   className="appearance-none block w-full px-3 py-2 border border-slate-700 rounded-md shadow-sm bg-slate-800 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent sm:text-sm"
                 />

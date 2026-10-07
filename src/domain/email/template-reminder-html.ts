@@ -8,11 +8,12 @@ import type { HtmlTemplateOptions } from './template-html'
  * Zero external tracking pixels or remote images.
  */
 export function renderReviewReminderHtml(options: HtmlTemplateOptions): string {
-  const { businessName, customerFirstName, reviewUrl, unsubscribeUrl } = options
+  const { businessName, businessPostalAddress, customerFirstName, reviewUrl, unsubscribeUrl } = options
 
   const safeBusinessName = escapeHtml(businessName.trim() || 'our business')
   const safeReviewUrl = escapeHtml(reviewUrl.trim())
   const safeUnsubscribeUrl = escapeHtml(unsubscribeUrl.trim())
+  const safePostalAddress = businessPostalAddress ? escapeHtml(businessPostalAddress.trim()) : null
 
   const greeting = customerFirstName && customerFirstName.trim()
     ? `Hi ${escapeHtml(customerFirstName.trim())},`
@@ -101,12 +102,21 @@ export function renderReviewReminderHtml(options: HtmlTemplateOptions): string {
               <hr class="divider" style="border: 0; border-top: 1px solid #e2e8f0; margin: 28px 0 20px 0;">
 
               <!-- Footer & Unsubscribe -->
+              ${safePostalAddress ? `<p class="footer-text" style="margin: 0 0 8px 0; font-size: 12px; line-height: 1.5; color: #64748b;">
+                This review request was sent on behalf of ${safeBusinessName}.<br>
+                Business address: ${safePostalAddress}
+              </p>
               <p class="footer-text" style="margin: 0 0 8px 0; font-size: 12px; line-height: 1.5; color: #64748b;">
+                Delivered using MPG Reputation.
+              </p>
+              <p class="footer-text" style="margin: 0; font-size: 12px; line-height: 1.5; color: #64748b;">
+                You can <a href="${safeUnsubscribeUrl}" class="footer-link" style="color: #475569; text-decoration: underline;">opt out of future review-request emails</a> from ${safeBusinessName}.
+              </p>` : `<p class="footer-text" style="margin: 0 0 8px 0; font-size: 12px; line-height: 1.5; color: #64748b;">
                 This review request was sent on behalf of ${safeBusinessName} using MPG Reputation.
               </p>
               <p class="footer-text" style="margin: 0; font-size: 12px; line-height: 1.5; color: #64748b;">
                 You can <a href="${safeUnsubscribeUrl}" class="footer-link" style="color: #475569; text-decoration: underline;">opt out of future review-request emails</a> from ${safeBusinessName}.
-              </p>
+              </p>`}
             </td>
           </tr>
         </table>

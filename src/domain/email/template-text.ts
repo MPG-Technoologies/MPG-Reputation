@@ -1,5 +1,6 @@
 export interface TextTemplateOptions {
   businessName: string
+  businessPostalAddress?: string | null
   customerFirstName?: string | null
   reviewUrl: string
   unsubscribeUrl: string
@@ -10,12 +11,27 @@ export interface TextTemplateOptions {
  * Includes complete tracked review URL, destination disclosure, and unsubscribe URL.
  */
 export function renderReviewRequestText(options: TextTemplateOptions): string {
-  const { businessName, customerFirstName, reviewUrl, unsubscribeUrl } = options
+  const { businessName, businessPostalAddress, customerFirstName, reviewUrl, unsubscribeUrl } = options
 
   const cleanBusiness = businessName.trim() || 'our business'
+  const cleanPostalAddress = businessPostalAddress ? businessPostalAddress.trim() : null
   const greeting = customerFirstName && customerFirstName.trim()
     ? `Hi ${customerFirstName.trim()},`
     : 'Hello,'
+
+  const footer = cleanPostalAddress
+    ? `This review request was sent on behalf of ${cleanBusiness}.
+Business address:
+${cleanPostalAddress}
+
+Delivered using MPG Reputation.
+
+To stop future review-request emails from ${cleanBusiness}:
+${unsubscribeUrl}`
+    : `This review request was sent on behalf of ${cleanBusiness} using MPG Reputation.
+
+To stop future review-request emails from ${cleanBusiness}:
+${unsubscribeUrl}`
 
   return `${greeting}
 
@@ -30,8 +46,5 @@ ${reviewUrl}
 
 The link takes you to ${cleanBusiness}'s review page.
 
-This review request was sent on behalf of ${cleanBusiness} using MPG Reputation.
-
-To stop future review-request emails from ${cleanBusiness}:
-${unsubscribeUrl}`.trim()
+${footer}`.trim()
 }

@@ -19,6 +19,7 @@ vi.mock('next/cache', () => ({
 }))
 
 import { updateLocationSettings } from '../../src/actions/locations'
+import { checkFinalEmailSenderIdentity } from '../../src/inngest/functions/review-request'
 
 describe.skipIf(!isDbAvailable)('Location Reply-To Authorization & Tenant Isolation (MR-1B.1 Section 5)', () => {
   let adminClient: ReturnType<typeof createSupabaseClient<Database>>
@@ -348,5 +349,249 @@ describe.skipIf(!isDbAvailable)('Location Reply-To Authorization & Tenant Isolat
       .single()
 
     expect(loc?.review_reply_to_email).toBe('admin-reply@northstar-a.test')
+  })
+
+  it('6a. authorized same-organization OWNER address configuration succeeds and normalizes', async () => {
+    activeClient = ownerClient
+
+    const formData = new FormData()
+    formData.append('organizationId', orgAId)
+    formData.append('locationId', locAId)
+    formData.append('address', '  123 Main St\r\nSuite 100\tCity, CO 80202  ')
+
+    const result = await updateLocationSettings(formData)
+    expect(result.success).toBe(true)
+
+    // Verify DB update
+    const { data: loc } = await adminClient
+      .from('locations')
+      .select('address')
+      .eq('id', locAId)
+      .single()
+
+    expect(loc?.address).toBe('123 Main St Suite 100 City, CO 80202')
+
+    // Verify audit event exists and does NOT contain postal address
+    const { data: audits } = await adminClient
+      .from('audit_events')
+      .select('*')
+      .eq('organization_id', orgAId)
+      .eq('event_type', 'location.updated')
+      .eq('entity_id', locAId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    expect(audits?.[0]?.metadata).not.toHaveProperty('address')
+  })
+
+  it('6b. authorized same-organization ADMIN address configuration succeeds', async () => {
+    activeClient = adminUserClient
+
+    const formData = new FormData()
+    formData.append('organizationId', orgAId)
+    formData.append('locationId', locAId)
+    formData.append('address', '789 Admin Blvd, Suite 300, Denver, CO 80202')
+
+    const result = await updateLocationSettings(formData)
+    expect(result.success).toBe(true)
+
+    const { data: loc } = await adminClient
+      .from('locations')
+      .select('address')
+      .eq('id', locAId)
+      .single()
+
+    expect(loc?.address).toBe('789 Admin Blvd, Suite 300, Denver, CO 80202')
+  })
+
+  it('6c. unauthorized OPERATOR cannot update location address', async () => {
+    activeClient = operatorClient
+
+    const formData = new FormData()
+    formData.append('organizationId', orgAId)
+    formData.append('locationId', locAId)
+    formData.append('address', 'Hacked Address')
+
+    const result = await updateLocationSettings(formData)
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/Access denied: Only owners and administrators/)
+
+    const { data: loc } = await adminClient
+      .from('locations')
+      .select('address')
+      .eq('id', locAId)
+      .single()
+
+    expect(loc?.address).toBe('789 Admin Blvd, Suite 300, Denver, CO 80202')
+  })
+
+  it('6d. unauthorized VIEWER cannot update location address', async () => {
+    activeClient = viewerClient
+
+    const formData = new FormData()
+    formData.append('organizationId', orgAId)
+    formData.append('locationId', locAId)
+    formData.append('address', 'Viewer Hack Address')
+
+    const result = await updateLocationSettings(formData)
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/Access denied: Only owners and administrators/)
+
+    const { data: loc } = await adminClient
+      .from('locations')
+      .select('address')
+      .eq('id', locAId)
+      .single()
+
+    expect(loc?.address).toBe('789 Admin Blvd, Suite 300, Denver, CO 80202')
+  })
+
+  it('6e. cross-organization user cannot update location address', async () => {
+    activeClient = orgBClient
+
+    const formData = new FormData()
+    formData.append('organizationId', orgAId)
+    formData.append('locationId', locAId)
+    formData.append('address', 'Cross Org Address')
+
+    const result = await updateLocationSettings(formData)
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/Access denied: You are not a member of this organization/)
+
+    const { data: loc } = await adminClient
+      .from('locations')
+      .select('address')
+      .eq('id', locAId)
+      .single()
+
+    expect(loc?.address).toBe('789 Admin Blvd, Suite 300, Denver, CO 80202')
+  })
+
+  it('6f. control characters in address are sanitized safely', async () => {
+    activeClient = ownerClient
+
+    const formData = new FormData()
+    formData.append('organizationId', orgAId)
+    formData.append('locationId', locAId)
+    formData.append('address', 'Safe Street\0\x1f Suite 100')
+
+    const result = await updateLocationSettings(formData)
+    expect(result.success).toBe(true)
+
+    const { data: loc } = await adminClient
+      .from('locations')
+      .select('address')
+      .eq('id', locAId)
+      .single()
+
+    expect(loc?.address).toBe('Safe Street Suite 100')
+    expect(loc?.address).not.toContain('\0')
+    expect(loc?.address).not.toContain('\x1f')
+  })
+
+  it('6g. address length remains bounded to 300 characters', async () => {
+    activeClient = ownerClient
+
+    const longAddress = 'B'.repeat(500)
+    const formData = new FormData()
+    formData.append('organizationId', orgAId)
+    formData.append('locationId', locAId)
+    formData.append('address', longAddress)
+
+    const result = await updateLocationSettings(formData)
+    expect(result.success).toBe(true)
+
+    const { data: loc } = await adminClient
+      .from('locations')
+      .select('address')
+      .eq('id', locAId)
+      .single()
+
+    expect(loc?.address).toHaveLength(300)
+  })
+
+  it('6h. whitespace-only address updates location address to null', async () => {
+    activeClient = ownerClient
+
+    const formData = new FormData()
+    formData.append('organizationId', orgAId)
+    formData.append('locationId', locAId)
+    formData.append('address', '   \r\n\t  ')
+
+    const result = await updateLocationSettings(formData)
+    expect(result.success).toBe(true)
+
+    const { data: loc } = await adminClient
+      .from('locations')
+      .select('address')
+      .eq('id', locAId)
+      .single()
+
+    expect(loc?.address).toBeNull()
+  })
+
+  it('7. remediation flow: missing address blocks live sender identity check -> location address updated through supported settings action -> retry final identity check reads newly configured address -> send can proceed', async () => {
+    activeClient = ownerClient
+
+    // 1. Ensure address on location is null using updateLocationSettings
+    const clearForm = new FormData()
+    clearForm.append('organizationId', orgAId)
+    clearForm.append('locationId', locAId)
+    clearForm.append('address', '')
+    const clearResult = await updateLocationSettings(clearForm)
+    expect(clearResult.success).toBe(true)
+
+    const { data: locEmpty } = await adminClient
+      .from('locations')
+      .select('address')
+      .eq('id', locAId)
+      .single()
+    expect(locEmpty?.address).toBeNull()
+
+    // 2. Live sender identity check fails closed with SENDER_IDENTITY_INCOMPLETE
+    const check1 = await checkFinalEmailSenderIdentity({
+      supabase: adminClient,
+      organizationId: orgAId,
+      locationId: locAId,
+    })
+    expect(check1.allowed).toBe(false)
+    expect(check1.decision).toBe('SENDER_IDENTITY_INCOMPLETE')
+    expect(check1.businessPostalAddress).toBeNull()
+
+    // 3. Location address updated through supported settings action (updateLocationSettings)
+    const remediateForm = new FormData()
+    remediateForm.append('organizationId', orgAId)
+    remediateForm.append('locationId', locAId)
+    remediateForm.append('address', '  100 Remediated Plaza\r\nSuite 200\tDenver, CO 80202  ')
+    const remediateResult = await updateLocationSettings(remediateForm)
+    expect(remediateResult.success).toBe(true)
+
+    // 4. Retry final identity check reads the newly configured address and send can proceed
+    const check2 = await checkFinalEmailSenderIdentity({
+      supabase: adminClient,
+      organizationId: orgAId,
+      locationId: locAId,
+    })
+    expect(check2.allowed).toBe(true)
+    expect(check2.decision).toBe('ELIGIBLE')
+    expect(check2.businessPostalAddress).toBe('100 Remediated Plaza Suite 200 Denver, CO 80202')
+
+    // 5. Stored value is sanitized and address does not appear in audit metadata
+    const { data: locUpdated } = await adminClient
+      .from('locations')
+      .select('address')
+      .eq('id', locAId)
+      .single()
+    expect(locUpdated?.address).toBe('100 Remediated Plaza Suite 200 Denver, CO 80202')
+
+    const { data: audits } = await adminClient
+      .from('audit_events')
+      .select('*')
+      .eq('organization_id', orgAId)
+      .eq('event_type', 'location.updated')
+      .eq('entity_id', locAId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+    expect(audits?.[0]?.metadata).not.toHaveProperty('address')
   })
 })

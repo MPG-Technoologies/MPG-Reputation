@@ -5,257 +5,174 @@
 | Date | 2026-10-07 |
 | Authority | Owner direction (Company OS source of truth: techwithmpg/mpg-company-os @ 7df63fb75cc184197b11fcbdeca1b1d333a8e81a; reconciliation outstanding; MPG-DEC-050 uncommitted) |
 | Milestone | MR-7 (Trust / Security / Compliance) — ACTIVE |
-| Slice Status | **MR-7B.1 — READY FOR OWNER REVIEW** (NOT `MR-7 — COMPLETE`) |
-| Bounded Slice | MR-7B.1 — Authority Evidence Foundation + Send-Time Suppression Invariant |
-| Inspected Product Baseline | `edf47ef61e6a46b53746d0ef70e60023cbe03b98` |
-| Feature Branch | `chatgpt/mr7b1-authority-send-invariant` |
-| Public Safe | Yes; synthetic fixtures only; zero PII in audit metadata |
+| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — READY FOR OWNER REVIEW** (NOT `MR-7 — COMPLETE`) |
+| Current Bounded Slice | MR-7B.2 — Sender Identity + Compliance Footer |
+| Inspected Product Baseline | `07e83fd368e2f262a116f1f09dd105b71fc0043f` (on `main`) |
+| Feature Branch | `chatgpt/mr7b2-sender-identity-footer` |
+| Public Safe | Yes; synthetic fixtures only; zero customer PII / postal address in audit metadata |
 
 ---
 
-## 1. MR-7B.1 Objective
+## 1. Slice History & Authority Tracking
 
-Implement the smallest safe trust/compliance foundation needed for durable messaging authority evidence and last-moment suppression enforcement:
-
-1. **Append-Oriented Messaging Authority Evidence**: Introduce `public.messaging_authority_evidence` capturing operational permission assertions observed by MPG Reputation upon customer completion ingestion.
-2. **Strict Semantic Boundary (No Legal Certification Claim)**: The system observes and records operational permission states; it **does NOT** legally certify consent validity under CAN-SPAM, CASL, PIPEDA, TCPA or any other statute. Historical capture dates are never inferred (`asserted_at = NULL`).
-3. **Suppression Hardening**: Remove direct `DELETE` capability for tenant users (including OWNER and ADMIN) on `public.suppressions`. Suppression removal must occur solely through an explicit, audited re-authorization workflow.
-4. **Final Send-Time Authority & Suppression Invariant**: Freshly re-read current permission and suppression directly from the database source of truth immediately after claiming `SENDING` and before provider email dispatch (initial send, workflow retry, and reminder send).
-
-Full customer deletion lifecycle, privacy export, and automatic retention orchestration belong to later MR-7 slices and remain out of scope for MR-7B.1.
-
----
-
-## 2. Exact Database Migration
-
-Migration file: `supabase/migrations/20261007000000_mr7b1_authority_evidence.sql`
-
-### 2.1 Table: `public.messaging_authority_evidence`
-```sql
-CREATE TABLE IF NOT EXISTS public.messaging_authority_evidence (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-    organization_id UUID NOT NULL
-        REFERENCES public.organizations(id) ON DELETE CASCADE,
-
-    customer_id UUID NOT NULL,
-
-    completion_event_id UUID NOT NULL,
-
-    channel TEXT NOT NULL
-        CHECK (channel IN ('email', 'sms')),
-
-    asserted_state TEXT NOT NULL
-        CHECK (asserted_state IN ('allowed', 'unknown', 'denied')),
-
-    assertion_kind TEXT NOT NULL
-        DEFAULT 'OPERATIONAL_PERMISSION_STATE'
-        CHECK (
-            assertion_kind IN ('OPERATIONAL_PERMISSION_STATE')
-        ),
-
-    permission_source TEXT NOT NULL,
-
-    completion_source TEXT NOT NULL,
-
-    source_event_id TEXT NOT NULL,
-
-    country VARCHAR(2),
-
-    asserted_at TIMESTAMPTZ,
-
-    observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-    basis_type TEXT,
-
-    capture_method TEXT,
-
-    evidence_reference TEXT,
-
-    policy_version TEXT,
-
-    actor_type TEXT NOT NULL DEFAULT 'system',
-
-    actor_id UUID,
-
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-    UNIQUE (
-        organization_id,
-        completion_event_id,
-        channel
-    ),
-
-    CONSTRAINT fk_mae_customer
-        FOREIGN KEY (
-            customer_id,
-            organization_id
-        )
-        REFERENCES public.customers(
-            id,
-            organization_id
-        )
-        ON DELETE CASCADE,
-
-    CONSTRAINT fk_mae_completion
-        FOREIGN KEY (
-            completion_event_id,
-            organization_id
-        )
-        REFERENCES public.customer_completion_events(
-            id,
-            organization_id
-        )
-        ON DELETE CASCADE
-);
-```
-
-### 2.2 Indexes
-- `idx_mae_org_customer_channel_created` on `(organization_id, customer_id, channel, created_at DESC)`
-- `idx_mae_org_completion_event` on `(organization_id, completion_event_id)`
-
-### 2.3 Row Level Security (RLS) & Privilege Boundaries
-- `ALTER TABLE public.messaging_authority_evidence ENABLE ROW LEVEL SECURITY;`
-- Strictly **SYSTEM / SERVICE-ROLE CONTROLLED**.
-- Table permissions are explicitly revoked from `PUBLIC`, `anon`, and `authenticated`:
-  ```sql
-  REVOKE ALL ON public.messaging_authority_evidence FROM PUBLIC, anon, authenticated;
-  GRANT ALL ON public.messaging_authority_evidence TO service_role;
-  ```
-- Authenticated tenant users and anonymous callers have zero access (`SELECT`, `INSERT`, `UPDATE`, `DELETE` are completely denied with error `42501`).
-- Eliminates cross-tenant inspection, leakage, or tampering of messaging authority evidence.
-
-### 2.4 Suppression Policy & Privilege Hardening
-- `DROP POLICY IF EXISTS sup_delete ON public.suppressions;`
-- Explicit privilege revoke:
-  ```sql
-  REVOKE DELETE ON public.suppressions FROM authenticated;
-  ```
-- Authenticated users (OWNER, ADMIN, OPERATOR, VIEWER) cannot delete suppression rows directly from client or API queries (denied with error `42501`).
-- Public unsubscribe insertion and lookup remain fully operational.
-
-### 2.5 Trigger on `customer_completion_events`
-- `AFTER INSERT ON public.customer_completion_events` executes `record_messaging_authority_evidence_from_completion()`.
-- Captures separate email and SMS operational permission states (`allowed`, `unknown`, or `denied`).
-- Falls back to `unknown` for any invalid or missing permission value.
-- Derives `permission_source` preferring `permission->>'source'`, falling back to `source`, then `'unspecified'`.
-- Sets `asserted_at = NULL` (never derived from ingestion, completion, or customer creation timestamps).
-- Sets `observed_at = now()`, `capture_method = 'completion_event_assertion'`, and `evidence_reference = NEW.source_event_id`.
-- Idempotent via `ON CONFLICT (organization_id, completion_event_id, channel) DO NOTHING`.
+- **MR-7B.1 — OWNER ACCEPTED**:
+  - Authority evidence foundation table (`public.messaging_authority_evidence`) and trigger on `customer_completion_events`.
+  - Suppression table delete hardening (direct tenant DELETE revoked).
+  - Final send-time permission and suppression invariant in `checkFinalEmailDispatchAuthority`.
+  - Merged into `main` at commit `07e83fd368e2f262a116f1f09dd105b71fc0043f`.
+- **MR-7B.2 — READY FOR OWNER REVIEW**:
+  - Sender identity enforcement: real email provider dispatch (`provider.name === 'resend'`) requires usable business postal address from the tenant location (`public.locations.address`).
+  - Fail-closed invariant on missing address (marks review request `FAILED`, records zero-PII audit event `review_request.dispatch_blocked` with `decision: 'SENDER_IDENTITY_INCOMPLETE'`, zero send attempts, zero cost).
+  - Retry-compatible: when location address is subsequently configured, retry claims the `FAILED` request and dispatches cleanly.
+  - Reminder parity: freshly validates sender identity before reminder invocation; missing address blocks reminder without regressing historical status (`SENT`/`DELIVERED`/`CLICKED`).
+  - Synthetic path compatibility: `ConsoleEmailProvider` continues operating for local dev/testing without hard blocking, rendering the address when present.
+  - Reused existing `public.locations.address` schema; zero database migrations required.
 
 ---
 
-## 3. Authority Evidence Semantics & Compliance Boundaries
+## 2. MR-7B.2 Architecture & Design Decisions
 
-1. **Operational Permission Assertion, NOT Certified Legal Consent**:
-   - The record reflects only what the tenant completion event asserted at ingestion time.
-   - It does not constitute legal certification that consent meets statutory standards under CAN-SPAM, CASL, PIPEDA, or TCPA.
-   - No historical permission backfill was performed for existing customers with `permission_email = 'allowed'`.
-2. **No Inferred Timestamps**:
-   - Consent capture timestamps cannot be deduced from server ingestion time or transaction times.
-   - `asserted_at` remains strictly `NULL` until a certified capture provenance mechanism is integrated.
-3. **Strict Zero-PII Audit Invariant**:
-   - Audit logs for blocked dispatches store only operational metadata (`reviewRequestId`, `stage`, `decision`).
-   - Raw emails, phone numbers, unsubscribe tokens, tracking tokens, and customer names are excluded from audit metadata.
+### 2.1 Postal Address Domain Utility
+- File: `src/domain/email/postal-address.ts`
+- Utility: `sanitizePostalAddress(address?: string | null): string | null`
+- Properties:
+  - Strips NUL bytes and ASCII control characters (`\x00-\x08`, `\x0B-\x0C`, `\x0E-\x1F`, `\x7F`).
+  - Normalizes CR, LF, and tab sequences into single spaces.
+  - Collapses multiple whitespace characters into a single space and trims.
+  - Enforces a bounded maximum length of 300 characters.
+  - Returns `null` for empty, whitespace-only, or non-string inputs.
+  - International-address compatible without statutory or country-specific assumptions.
+  - Does NOT fabricate missing address elements.
+  - HTML escaping is deferred to rendering time.
+  - Exported through `src/domain/email/index.ts`.
+
+### 2.2 Email Input Contract & Template Footers
+- `ReviewRequestEmailInput` extended with optional `businessPostalAddress?: string | null` in `src/domain/email/types.ts`.
+- `ReviewReminderEmailInput` automatically shares the same contract.
+- Pure email composer (`composeReviewRequestEmail`, `composeReviewReminderEmail`) remains transport-agnostic and free of database dependencies.
+- Templates updated:
+  - `src/domain/email/template-html.ts`
+  - `src/domain/email/template-text.ts`
+  - `src/domain/email/template-reminder-html.ts`
+  - `src/domain/email/template-reminder-text.ts`
+- Semantic footer structure when address is present:
+  - Identified business name (`escapeHtml(safeBusinessName)`)
+  - Full postal address (`escapeHtml(safePostalAddress)`)
+  - Delivery attribution (`Delivered using MPG Reputation.`)
+  - Unsubscribe link (`opt out of future review-request emails`)
+- Neutrality preserved: no guarantees, no ratings, no incentives, no tracking pixels.
+- Fallback footer preserved when address is absent (for synthetic dev/test runs).
+
+### 2.3 Send-Time Sender Identity Check (`checkFinalEmailSenderIdentity`)
+- Location: `src/inngest/functions/review-request.ts`
+- Scopes queries strictly by `organizationId` and `locationId`:
+  - `organizations`: `id, name, status`
+  - `locations`: `id, organization_id, name, status, address, review_reply_to_email`
+- Cross-tenant/cross-location leakage strictly prevented (returns `LOCATION_NOT_FOUND` if location does not belong to organization).
+- Returns sanitized `businessName`, `businessPostalAddress`, `reviewReplyToEmail`, and operational `decision`:
+  - `ELIGIBLE`
+  - `ORGANIZATION_NOT_FOUND` / `ORGANIZATION_INACTIVE`
+  - `LOCATION_NOT_FOUND` / `LOCATION_INACTIVE`
+  - `SENDER_IDENTITY_INCOMPLETE` (when address is missing or empty)
+
+### 2.4 Live Provider Fail-Closed Rule
+- Evaluated immediately before provider dispatch in both initial send and reminder send.
+- When `emailProvider.name === 'resend'` and `!senderIdentity.allowed`:
+  - Initial send:
+    - Provider is **NOT** called.
+    - `provider_send_attempt` is **NOT** recorded in `usage_ledger`.
+    - No provider cost is incurred.
+    - Review request is marked `FAILED` with sanitized error message `Business postal address required before live email dispatch` (retry-compatible).
+    - Zero-PII audit event `review_request.dispatch_blocked` is recorded (`decision: 'SENDER_IDENTITY_INCOMPLETE'`, NO postal address, NO customer email, NO tokens).
+  - Reminder send:
+    - Provider is **NOT** called.
+    - Historical status (`SENT`, `DELIVERED`, `CLICKED`) is **preserved** and never regressed.
+    - `reminded_at` remains `NULL`.
+    - Zero-PII audit event `review_request.reminder_blocked` is recorded (`decision: 'SENDER_IDENTITY_INCOMPLETE'`).
+
+### 2.5 Location Actions & Settings UX
+- `src/actions/locations.ts`:
+  - `createLocation` and `updateLocationSettings` sanitize address input using `sanitizePostalAddress`.
+  - Existing strict RBAC (`OWNER`/`ADMIN` allowed, `OPERATOR`/`VIEWER` denied) and cross-tenant checks preserved.
+  - Audit event metadata excludes postal address.
+- `src/app/app/settings/location/page.tsx`:
+  - Label refined to "Business Mailing Address".
+  - Explanatory helper text added: "Used in review-request email footers. Enter the complete business mailing address for this location. Required before live review emails can be sent."
+  - Input field constrained with `maxLength={300}`.
+  - No claims of legal certification.
 
 ---
 
-## 4. Final Send-Time Authority & Suppression Invariant
-
-In `src/inngest/functions/review-request.ts`:
-
-1. **Helper `checkFinalEmailDispatchAuthority`**:
-   - Freshly queries the database for `customers` (`id, first_name, email, permission_email`) scoped by `(customerId, organizationId, locationId)`.
-   - Normalizes email (`trim().toLowerCase()`).
-   - Computes suppression hash via `hashSuppressionContact('email', email)` and checks `public.suppressions`.
-   - Evaluates:
-     - Missing customer or empty email $\rightarrow$ `NO_CONTACT` (`allowed: false`)
-     - Active suppression present $\rightarrow$ `SUPPRESSED` (`allowed: false`)
-     - Permission is `denied` $\rightarrow$ `EMAIL_PERMISSION_DENIED` (`allowed: false`)
-     - Permission not `allowed` $\rightarrow$ `EMAIL_PERMISSION_UNKNOWN` (`allowed: false`)
-     - Allowed & unsuppressed $\rightarrow$ `ELIGIBLE` (`allowed: true`)
-2. **Initial Send Execution**:
-   - Immediately after atomic claim of `SENDING` state and **BEFORE** provider usage accounting, message composition, and provider dispatch:
-     - If `SUPPRESSED`: marks review request `SUPPRESSED`, records audit event `review_request.dispatch_blocked`, and aborts cleanly.
-     - If `NO_CONTACT` / `EMAIL_PERMISSION_DENIED` / `EMAIL_PERMISSION_UNKNOWN`: marks review request `CANCELLED` (`cancelled_at = now()`), records audit event `review_request.dispatch_blocked`, and aborts cleanly.
-     - If `ELIGIBLE`: dispatches to the **freshly retrieved** customer email.
-3. **Workflow Retry Execution**:
-   - Because the check executes on every atomic claim of `SENDING` (claimable from `FAILED` or stale `SENDING`), retried dispatches execute the exact same fresh check, preventing sends if suppression was added during failure cooldown.
-4. **Reminder Execution**:
-   - Executes `checkFinalEmailDispatchAuthority` immediately before reminder provider invocation.
-   - If blocked by suppression or permission revocation:
-     - **Preserves historical status**: `SENT`, `DELIVERED`, or `CLICKED` is **never regressed**.
-     - `reminded_at` remains `NULL`.
-     - Records audit event `review_request.reminder_blocked` (`reviewRequestId`, `decision`).
-     - Skips reminder dispatch safely.
-
----
-
-## 5. Files Modified
+## 3. Files Modified in MR-7B.2
 
 | File | Nature of Change |
 |---|---|
-| `supabase/migrations/20261007000000_mr7b1_authority_evidence.sql` | Migration adding `messaging_authority_evidence` table, indexes, trigger, and dropping `sup_delete` policy |
-| `src/types/database.ts` | Added type-safe `messaging_authority_evidence` table definition (`Row`, `Insert`, `Update`, `Relationships`) with explicit union types |
-| `src/inngest/functions/review-request.ts` | Added `checkFinalEmailDispatchAuthority` helper and integrated send-time and reminder-time suppression/permission checks |
-| `test/domain/mr7b1-authority-send-invariant.test.ts` | 18 unit/domain test scenarios proving authority evidence derivation and send/retry/reminder invariants |
-| `test/integration/mr7b1-authority-send-invariant.test.ts` | Database integration test suite for trigger and workflow invariants |
-| `test/integration/real-rls.test.ts` | Added RLS tests for suppression delete hardening (Scenarios 25-29) and messaging authority evidence RLS (Scenarios 30-33) |
-| `docs/MR-7-EXECUTION-HANDOFF.md` | Execution handoff documentation |
+| `src/domain/email/postal-address.ts` | **NEW**: Postal address normalization and sanitization utility |
+| `src/domain/email/index.ts` | Exported `postal-address` from domain barrel |
+| `src/domain/email/types.ts` | Added `businessPostalAddress?: string | null` to `ReviewRequestEmailInput` |
+| `src/domain/email/template-html.ts` | Added `businessPostalAddress` support to HTML template footer with escaping |
+| `src/domain/email/template-text.ts` | Added `businessPostalAddress` support to plain-text template footer |
+| `src/domain/email/template-reminder-html.ts` | Reminder HTML parity with initial email footer |
+| `src/domain/email/template-reminder-text.ts` | Reminder plain-text parity with initial email footer |
+| `src/domain/email/compose.ts` | Passed sanitized `businessPostalAddress` to HTML and text templates |
+| `src/inngest/functions/review-request.ts` | Added `checkFinalEmailSenderIdentity`, wired fail-closed live send and reminder checks |
+| `src/actions/locations.ts` | Added `sanitizePostalAddress` on location creation and updates |
+| `src/app/app/settings/location/page.tsx` | Refined UI label to "Business Mailing Address", added helper text and `maxLength={300}` |
+| `test/domain/email-composition.test.ts` | Added 10 MR-7B.2 domain tests covering address sanitization, footer rendering, and escaping |
+| `test/integration/location-reply-to-auth.test.ts` | Added 6 tests for postal address authorization, sanitization, and audit metadata |
+| `test/integration/mr7b2-sender-identity.test.ts` | **NEW**: 9 integration tests proving live send fail-closed, retry, reminder, and multi-location isolation |
+| `docs/MR-7-EXECUTION-HANDOFF.md` | Updated handoff documentation |
 
 ---
 
-## 6. Verification & Test Results
+## 4. Verification & Test Results
 
 | Command | Result | Notes |
 |---|---|---|
 | `pnpm typecheck` | **PASS** | TypeScript 5 cleanly passes with zero errors |
 | `pnpm lint` | **PASS** | ESLint passes with zero warnings, zero errors |
-| `pnpm test test/domain/mr7b1-authority-send-invariant.test.ts` | **PASS** | 18 tests passed (100% pass) |
-| `pnpm test test/domain/suppression.test.ts test/domain/eligibility.test.ts` | **PASS** | 16 tests passed |
-| `pnpm test test/integration/mr7b1-authority-send-invariant.test.ts` | **PASS** | 3 tests passed |
-| `pnpm build` | **PASS** | Optimized Next.js production build succeeded in 8.1s; all 18 routes compiled |
+| `pnpm test test/domain/email-composition.test.ts` | **PASS** | 29 tests passed (all 10 MR-7B.2 domain tests passed) |
+| `pnpm test test/providers/email-headers.test.ts` | **PASS** | 6 tests passed |
+| `pnpm test test/integration/location-reply-to-auth.test.ts` | **PASS** | 14 tests passed (including 6 postal address authorization tests) |
+| `pnpm test test/integration/mr7b1-authority-send-invariant.test.ts` | **PASS** | 5 tests passed (B1 regression clean) |
+| `pnpm test test/integration/real-rls.test.ts` | **PASS** | 15 tests passed (PostgreSQL RLS clean) |
+| `pnpm test test/domain/` | **PASS** | 18 test files, 209 tests passed |
+| `pnpm test test/integration/mr7b2-sender-identity.test.ts` | **PASS** | 9 integration tests passed (fail-closed, retry, reminder, multi-location) |
+| `npx supabase db lint --local` | **PASS** | Local Supabase schema clean (0 errors) |
+| `pnpm build` | **PASS** | Production build succeeded; all 18 routes compiled |
 
 ---
 
-## 7. Remaining MR-7 Gaps
+## 5. Remaining MR-7 Slices
 
-The following capabilities remain deliberately out of scope for MR-7B.1 and form subsequent MR-7 slices:
-1. **MR-7B.2 / MR-7C Privacy Lifecycle**:
-   - Customer deletion orchestration (tenant-requested erasure).
+1. **MR-7B.3**: Production suppression management & re-authorization workflow (audited re-consent path).
+2. **MR-7C**: Privacy lifecycle:
+   - Tenant-requested customer deletion / erasure orchestration.
    - Data export / portability endpoints.
    - Retention policy enforcement and purge scheduling.
-   - Outbox and audit payload PII anonymization/redaction.
-2. **Suppression Infrastructure Modernization**:
-   - Keyed HMAC migration for suppression hashes.
-   - Tracking token encryption at rest.
-3. **Compliance Review**:
-   - Formal legal review of customer agreements, terms, and neutral solicitation language before pilot or live messaging.
+   - Outbox and audit payload PII anonymization / redaction.
+3. **MR-7D**: Compliance and legal review of terms, disclosures, and neutral solicitation language before pilot or live messaging.
 
 ---
 
-## 8. Rollback Implications
+## 6. Rollback Implications
 
-If rollback of MR-7B.1 is required prior to acceptance:
-1. Revert application code changes in `src/inngest/functions/review-request.ts` and `src/types/database.ts`.
-2. Database rollback SQL:
-   ```sql
-   DROP TRIGGER IF EXISTS trg_record_messaging_authority_evidence ON public.customer_completion_events;
-   DROP FUNCTION IF EXISTS public.record_messaging_authority_evidence_from_completion();
-   DROP TABLE IF EXISTS public.messaging_authority_evidence;
-   -- Re-create previous sup_delete policy if tenant deletion was required:
-   CREATE POLICY sup_delete ON public.suppressions
-       FOR DELETE TO authenticated
-       USING (public.user_has_role(organization_id, ARRAY['OWNER', 'ADMIN']));
-   ```
-3. Existing customers and review requests remain completely unaffected by rollback since `customers.permission_*` fields were unmodified and operational compatibility was preserved.
+If rollback of MR-7B.2 is required:
+1. Revert application code changes in:
+   - `src/domain/email/`
+   - `src/inngest/functions/review-request.ts`
+   - `src/actions/locations.ts`
+   - `src/app/app/settings/location/page.tsx`
+2. No database rollback SQL is required because no database migrations were created.
+3. Existing locations and review requests remain completely unaffected.
 
 ---
 
-## 9. Owner Gate
+## 7. Owner Gate
 
-- **Milestone Status**: MR-7 is ACTIVE; MR-7B.1 is **READY FOR OWNER REVIEW**.
+- **Milestone Status**: MR-7 is ACTIVE; MR-7B.1 is **OWNER ACCEPTED**; MR-7B.2 is **READY FOR OWNER REVIEW**.
 - **Live messaging remains disabled** (`ENABLE_LIVE_EMAIL=false`).
 - **Live billing remains paused** under `MPG-DEC-049`.
 - **Controlled Pilot (MR-8) remains strictly GATED**.
-- Feature branch `chatgpt/mr7b1-authority-send-invariant` is preserved for review. No merge to `main` has occurred.
+- Feature branch `chatgpt/mr7b2-sender-identity-footer` is prepared for review.
+- No merge to `main` has occurred. No production deployment has occurred.

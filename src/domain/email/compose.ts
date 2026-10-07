@@ -1,6 +1,7 @@
 import type { ReviewRequestEmailInput, ReviewReminderEmailInput, ComposedReviewRequestEmail } from './types'
 import { formatSenderIdentity, sanitizeDisplayName } from './sender'
 import { sanitizeReplyToEmail } from './reply-to'
+import { sanitizePostalAddress } from './postal-address'
 import { renderReviewRequestHtml } from './template-html'
 import { renderReviewRequestText } from './template-text'
 import { renderReviewReminderHtml } from './template-reminder-html'
@@ -26,9 +27,10 @@ export function extractCustomerFirstName(fullName?: string | null): string | nul
  * Transport-agnostic: does NOT access the database or make network calls.
  */
 export function composeReviewRequestEmail(input: ReviewRequestEmailInput): ComposedReviewRequestEmail {
-  const { businessName, customerFirstName, reviewUrl, unsubscribeUrl, replyToEmail, fromAddress } = input
+  const { businessName, businessPostalAddress, customerFirstName, reviewUrl, unsubscribeUrl, replyToEmail, fromAddress } = input
 
   const cleanBusiness = sanitizeDisplayName(businessName)
+  const cleanPostalAddress = sanitizePostalAddress(businessPostalAddress)
   const firstName = extractCustomerFirstName(customerFirstName)
 
   const subject = cleanBusiness
@@ -54,6 +56,7 @@ export function composeReviewRequestEmail(input: ReviewRequestEmailInput): Compo
 
   const html = renderReviewRequestHtml({
     businessName: cleanBusiness || 'MPG Reputation',
+    businessPostalAddress: cleanPostalAddress,
     customerFirstName: firstName,
     reviewUrl,
     unsubscribeUrl,
@@ -61,6 +64,7 @@ export function composeReviewRequestEmail(input: ReviewRequestEmailInput): Compo
 
   const text = renderReviewRequestText({
     businessName: cleanBusiness || 'MPG Reputation',
+    businessPostalAddress: cleanPostalAddress,
     customerFirstName: firstName,
     reviewUrl,
     unsubscribeUrl,
@@ -84,9 +88,10 @@ export function composeReviewRequestEmail(input: ReviewRequestEmailInput): Compo
  * Transport-agnostic: does NOT access the database or make network calls.
  */
 export function composeReviewReminderEmail(input: ReviewReminderEmailInput): ComposedReviewRequestEmail {
-  const { businessName, customerFirstName, reviewUrl, unsubscribeUrl, replyToEmail, fromAddress } = input
+  const { businessName, businessPostalAddress, customerFirstName, reviewUrl, unsubscribeUrl, replyToEmail, fromAddress } = input
 
   const cleanBusiness = sanitizeDisplayName(businessName)
+  const cleanPostalAddress = sanitizePostalAddress(businessPostalAddress)
   const firstName = extractCustomerFirstName(customerFirstName)
 
   const subject = cleanBusiness
@@ -112,6 +117,7 @@ export function composeReviewReminderEmail(input: ReviewReminderEmailInput): Com
 
   const html = renderReviewReminderHtml({
     businessName: cleanBusiness || 'MPG Reputation',
+    businessPostalAddress: cleanPostalAddress,
     customerFirstName: firstName,
     reviewUrl,
     unsubscribeUrl,
@@ -119,6 +125,7 @@ export function composeReviewReminderEmail(input: ReviewReminderEmailInput): Com
 
   const text = renderReviewReminderText({
     businessName: cleanBusiness || 'MPG Reputation',
+    businessPostalAddress: cleanPostalAddress,
     customerFirstName: firstName,
     reviewUrl,
     unsubscribeUrl,

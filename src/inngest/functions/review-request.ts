@@ -2,7 +2,12 @@ import { inngest } from '../client'
 import { evaluateReviewEligibility } from '@/domain/eligibility'
 import { generateTrackingToken, buildTrackedReviewUrl } from '@/domain/tracking'
 import { generateUnsubscribeToken, buildUnsubscribeUrl } from '@/domain/unsubscribe'
-import { composeReviewRequestEmail, composeReviewReminderEmail } from '@/domain/email'
+import {
+  composeReviewRequestEmail,
+  composeReviewReminderEmail,
+  sanitizePostalAddress,
+  sanitizeReplyToEmail,
+} from '@/domain/email'
 import { getEmailProvider, isValidEmailAddress } from '@/providers/email'
 import { hashSuppressionContact } from '@/domain/suppression'
 import { getWorkflowTimingPolicy, isRequestEligibleForReminder } from '@/domain/reminder'
@@ -132,6 +137,126 @@ export async function checkFinalEmailDispatchAuthority({
     decision: 'ELIGIBLE',
     customerEmail: normalizedEmail,
     customerName: cust.first_name || null,
+  }
+}
+
+export type FinalEmailSenderIdentityDecision =
+  | 'ELIGIBLE'
+  | 'ORGANIZATION_NOT_FOUND'
+  | 'ORGANIZATION_INACTIVE'
+  | 'LOCATION_NOT_FOUND'
+  | 'LOCATION_INACTIVE'
+  | 'SENDER_IDENTITY_INCOMPLETE'
+
+export interface FinalEmailSenderIdentityResult {
+  allowed: boolean
+  decision: FinalEmailSenderIdentityDecision
+  businessName: string
+  businessPostalAddress: string | null
+  reviewReplyToEmail: string | null
+}
+
+/**
+ * MR-7B.2: Final Email Sender Identity Check
+ * Freshly re-reads current organization & location directly from the database source of truth
+ * immediately before every provider email invocation (initial send, retry, and reminder).
+ *
+ * Scopes queries strictly by organizationId and locationId to prevent cross-tenant/cross-location leakage.
+ * Returns sanitized businessName, businessPostalAddress, and reviewReplyToEmail.
+ * Returns allowed: true only when the organization and location are ACTIVE and a valid postal address is present.
+ */
+export async function checkFinalEmailSenderIdentity({
+  supabase,
+  organizationId,
+  locationId,
+}: {
+  supabase: ReturnType<typeof createAdminClient>
+  organizationId: string
+  locationId: string
+}): Promise<FinalEmailSenderIdentityResult> {
+  // 1. Freshly retrieve organization
+  const { data: org, error: orgError } = await supabase
+    .from('organizations')
+    .select('id, name, status')
+    .eq('id', organizationId)
+    .maybeSingle()
+
+  if (orgError) {
+    throw new Error(`Final sender identity organization lookup failed: ${orgError.message}`)
+  }
+
+  if (!org) {
+    return {
+      allowed: false,
+      decision: 'ORGANIZATION_NOT_FOUND',
+      businessName: 'our business',
+      businessPostalAddress: null,
+      reviewReplyToEmail: null,
+    }
+  }
+
+  if (org.status !== 'ACTIVE') {
+    return {
+      allowed: false,
+      decision: 'ORGANIZATION_INACTIVE',
+      businessName: org.name || 'our business',
+      businessPostalAddress: null,
+      reviewReplyToEmail: null,
+    }
+  }
+
+  // 2. Freshly retrieve location scoped strictly to organizationId
+  const { data: loc, error: locError } = await supabase
+    .from('locations')
+    .select('id, organization_id, name, status, address, review_reply_to_email')
+    .eq('id', locationId)
+    .eq('organization_id', organizationId)
+    .maybeSingle()
+
+  if (locError) {
+    throw new Error(`Final sender identity location lookup failed: ${locError.message}`)
+  }
+
+  if (!loc) {
+    return {
+      allowed: false,
+      decision: 'LOCATION_NOT_FOUND',
+      businessName: org.name || 'our business',
+      businessPostalAddress: null,
+      reviewReplyToEmail: null,
+    }
+  }
+
+  if (loc.status !== 'ACTIVE') {
+    return {
+      allowed: false,
+      decision: 'LOCATION_INACTIVE',
+      businessName: org.name || 'our business',
+      businessPostalAddress: null,
+      reviewReplyToEmail: null,
+    }
+  }
+
+  const businessName = org.name || 'our business'
+  const businessPostalAddress = sanitizePostalAddress(loc.address)
+  const reviewReplyToEmail = sanitizeReplyToEmail(loc.review_reply_to_email)
+
+  if (!businessPostalAddress) {
+    return {
+      allowed: false,
+      decision: 'SENDER_IDENTITY_INCOMPLETE',
+      businessName,
+      businessPostalAddress: null,
+      reviewReplyToEmail,
+    }
+  }
+
+  return {
+    allowed: true,
+    decision: 'ELIGIBLE',
+    businessName,
+    businessPostalAddress,
+    reviewReplyToEmail,
   }
 }
 
@@ -650,8 +775,96 @@ export async function executeReviewRequestHandler({
         }
       }
 
+      // MR-7B.2: Final send-time sender identity check
+      // Re-read current organization and location directly from the database source of truth
+      const finalSenderIdentity = await checkFinalEmailSenderIdentity({
+        supabase,
+        organizationId,
+        locationId,
+      })
+
+      const emailProvider = getEmailProvider()
+
+      // MR-7B.2 FAIL-CLOSED INVARIANT:
+      // If provider is a real/live provider (resend), a valid business postal address is strictly required.
+      if (emailProvider.name === 'resend' && !finalSenderIdentity.allowed) {
+        if (finalSenderIdentity.decision === 'SENDER_IDENTITY_INCOMPLETE') {
+          // Recoverable failure: mark FAILED (not CANCELLED) so it remains retry-compatible
+          await supabase
+            .from('review_requests')
+            .update({
+              status: 'FAILED',
+              failed_at: new Date().toISOString(),
+              error_message: 'Business postal address required before live email dispatch',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', reviewRequestId)
+
+          // Bounded audit event: operational metadata only, ZERO PII, NO postal address
+          await supabase.from('audit_events').insert({
+            organization_id: organizationId,
+            actor_type: 'system',
+            event_type: 'review_request.dispatch_blocked',
+            entity_type: 'review_request',
+            entity_id: reviewRequestId,
+            metadata: {
+              reviewRequestId,
+              stage: 'initial',
+              decision: 'SENDER_IDENTITY_INCOMPLETE',
+            },
+          })
+
+          return {
+            success: false,
+            aborted: true,
+            provider: 'abort',
+            messageId: 'dispatch_blocked_sender_identity_incomplete',
+          }
+        }
+      }
+
+      if (
+        finalSenderIdentity.decision === 'ORGANIZATION_INACTIVE' ||
+        finalSenderIdentity.decision === 'LOCATION_INACTIVE' ||
+        finalSenderIdentity.decision === 'ORGANIZATION_NOT_FOUND' ||
+        finalSenderIdentity.decision === 'LOCATION_NOT_FOUND'
+      ) {
+        await supabase
+          .from('review_requests')
+          .update({
+            status: 'CANCELLED',
+            cancelled_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', reviewRequestId)
+
+        await supabase.from('audit_events').insert({
+          organization_id: organizationId,
+          actor_type: 'system',
+          event_type: 'review_request.dispatch_blocked',
+          entity_type: 'review_request',
+          entity_id: reviewRequestId,
+          metadata: {
+            reviewRequestId,
+            stage: 'initial',
+            decision: finalSenderIdentity.decision,
+          },
+        })
+
+        return {
+          success: false,
+          aborted: true,
+          provider: 'abort',
+          messageId: `dispatch_blocked_${finalSenderIdentity.decision.toLowerCase()}`,
+        }
+      }
+
       const freshCustomerEmail = finalAuthority.customerEmail!
       const recipientName = finalAuthority.customerName || postDelayCheck.customerName || 'there'
+
+      const effectiveBusinessName = finalSenderIdentity.businessName || postDelayCheck.businessName || 'our business'
+      const effectiveReplyTo = finalSenderIdentity.reviewReplyToEmail !== undefined ? finalSenderIdentity.reviewReplyToEmail : postDelayCheck.reviewReplyToEmail
+      const effectivePostalAddress = finalSenderIdentity.businessPostalAddress
 
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
       const trackingUrl = buildTrackedReviewUrl(appUrl, reviewRequestToken)
@@ -659,15 +872,14 @@ export async function executeReviewRequestHandler({
       const fromAddress = process.env.EMAIL_FROM_ADDRESS?.trim() || undefined
 
       const composed = composeReviewRequestEmail({
-        businessName: postDelayCheck.businessName || 'our business',
+        businessName: effectiveBusinessName,
+        businessPostalAddress: effectivePostalAddress,
         customerFirstName: recipientName,
         reviewUrl: trackingUrl,
         unsubscribeUrl,
-        replyToEmail: postDelayCheck.reviewReplyToEmail,
+        replyToEmail: effectiveReplyTo,
         fromAddress,
       })
-
-      const emailProvider = getEmailProvider()
 
       // MR-4: Record provider send attempt usage and cost estimate
       await supabase.rpc('record_usage_event', {
@@ -685,7 +897,7 @@ export async function executeReviewRequestHandler({
         const result = await emailProvider.send({
           to: freshCustomerEmail,
           recipientName,
-          businessName: postDelayCheck.businessName || 'our business',
+          businessName: effectiveBusinessName,
           trackingUrl,
           unsubscribeUrl,
           subject: composed.subject,
@@ -997,8 +1209,72 @@ export async function executeReviewRequestHandler({
         }
       }
 
+      // MR-7B.2: Final sender identity check for reminder
+      // Re-read current organization and location directly from the database source of truth
+      const finalSenderIdentity = await checkFinalEmailSenderIdentity({
+        supabase,
+        organizationId,
+        locationId,
+      })
+
+      const emailProvider = getEmailProvider()
+
+      // MR-7B.2 REMINDER FAIL-CLOSED INVARIANT:
+      // If provider is a real/live provider (resend) and postal identity is incomplete:
+      // Preserve historical status, do not set reminded_at, do not send, record zero-PII audit event.
+      if (emailProvider.name === 'resend' && !finalSenderIdentity.allowed) {
+        await supabase.from('audit_events').insert({
+          organization_id: organizationId,
+          actor_type: 'system',
+          event_type: 'review_request.reminder_blocked',
+          entity_type: 'review_request',
+          entity_id: reviewRequestId,
+          metadata: {
+            reviewRequestId,
+            decision: finalSenderIdentity.decision,
+          },
+        })
+
+        return {
+          success: false,
+          aborted: true,
+          provider: 'abort',
+          messageId: `reminder_blocked_${finalSenderIdentity.decision.toLowerCase()}`,
+        }
+      }
+
+      if (
+        finalSenderIdentity.decision === 'ORGANIZATION_INACTIVE' ||
+        finalSenderIdentity.decision === 'LOCATION_INACTIVE' ||
+        finalSenderIdentity.decision === 'ORGANIZATION_NOT_FOUND' ||
+        finalSenderIdentity.decision === 'LOCATION_NOT_FOUND'
+      ) {
+        await supabase.from('audit_events').insert({
+          organization_id: organizationId,
+          actor_type: 'system',
+          event_type: 'review_request.reminder_blocked',
+          entity_type: 'review_request',
+          entity_id: reviewRequestId,
+          metadata: {
+            reviewRequestId,
+            decision: finalSenderIdentity.decision,
+          },
+        })
+
+        return {
+          success: false,
+          aborted: true,
+          provider: 'abort',
+          messageId: `reminder_blocked_${finalSenderIdentity.decision.toLowerCase()}`,
+        }
+      }
+
       const freshReminderEmail = finalAuthority.customerEmail!
       const reminderRecipientName = finalAuthority.customerName || preReminderCheck.customerName || 'there'
+
+      const effectiveBusinessName = finalSenderIdentity.businessName || preReminderCheck.businessName || 'our business'
+      const effectiveReplyTo = finalSenderIdentity.reviewReplyToEmail !== undefined ? finalSenderIdentity.reviewReplyToEmail : preReminderCheck.reviewReplyToEmail
+      const effectivePostalAddress = finalSenderIdentity.businessPostalAddress
 
       // 2. Compose neutral reminder email
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
@@ -1007,15 +1283,14 @@ export async function executeReviewRequestHandler({
       const fromAddress = process.env.EMAIL_FROM_ADDRESS?.trim() || undefined
 
       const composed = composeReviewReminderEmail({
-        businessName: preReminderCheck.businessName || 'our business',
+        businessName: effectiveBusinessName,
+        businessPostalAddress: effectivePostalAddress,
         customerFirstName: reminderRecipientName,
         reviewUrl: trackingUrl,
         unsubscribeUrl,
-        replyToEmail: preReminderCheck.reviewReplyToEmail,
+        replyToEmail: effectiveReplyTo,
         fromAddress,
       })
-
-      const emailProvider = getEmailProvider()
 
       // MR-4: Record provider send attempt usage and cost estimate for reminder
       await supabase.rpc('record_usage_event', {
@@ -1033,7 +1308,7 @@ export async function executeReviewRequestHandler({
         const result = await emailProvider.send({
           to: freshReminderEmail,
           recipientName: reminderRecipientName,
-          businessName: preReminderCheck.businessName || 'our business',
+          businessName: effectiveBusinessName,
           trackingUrl,
           unsubscribeUrl,
           subject: composed.subject,

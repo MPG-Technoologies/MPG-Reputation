@@ -4,11 +4,15 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { sanitizePostalAddress } from '@/domain/email'
 
 export async function createOrganizationAndLocation(formData: FormData): Promise<void> {
   const orgName = (formData.get('orgName') as string)?.trim()
   const locName = (formData.get('locName') as string)?.trim()
-  const address = (formData.get('address') as string)?.trim() || null
+  const rawAddress = formData.get('address') !== null
+    ? (formData.get('address') as string)
+    : null
+  const address = rawAddress !== null ? sanitizePostalAddress(rawAddress) : null
 
   if (!orgName || !locName) {
     redirect('/onboarding?error=Organization%20name%20and%20location%20name%20are%20required')

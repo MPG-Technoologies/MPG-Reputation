@@ -6,6 +6,8 @@ import { Panel, PanelHeader } from '@/components/layout/panels'
 import { MapPinIcon } from '@/components/ui/icons'
 import { DataLoadError } from '@/components/ui/data-load-error'
 
+import { LocationItem } from './location-item'
+
 export default async function LocationSettingsPage() {
   const supabase = await createClient()
   const {
@@ -75,36 +77,12 @@ export default async function LocationSettingsPage() {
               </div>
             ) : (
               locations.map((loc) => (
-                <div
+                <LocationItem
                   key={loc.id}
-                  className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#131E38]/40 transition-colors"
-                >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-white text-sm">{loc.name}</h3>
-                      <span
-                        className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${
-                          loc.status === 'ACTIVE'
-                            ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800/80'
-                            : 'bg-slate-800 text-slate-400 border-slate-700'
-                        }`}
-                      >
-                        {loc.status}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1">
-                      {loc.address || 'No street address specified'}
-                    </p>
-                    {loc.review_reply_to_email && (
-                      <p className="text-xs text-sky-400 mt-1 font-mono">
-                        Reply-To: {loc.review_reply_to_email}
-                      </p>
-                    )}
-                    <span className="text-[11px] text-slate-500 mt-1.5 block">
-                      {loc.country} • {loc.timezone}
-                    </span>
-                  </div>
-                </div>
+                  organizationId={orgId}
+                  location={loc}
+                  canManage={canManage}
+                />
               ))
             )}
           </div>
@@ -136,15 +114,19 @@ export default async function LocationSettingsPage() {
 
               <div>
                 <label htmlFor="address" className="block font-medium text-slate-300">
-                  Address
+                  Business Mailing Address
                 </label>
                 <input
                   id="address"
                   name="address"
                   type="text"
-                  placeholder="456 Secondary Blvd, Suite 100"
+                  maxLength={300}
+                  placeholder="456 Secondary Blvd, Suite 100, City, ST 12345"
                   className="mt-1 block w-full px-3 py-2 bg-[#0A1020] border border-[#1C2846] text-white rounded-lg placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors text-xs"
                 />
+                <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                  Used in review-request email footers. Enter the complete business mailing address for this location. Required before live review emails can be sent.
+                </p>
               </div>
 
               <div>

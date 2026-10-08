@@ -822,4 +822,146 @@ describe.skipIf(!isDbAvailable)('Real PostgreSQL RLS and Multi-Tenant Isolation'
     expect(existingEvidence).not.toBeNull()
     expect(existingEvidence!.length).toBeGreaterThan(0)
   })
-});
+
+  it('proves MR-7C.1 customer direct delete hardening and tenant mutation preservation', async () => {
+    const anonClient = createClient<Database>(SUPABASE_URL, ANON_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+
+    // 1. Setup synthetic customer fixture in Org A via adminClient
+    const syntheticCustEmail = `synthetic.cust.${Date.now()}@example.test`
+    const { data: testCust, error: custSetupErr } = await adminClient
+      .from('customers')
+      .insert({
+        organization_id: orgAId,
+        location_id: locAId,
+        first_name: 'SyntheticDeleteTest',
+        last_name: 'Fixture',
+        email: syntheticCustEmail,
+        permission_email: 'allowed',
+        permission_source: 'manual_entry',
+      })
+      .select()
+      .single()
+
+    expect(custSetupErr).toBeNull()
+    expect(testCust).toBeDefined()
+    const testCustId = testCust!.id
+
+    // 2. OWNER authenticated client: customer DELETE denied
+    const { error: ownerDelErr } = await userAClient.from('customers').delete().eq('id', testCustId)
+    expect(ownerDelErr).not.toBeNull()
+    expect(ownerDelErr?.code).toBe('42501')
+
+    // 3. ADMIN authenticated client: customer DELETE denied
+    const { error: adminDelErr } = await adminUserClient.from('customers').delete().eq('id', testCustId)
+    expect(adminDelErr).not.toBeNull()
+    expect(adminDelErr?.code).toBe('42501')
+
+    // 4. OPERATOR authenticated client: customer DELETE denied
+    const { error: opDelErr } = await operatorClient.from('customers').delete().eq('id', testCustId)
+    expect(opDelErr).not.toBeNull()
+    expect(opDelErr?.code).toBe('42501')
+
+    // 5. VIEWER authenticated client: customer DELETE denied
+    const { error: viewerDelErr } = await viewerClient.from('customers').delete().eq('id', testCustId)
+    expect(viewerDelErr).not.toBeNull()
+    expect(viewerDelErr?.code).toBe('42501')
+
+    // 6. anon client: customer DELETE denied
+    const { error: anonDelErr } = await anonClient.from('customers').delete().eq('id', testCustId)
+    expect(anonDelErr).not.toBeNull()
+    expect(anonDelErr?.code).toBe('42501')
+
+    // 7. Cross-tenant client (User B in Org B): customer DELETE denied
+    const { error: crossDelErr } = await userBClient.from('customers').delete().eq('id', testCustId)
+    expect(crossDelErr).not.toBeNull()
+    expect(crossDelErr?.code).toBe('42501')
+
+    // 8. Verify existing allowed mutation behaviors remain intact
+    // OWNER can UPDATE
+    const { data: ownerUpdate, error: ownerUpdateErr } = await userAClient
+      .from('customers')
+      .update({ first_name: 'OwnerUpdated' })
+      .eq('id', testCustId)
+      .select()
+    expect(ownerUpdateErr).toBeNull()
+    expect(ownerUpdate?.[0]?.first_name).toBe('OwnerUpdated')
+
+    // ADMIN can UPDATE
+    const { data: adminUpdate, error: adminUpdateErr } = await adminUserClient
+      .from('customers')
+      .update({ first_name: 'AdminUpdated' })
+      .eq('id', testCustId)
+      .select()
+    expect(adminUpdateErr).toBeNull()
+    expect(adminUpdate?.[0]?.first_name).toBe('AdminUpdated')
+
+    // OPERATOR can UPDATE
+    const { data: opUpdate, error: opUpdateErr } = await operatorClient
+      .from('customers')
+      .update({ first_name: 'OperatorUpdated' })
+      .eq('id', testCustId)
+      .select()
+    expect(opUpdateErr).toBeNull()
+    expect(opUpdate?.[0]?.first_name).toBe('OperatorUpdated')
+
+    // OPERATOR can INSERT new synthetic customer
+    const { data: opNewCust, error: opInsertErr } = await operatorClient
+      .from('customers')
+      .insert({
+        organization_id: orgAId,
+        location_id: locAId,
+        first_name: 'OperatorNewCust',
+        email: `op.new.${Date.now()}@example.test`,
+        permission_email: 'allowed',
+        permission_source: 'manual_entry',
+      })
+      .select()
+      .single()
+    expect(opInsertErr).toBeNull()
+    expect(opNewCust?.first_name).toBe('OperatorNewCust')
+
+    // VIEWER cannot INSERT
+    const { error: viInsertErr } = await viewerClient.from('customers').insert({
+      organization_id: orgAId,
+      location_id: locAId,
+      first_name: 'ViewerForbidden',
+      email: `vi.forbid.${Date.now()}@example.test`,
+      permission_email: 'allowed',
+      permission_source: 'manual_entry',
+    })
+    expect(viInsertErr).not.toBeNull()
+    expect(viInsertErr?.code).toBe('42501')
+
+    // VIEWER cannot UPDATE (RLS USING clause evaluates to false, yields 0 updated rows)
+    const { data: viUpdate } = await viewerClient
+      .from('customers')
+      .update({ first_name: 'ViewerHacked' })
+      .eq('id', testCustId)
+      .select()
+    expect(viUpdate ?? []).toHaveLength(0)
+
+    // Confirm customer was NOT modified by VIEWER
+    const { data: verifiedCust } = await adminClient
+      .from('customers')
+      .select('first_name')
+      .eq('id', testCustId)
+      .single()
+    expect(verifiedCust?.first_name).toBe('OperatorUpdated')
+
+    // 9. service_role retains DELETE capability for trusted server/test workflows
+    const { data: serviceDel, error: serviceDelErr } = await adminClient
+      .from('customers')
+      .delete()
+      .eq('id', testCustId)
+      .select()
+    expect(serviceDelErr).toBeNull()
+    expect(serviceDel).toHaveLength(1)
+    expect(serviceDel?.[0]?.id).toBe(testCustId)
+
+    if (opNewCust) {
+      await adminClient.from('customers').delete().eq('id', opNewCust.id)
+    }
+  })
+})

@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { PageShell, PageHeader } from '@/components/layout/page-shell'
 import { TablePanel, EmptyState } from '@/components/layout/panels'
 import { UsersIcon, SearchIcon, MapPinIcon } from '@/components/ui/icons'
-import { RecordCompletionButton } from './customer-actions'
+import { RecordCompletionButton, CustomerPrivacyExportButton } from './customer-actions'
 
 interface CustomersPageProps {
   searchParams: Promise<{
@@ -32,11 +32,13 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
 
   const { data: memberships } = await supabase
     .from('organization_users')
-    .select('organization_id')
+    .select('organization_id, role')
     .eq('user_id', user.id)
 
   const activeMembership = memberships?.[0]
   const orgId = activeMembership?.organization_id
+  const userRole = activeMembership?.role
+  const canExport = ['OWNER', 'ADMIN'].includes(userRole ?? '')
 
   if (!orgId) {
     redirect('/onboarding')
@@ -158,6 +160,9 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
                   <th scope="col" className="px-4 py-3 font-medium">Location</th>
                   <th scope="col" className="px-3 py-3 font-medium">Consent</th>
                   <th scope="col" className="px-4 py-3 font-medium text-right">Created</th>
+                  {canExport && (
+                    <th scope="col" className="px-4 py-3 font-medium text-right">Actions</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1C2846]/70">
@@ -200,6 +205,11 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
                       <td className="px-4 py-3.5 whitespace-nowrap text-slate-400 text-[11px] text-right font-mono">
                         {createdDate}
                       </td>
+                      {canExport && (
+                        <td className="px-4 py-3.5 whitespace-nowrap text-right">
+                          <CustomerPrivacyExportButton organizationId={orgId} customerId={c.id} />
+                        </td>
+                      )}
                     </tr>
                   )
                 })}
@@ -248,6 +258,12 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
                     </span>
                     <span className="font-mono text-[11px]">{createdDate}</span>
                   </div>
+
+                  {canExport && (
+                    <div className="pt-2 flex justify-end">
+                      <CustomerPrivacyExportButton organizationId={orgId} customerId={c.id} />
+                    </div>
+                  )}
                 </div>
               )
             })}

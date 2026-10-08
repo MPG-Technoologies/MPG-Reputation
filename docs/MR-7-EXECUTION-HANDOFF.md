@@ -2,14 +2,14 @@
 
 | Metadata | Value |
 |---|---|
-| Date | 2026-10-08 |
+| Date | 2026-10-09 |
 | Authority | Owner direction (Company OS source of truth: techwithmpg/mpg-company-os; reconciliation outstanding) |
 | Milestone | MR-7 (Trust / Security / Compliance) — ACTIVE |
-| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — OWNER ACCEPTED / MERGE AUTHORIZED** (NOT `MR-7 — COMPLETE`) |
-| Current Bounded Slice | MR-7C.2 — Customer Privacy Export — IN PROGRESS (MR-7C.2A OWNER ACCEPTED; next slice not yet started) |
-| Inspected Product Baseline | `23f4458128eb6d54ed3b2d9e11689d1d27623743` (on `main`) |
-| Feature Branch | `chatgpt/mr7c2-customer-privacy-export` |
-| Public Safe | Yes; local synthetic fixtures only for MR-7C.2A verification; no real customer data used |
+| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.2B — IN PROGRESS (READY FOR OWNER REVIEW)** (NOT `MR-7 — COMPLETE`) |
+| Current Bounded Slice | MR-7C.2B — Authorized Export Delivery Surface — IN PROGRESS (READY FOR OWNER REVIEW) |
+| Inspected Product Baseline | `a2c3df3076b814dd74996d674dadfe400428c012` (on `main`) |
+| Feature Branch | `chatgpt/mr7c2b-export-delivery` |
+| Public Safe | Yes; local synthetic fixtures only for verification; no real customer data used |
 
 ---
 
@@ -44,7 +44,7 @@
     - Grants `DELETE` on `public.customers` to `service_role` only for trusted server workflows.
   - Retains all existing `SELECT`, `INSERT`, and `UPDATE` capabilities for tenant users.
   - Invariants 1 through 8 frozen for subsequent MR-7C slices.
-- **MR-7C.2A — OWNER ACCEPTED / MERGE AUTHORIZED**:
+- **MR-7C.2A — OWNER ACCEPTED / PRODUCTION VERIFIED**:
   - Owner decision freezes privacy-export authority to tenant `OWNER` and `ADMIN` only. `OPERATOR` and `VIEWER` are denied.
   - Adds the per-customer structured JSON export foundation in `src/domain/privacy/customer-export.ts`.
   - Tenant-visible customer, completion, review, event, and suppression reads use the authenticated Supabase client and existing RLS boundaries.
@@ -55,8 +55,19 @@
   - Export fields are explicitly allowlisted. Review/unsubscribe bearer tokens and hashes, provider IDs, raw event metadata, suppression hashes, credentials, outbox payloads, and other internal secrets are excluded.
   - Suppression membership is resolved with the canonical suppression hash function, but the pseudonymous `contact_hash` itself is not exported.
   - Successful exports write `privacy.customer_export` to `audit_events` with schema version and aggregate counts only; customer name, email, phone, raw PII, and export payloads are not copied into audit metadata.
-  - No schema migration is required by MR-7C.2A.
-  - No customer erasure, retention purge, production deployment, hosted database mutation, or live messaging/billing change is included.
+  - Merged into `main` at commit `a2c3df3076b814dd74996d674dadfe400428c012` and production verified.
+  - No schema migration was required by MR-7C.2A.
+- **MR-7C.2B — AUTHORIZED EXPORT DELIVERY SURFACE (READY FOR OWNER REVIEW)**:
+  - Exposes the C2A per-customer privacy export foundation to authorized tenant users via single authenticated product route `GET /api/organizations/[organizationId]/customers/[customerId]/export`.
+  - Target input is explicit `organizationId` and `customerId`. The browser-supplied input is target input only, not authority.
+  - Gated by authoritative domain engine `getCustomerPrivacyExport(organizationId, customerId)`: tenant `OWNER` and `ADMIN` only. `OPERATOR` and `VIEWER` are denied (403, zero payload).
+  - Anonymous sessions are denied (403, zero payload).
+  - Forged/foreign organizationId, foreign customer IDs, and nonexistent customer IDs fail identically without disclosing customer or organization existence (403).
+  - Delivery contract: `Content-Type: application/json; charset=utf-8`, `Content-Disposition: attachment; filename="mpg-customer-privacy-export-<customerId>.json"`, `Cache-Control: no-store`. Zero customer PII in filename.
+  - Fail-closed error contract: returns `UNAVAILABLE` (503) without partial data on read or audit failure.
+  - UI integration: Added `CustomerPrivacyExportButton` in `src/app/app/customers/customer-actions.tsx` requiring `organizationId` and `customerId`, integrated into `src/app/app/customers/page.tsx` for desktop table and mobile cards. UI visibility is role-gated, while backend route handler strictly enforces authorization via C2A.
+  - No duplicate v1 endpoint; single internal product route with minimal attack surface.
+  - No database migration required.
 
 ---
 
@@ -100,11 +111,12 @@
 
 ## 3. Scope Boundaries & Non-Goals
 
-- **No Destruction / Erasure Execution**: MR-7C.1 does not execute any customer erasures or deletions.
-- **Privacy Export Boundary**: MR-7C.2A implements the server-side per-customer export foundation only; it does not add bulk tenant export, destructive erasure, or a public/self-service export surface.
+- **No Destruction / Erasure Execution**: MR-7C.1 and MR-7C.2 do not execute any customer erasures or deletions.
+- **Privacy Export Boundary**: MR-7C.2A implements the server-side per-customer export foundation; MR-7C.2B adds the authorized delivery surface via GET `/api/organizations/[organizationId]/customers/[customerId]/export` and customer workspace UI. It does not add bulk tenant export, destructive erasure, or a public self-service export surface.
 - **No Retention Cron / Purge**: Automated purging is scheduled for MR-7C.4.
 - **MR-7C.1 Production Activation**: Owner explicitly authorized the hosted migration, merge to main, and automatic Vercel deployment associated with the main merge. Hosted migration `20261008010000` was applied and verified before merge.
-- **MR-7C.2A Production Activation**: Owner authorized the merge to `main` and the automatic Vercel production deployment on 2026-10-08. Production verification remains pending. This slice requires no database migration.
+- **MR-7C.2A Production Activation**: Merged to `main` at `a2c3df3076b814dd74996d674dadfe400428c012` and production verified. This slice required no database migration.
+- **MR-7C.2B Production Boundary**: Engineering completed on branch `chatgpt/mr7c2b-export-delivery`. Awaiting owner review. Requires no database migration. No production deployment, live messaging activation, or billing activation authorized.
 - **Live Messaging**: Remains completely OFF (`ENABLE_LIVE_EMAIL=false`).
 - **Billing**: Unchanged and paused under `MPG-DEC-049`.
 - **MR-6**: Admin/support route code is present, but hosted support-access database/authorization activation remains intentionally not enabled for production.
@@ -117,24 +129,24 @@
 |---|---|---|
 | `pnpm lint` | **PASS** | ESLint passes with zero warnings, zero errors |
 | `pnpm typecheck` | **PASS** | TypeScript cleanly passes with zero errors |
-| `pnpm test test/integration/customer-privacy-export.test.ts` | **PASS** | 7 tests passed: OWNER/ADMIN authorization, OPERATOR/VIEWER denial, cross-tenant denial, field allowlisting/secret exclusion, mandatory audit, fail-closed reads, authorization recheck, and no mutation outside audit |
-| `pnpm test test/integration/real-rls.test.ts` | **PASS** | 16 tests passed (enforces customer delete denial for OWNER, ADMIN, OPERATOR, VIEWER, anon, cross-tenant; verifies service_role deletion and tenant mutation preservation) |
-| `pnpm test test/integration/unsubscribe.test.ts` | **PASS** | 16 tests passed (unsubscribe flow and suppression invariants fully preserved) |
-| `pnpm test test/integration/mr7b1-authority-send-invariant.test.ts` | **PASS** | 5 tests passed (B1 regression clean) |
-| `pnpm test test/integration/mr7b2-sender-identity.test.ts` | **PASS** | 9 tests passed (B2 sender identity regression clean) |
-| `pnpm test test/domain/mr7b3-payload-minimization.test.ts` | **PASS** | 6 tests passed (B3 payload minimization domain regression clean) |
-| `pnpm test test/integration/mr7b3-payload-minimization.test.ts` | **PASS** | 3 tests passed (B3 payload minimization integration regression clean) |
-| `pnpm test test/domain/` | **PASS** | 19 test files, 215 tests passed |
-| `npx supabase db lint --local` | **PASS** | Local Supabase schema clean (0 errors) |
-| `pnpm build` | **PASS** | Production build succeeded; all 18 routes compiled |
+| `pnpm vitest run test/integration/customer-privacy-export-delivery.test.ts` | **PASS** | 17 tests passed: OWNER/ADMIN download, OPERATOR/VIEWER denial, anon denial, forged/foreign org denial, foreign customer non-disclosure, nonexistent customer identical denial, malformed org/customer UUID rejection, valid JSON, application/json, attachment Content-Disposition, PII-free filename, Cache-Control: no-store, C2A schema 1.0 contract parity, zero payload on DENIED/UNAVAILABLE, mandatory privacy.customer_export audit, zero mutation outside audit, and verification that handler delegates purely to C2A without secondary authorization queries |
+| `pnpm vitest run test/integration/customer-privacy-export.test.ts` | **PASS** | 7 tests passed: OWNER/ADMIN authorization, OPERATOR/VIEWER denial, cross-tenant denial, field allowlisting/secret exclusion, mandatory audit, fail-closed reads, authorization recheck, and no mutation outside audit |
+| `pnpm vitest run test/integration/real-rls.test.ts` | **PASS** | 16 tests passed (enforces customer delete denial for OWNER, ADMIN, OPERATOR, VIEWER, anon, cross-tenant; verifies service_role deletion and tenant mutation preservation) |
+| `pnpm vitest run test/integration/unsubscribe.test.ts` | **PASS** | 16 tests passed (unsubscribe flow and suppression invariants fully preserved) |
+| `pnpm vitest run test/integration/mr7b1-authority-send-invariant.test.ts` | **PASS** | 5 tests passed (B1 regression clean) |
+| `pnpm vitest run test/integration/mr7b2-sender-identity.test.ts` | **PASS** | 9 tests passed (B2 sender identity regression clean) |
+| `pnpm vitest run test/domain/mr7b3-payload-minimization.test.ts` | **PASS** | 6 tests passed (B3 payload minimization domain regression clean) |
+| `pnpm vitest run test/integration/mr7b3-payload-minimization.test.ts` | **PASS** | 3 tests passed (B3 payload minimization integration regression clean) |
+| `pnpm dlx supabase@2.117.0 db lint --local` | **PASS** | Local Supabase schema clean (0 errors) |
+| `pnpm build` | **PASS** | Production build succeeded; all routes compiled |
 | Local PostgreSQL privilege check | **PASS** | `has_table_privilege('authenticated', 'public.customers', 'DELETE') = false`<br>`has_table_privilege('anon', 'public.customers', 'DELETE') = false`<br>`has_table_privilege('service_role', 'public.customers', 'DELETE') = true` |
 
 ---
 
 ## 5. Frozen MR-7C Sequence
 
-1. **MR-7C.1**: Privacy Lifecycle Contract + Direct Delete Safety *(OWNER ACCEPTED)*
-2. **MR-7C.2**: Customer Privacy Export *(IN PROGRESS — MR-7C.2A OWNER ACCEPTED)*
+1. **MR-7C.1**: Privacy Lifecycle Contract + Direct Delete Safety *(OWNER ACCEPTED / HOSTED VERIFIED)*
+2. **MR-7C.2**: Customer Privacy Export *(IN PROGRESS — MR-7C.2A OWNER ACCEPTED / PRODUCTION VERIFIED; MR-7C.2B READY FOR OWNER REVIEW)*
 3. **MR-7C.3**: Controlled Customer Erasure / Anonymization
 4. **MR-7C.4**: Retention + Automatic Aging/Purge Controls
 5. **MR-7C.5**: Processor Deletion/Retention Reconciliation
@@ -152,10 +164,9 @@ If rollback of MR-7C.1 is required:
 
 ## 7. Owner Gate
 
-- **Milestone Status**: MR-7 is ACTIVE; MR-7B.1, MR-7B.2, and MR-7B.3 are **OWNER ACCEPTED**; MR-7C.1 is **OWNER ACCEPTED / HOSTED VERIFIED**; MR-7C.2A is **OWNER ACCEPTED / MERGE AUTHORIZED**.
+- **Milestone Status**: MR-7 is ACTIVE; MR-7B.1, MR-7B.2, and MR-7B.3 are **OWNER ACCEPTED**; MR-7C.1 is **OWNER ACCEPTED / HOSTED VERIFIED**; MR-7C.2A is **OWNER ACCEPTED / PRODUCTION VERIFIED**; MR-7C.2B is **READY FOR OWNER REVIEW**.
 - **Live messaging remains disabled** (`ENABLE_LIVE_EMAIL=false`).
 - **Live billing remains paused** under `MPG-DEC-049`.
 - **Controlled Pilot (MR-8) remains strictly GATED**.
-- Feature branch `chatgpt/mr7c2-customer-privacy-export` contains the owner-accepted MR-7C.2A implementation.
-- Hosted migration `20261008010000` for MR-7C.1 has been applied and verified. Owner explicitly authorized the MR-7C.1 merge to `main` and the automatic Vercel deployment triggered by that merge.
-- MR-7C.2A requires no database migration. Owner authorized the MR-7C.2A merge to `main` and automatic Vercel production deployment on 2026-10-08. Customer erasure, hosted database mutation, live messaging activation, and billing activation remain unauthorized.
+- Feature branch `chatgpt/mr7c2b-export-delivery` contains the MR-7C.2B implementation.
+- MR-7C.2B requires no database migration. Customer erasure, hosted database mutation, live messaging activation, and billing activation remain unauthorized.

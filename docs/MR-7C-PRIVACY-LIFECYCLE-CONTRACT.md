@@ -86,19 +86,18 @@ Stores operational dispatch and interaction lifecycle:
 - **`public.review_requests`**:
   - `id`, `organization_id`, `location_id`, `customer_id`, `completion_event_id`, `destination_id`: References.
   - `channel`: `email` or `sms`.
-  - `status`: Lifecycle state (`SCHEDULED`, `SENT`, `DELIVERED`, `OPENED`, `CLICKED`, `FAILED`, `CANCELLED`, `SUPPRESSED`).
-  - `scheduled_for`, `sent_at`, `delivered_at`, `opened_at`, `clicked_at`, `failed_at`, `cancelled_at`: Timestamps.
-  - `tracking_token`, `token_hash`: Cryptographically random 256-bit review redirect tokens (zero PII embedded).
-  - `unsubscribe_token`, `unsubscribe_token_hash`: Cryptographically random 256-bit unsubscribe tokens (zero PII embedded).
-  - `error_code`, `error_message`: Sanitized delivery failure details.
+  - `status`: Lifecycle state (`SCHEDULED`, `SENDING`, `SENT`, `DELIVERED`, `CLICKED`, `FAILED`, `CANCELLED`, `SUPPRESSED`).
+  - `scheduled_for`, `sent_at`, `delivered_at`, `clicked_at`, `failed_at`, `cancelled_at`, `reminded_at`: Lifecycle timestamps present across the current schema and messaging migrations.
+  - `token`, `token_hash`: Review redirect token and hash. The token is random bearer material and contains no embedded customer PII.
+  - `unsubscribe_token`, `unsubscribe_token_hash`: Unsubscribe bearer token and hash; the token contains no embedded customer PII.
+  - `error_message`: Persisted delivery/workflow failure detail, with application-layer sanitization applied before storage where required.
 - **`public.message_events`**:
   - `id`, `review_request_id`, `organization_id`: Operational links.
-  - `provider`: Dispatch provider (`resend`, `console`).
-  - `provider_event_id`, `provider_message_id`: Downstream webhook IDs.
-  - `event_type`: Webhook status (`delivered`, `bounced`, `complained`).
-  - `metadata`: Sanitized payload metadata.
+  - `provider`, `provider_event_id`, `provider_message_id`: Provider identity and downstream event/message identifiers.
+  - `event_type`, `status`, `sanitized_error`, `metadata`: Persisted provider/dispatch lifecycle state and sanitized metadata.
+  - `event_occurred_at`, `processed_at`, `created_at`: Provider event and processing timestamps.
 - **`public.review_request_events`**:
-  - Internal audit transition log (`status_from`, `status_to`, `reason`, `occurred_at`).
+  - Internal request event log keyed by `review_request_id`, with `event_type`, optional `idempotency_key`, `metadata`, and `created_at`.
 
 ### D. Suppression Records (`public.suppressions`)
 Enforces universal opt-out, hard-bounce, and complaint suppression:
@@ -107,12 +106,12 @@ Enforces universal opt-out, hard-bounce, and complaint suppression:
 - `channel` (TEXT): Channel scope (`email` or `sms`).
 - `contact_hash` (TEXT): Deterministic SHA-256 digest:
   `sha256(channel + ':' + normalized_contact)`.
-- `reason` (TEXT): Ingestion reason (`CUSTOMER_UNSUBSCRIBED`, `HARD_BOUNCE`, `COMPLAINT`, `ADMIN_OVERRIDE`).
+- `reason` (TEXT): Persisted suppression provenance/reason. Exact values are defined by the active application workflows and are not expanded into a new retention or legal taxonomy in this contract.
 - `created_at` (TIMESTAMPTZ): Opt-out recording timestamp.
 
 > [!NOTE]
 > **Pseudonymous Data Classification**:
-> The `contact_hash` stored in `public.suppressions` is **pseudonymous operational compliance data, not anonymous data**. While it cannot be reversed mathematically, it can be tested for membership given a candidate contact address (`sha256(contact) == contact_hash`). Retaining this record is strictly required under anti-spam regulations (CAN-SPAM, CASL, GDPR Art. 21) to guarantee that unsubscribed individuals are never messaged in subsequent completions.
+> The `contact_hash` stored in `public.suppressions` is **pseudonymous operational compliance data, not anonymous data**. While it cannot be reversed mathematically, it can be tested for membership given a candidate contact address. The engineering invariant is that suppression evidence survives customer erasure while it is needed to prevent prohibited re-contact. This contract does not declare a statutory retention duration; any expiration or retention window requires explicit owner-approved policy and legal review.
 
 ### E. Authority Evidence (`public.messaging_authority_evidence`)
 Immutable audit trail verifying that dispatch authority existed at ingestion time:
@@ -129,7 +128,7 @@ Immutable audit trail verifying that dispatch authority existed at ingestion tim
 ### F. Transports, Audits & Ingestion
 - **`public.domain_event_outbox`**: Minimized in MR-7B.3. For `customer.completed` events, stores strictly the 5 canonical operational identifiers (`eventId`, `organizationId`, `locationId`, `customerId`, `sourceEventId`). Transient transport PII is completely stripped.
 - **`public.completion_ingestion_requests`**: Stores `body_hash` (SHA-256) and source metadata. Does **not** persist raw customer contact payloads.
-- **`public.audit_events`**: Stores operational audit records with structural IDs and metadata (`actor_id`, `action`, `resource_id`). Excludes customer contact strings.
+- **`public.audit_events`**: Stores operational audit records using `organization_id`, `actor_type`, `actor_id`, `event_type`, `entity_type`, `entity_id`, `metadata`, and `created_at`. Audit metadata is intended to remain privacy-minimized; this contract does not treat the table as a secondary raw-contact store.
 
 ---
 
@@ -174,7 +173,7 @@ All future privacy and lifecycle engineering slices (MR-7C.2 through MR-7C.5) mu
 Tenant roles (`OWNER`, `ADMIN`, `OPERATOR`, `VIEWER`, `anon`) must **never** be permitted to issue direct SQL `DELETE` statements against `public.customers`. Any privacy erasure or customer deletion must be mediated through an audited, server-side workflow executed by `service_role`.
 
 ### INVARIANT 2 — SUPPRESSION SURVIVES ERASURE
-An erasure operation must **never** delete, weaken, or truncate a suppression record (`public.suppressions`). The pseudonymous `contact_hash` must be preserved indefinitely (or until an explicit, compliant suppression expiration policy is enacted) so that subsequent completion syncs from external CRMs or CSV imports cannot re-subscribe or re-message an individual who opted out or lodged a complaint.
+An erasure operation must **never** delete, weaken, or truncate a suppression record (`public.suppressions`) merely because direct customer PII is erased. The pseudonymous `contact_hash` must survive erasure while it is needed to prevent prohibited re-contact from later CRM, API, or CSV ingestion. Engineering does not set an indefinite or fixed retention period here; any expiration policy requires explicit owner-approved policy and legal review.
 
 ### INVARIANT 3 — ERASURE MUST NOT DESTROY DELIVERY HISTORY BY CASCADE
 Privacy erasure must **not** be implemented as a raw database row deletion (`DELETE FROM customers`). The current foreign keys would wipe out completion evidence, messaging history, and authority logs. The erasure workflow must explicitly distinguish between:

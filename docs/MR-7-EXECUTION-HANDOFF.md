@@ -33,7 +33,7 @@
   - Fail-closed historical outbox scrub migration `20261008000000_mr7b3_payload_minimization.sql`.
   - Merged into `main` at commit `014ed995e8fccb6be899c68bacfedc65f56b4367`.
   - Production application deployed and verified on Vercel deployment `6930523415` (`https://mpg-reputation.vercel.app`).
-  - Hosted Supabase migration pending independent application by ChatGPT/Owner.
+  - Hosted Supabase migration `20261008000000` was applied and independently verified during MR-7B.3 production acceptance.
 - **MR-7C.1 — READY FOR OWNER REVIEW**:
   - Comprehensive privacy lifecycle contract and data classification map created (`docs/MR-7C-PRIVACY-LIFECYCLE-CONTRACT.md`).
   - Direct delete hazard analyzed: confirmed `customers_delete` policy previously allowed authenticated tenant `OWNER`/`ADMIN` to execute hard deletes that cascaded through `customer_completion_events`, `review_requests`, `message_events`, and `messaging_authority_evidence`.
@@ -80,10 +80,10 @@
 - **No Destruction / Erasure Execution**: MR-7C.1 does not execute any customer erasures or deletions.
 - **No Export Implementation**: Export functionality is scheduled for MR-7C.2.
 - **No Retention Cron / Purge**: Automated purging is scheduled for MR-7C.4.
-- **No Production Deployment**: Hosted Supabase migration and production deployment are strictly forbidden in this slice.
+- **No MR-7C.1 Production Activation**: The MR-7C.1 hosted migration and any production deployment remain outside this slice and require separate owner authorization.
 - **Live Messaging**: Remains completely OFF (`ENABLE_LIVE_EMAIL=false`).
 - **Billing**: Unchanged and paused under `MPG-DEC-049`.
-- **MR-6**: Admin/support/observability remains undeployed.
+- **MR-6**: Admin/support route code is present, but hosted support-access database/authorization activation remains intentionally not enabled for production.
 
 ---
 
@@ -132,4 +132,4 @@ If rollback of MR-7C.1 is required:
 - **Live billing remains paused** under `MPG-DEC-049`.
 - **Controlled Pilot (MR-8) remains strictly GATED**.
 - Feature branch `chatgpt/mr7c1-delete-safety-lifecycle-contract` is prepared for review.
-- No merge to `main` has occurred. No production deployment has occurred. No hosted database mutation has occurred.
+- No MR-7C.1 merge to `main`, production deployment, or hosted database mutation has occurred.

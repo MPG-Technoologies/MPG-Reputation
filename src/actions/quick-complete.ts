@@ -169,10 +169,6 @@ export async function submitQuickComplete(formData: FormData): Promise<QuickComp
     locationId,
     customerId,
     sourceEventId: atomicData.source_event_id,
-    completedAt: canonical.completed_at,
-    country: canonical.country,
-    contact: canonical.contact,
-    permission: canonical.permission,
   }
 
   // Attempt immediate Inngest dispatch using stable domain-event identifier

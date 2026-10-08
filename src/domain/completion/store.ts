@@ -149,20 +149,6 @@ export class PostgresCompletionApiStore implements CompletionApiStore {
         locationId: input.locationId,
         customerId: res.customer_id,
         sourceEventId: res.source_event_id,
-        completedAt: input.completedAt,
-        country: input.country,
-        contact: {
-          email: input.email,
-          phone: input.phone,
-        },
-        permission: {
-          email: input.permissionEmail,
-          sms: input.permissionSms,
-          source: input.permissionSource,
-        },
-        source: input.source,
-        sourceCustomerId: input.sourceCustomerId,
-        sourceTransactionId: input.sourceTransactionId,
       }
 
       try {

@@ -20,10 +20,6 @@ export interface ReviewRequestEventData {
   locationId: string
   customerId: string
   sourceEventId: string
-  completedAt?: string
-  country?: string
-  contact?: { email?: string; phone?: string }
-  permission?: { email?: string; sms?: string; source?: string }
 }
 
 export type FinalEmailDispatchAuthorityDecision =

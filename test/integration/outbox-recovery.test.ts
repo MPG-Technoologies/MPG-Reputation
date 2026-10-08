@@ -141,15 +141,13 @@ describe("Automatic Outbox Recovery Workflow (Prompt Trust-Boundary Correction 3
     expect(outboxDispatched?.dispatched_at).not.toBeNull()
     expect(outboxDispatched?.attempt_count).toBe(1)
 
-    // 4. Workflow processes the recovered event
+    // 4. Workflow processes the recovered event with canonical 5-field payload
     const workflowEvent = {
       eventId: parsedRpc.completion_event_id,
       organizationId: orgId,
       locationId: locId,
       customerId: parsedRpc.customer_id,
       sourceEventId,
-      contact: { email: custEmail },
-      permission: { email: "allowed" as const },
     }
 
     const firstRun = await executeReviewRequestHandler({
@@ -176,6 +174,58 @@ describe("Automatic Outbox Recovery Workflow (Prompt Trust-Boundary Correction 3
     expect(secondRun.reviewRequestId).toBe(firstRun.reviewRequestId)
 
     // Verify exactly one review request exists for this customer completion event
+    const { data: requests } = await adminClient
+      .from("review_requests")
+      .select("id, status")
+      .eq("completion_event_id", parsedRpc.completion_event_id)
+
+    expect(requests).toHaveLength(1)
+    expect(requests![0].status).toBe("SENT")
+  })
+
+  it("proves handler is backwards-compatible and safely ignores legacy events containing extra keys", async () => {
+    const legacyCustEmail = `legacy.patient.${timestamp}@example.test`
+    const legacySourceEventId = `legacy_source_${timestamp}`
+
+    const { data: rpcRes, error: rpcErr } = await userClient.rpc("submit_quick_complete_atomic", {
+      p_org_id: orgId,
+      p_loc_id: locId,
+      p_first_name: "Legacy",
+      p_last_name: "Patient",
+      p_email: legacyCustEmail,
+      p_source: "quick_complete",
+      p_source_event_id: legacySourceEventId,
+      p_permission_email: "allowed",
+    })
+    expect(rpcErr).toBeNull()
+    const parsedRpc = rpcRes as { customer_id: string; completion_event_id: string; outbox_id: string }
+
+    // Legacy payload carrying deprecated extra keys (completedAt, country, contact, permission, etc.)
+    const legacyEvent = {
+      eventId: parsedRpc.completion_event_id,
+      organizationId: orgId,
+      locationId: locId,
+      customerId: parsedRpc.customer_id,
+      sourceEventId: legacySourceEventId,
+      completedAt: new Date().toISOString(),
+      country: "CA",
+      contact: { email: legacyCustEmail, phone: null },
+      permission: { email: "allowed", sms: "unknown", source: "quick_complete" },
+      unrelatedExtraKey: "ignored-value",
+    }
+
+    const run = await executeReviewRequestHandler({
+      event: { data: legacyEvent as unknown as import("../../src/inngest/functions/review-request").ReviewRequestEventData },
+      step: {
+        run: async <T>(_name: string, fn: () => Promise<T>): Promise<T> => await fn(),
+        sleep: async () => {},
+      },
+    })
+
+    expect(run.processed).toBe(true)
+    expect(run.reviewRequestId).toBeDefined()
+    expect(run.emailSent).toBe(true)
+
     const { data: requests } = await adminClient
       .from("review_requests")
       .select("id, status")

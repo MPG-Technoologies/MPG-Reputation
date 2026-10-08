@@ -5,8 +5,8 @@
 | Date | 2026-10-08 |
 | Authority | Owner direction (Company OS source of truth: techwithmpg/mpg-company-os; reconciliation outstanding) |
 | Milestone | MR-7 (Trust / Security / Compliance) — ACTIVE |
-| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — READY FOR OWNER REVIEW** (NOT `MR-7 — COMPLETE`) |
-| Current Bounded Slice | MR-7C.1 — Privacy Lifecycle Contract + Direct Delete Safety |
+| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED** (NOT `MR-7 — COMPLETE`) |
+| Current Bounded Slice | MR-7C.2 — Customer Privacy Export — NOT STARTED |
 | Inspected Product Baseline | `014ed995e8fccb6be899c68bacfedc65f56b4367` (on `main`) |
 | Feature Branch | `chatgpt/mr7c1-delete-safety-lifecycle-contract` |
 | Public Safe | Yes; synthetic fixtures only; zero customer PII in outbox or transport payloads |
@@ -34,7 +34,7 @@
   - Merged into `main` at commit `014ed995e8fccb6be899c68bacfedc65f56b4367`.
   - Production application deployed and verified on Vercel deployment `6930523415` (`https://mpg-reputation.vercel.app`).
   - Hosted Supabase migration `20261008000000` was applied and independently verified during MR-7B.3 production acceptance.
-- **MR-7C.1 — READY FOR OWNER REVIEW**:
+- **MR-7C.1 — OWNER ACCEPTED**:
   - Comprehensive privacy lifecycle contract and data classification map created (`docs/MR-7C-PRIVACY-LIFECYCLE-CONTRACT.md`).
   - Direct delete hazard analyzed: confirmed `customers_delete` policy previously allowed authenticated tenant `OWNER`/`ADMIN` to execute hard deletes that cascaded through `customer_completion_events`, `review_requests`, `message_events`, and `messaging_authority_evidence`.
   - Confirmed zero application UI or actions require direct client `DELETE`.
@@ -80,7 +80,7 @@
 - **No Destruction / Erasure Execution**: MR-7C.1 does not execute any customer erasures or deletions.
 - **No Export Implementation**: Export functionality is scheduled for MR-7C.2.
 - **No Retention Cron / Purge**: Automated purging is scheduled for MR-7C.4.
-- **No MR-7C.1 Production Activation**: The MR-7C.1 hosted migration and any production deployment remain outside this slice and require separate owner authorization.
+- **MR-7C.1 Production Activation**: Owner explicitly authorized the hosted migration, merge to main, and automatic Vercel deployment associated with the main merge. Hosted migration `20261008010000` was applied and verified before merge.
 - **Live Messaging**: Remains completely OFF (`ENABLE_LIVE_EMAIL=false`).
 - **Billing**: Unchanged and paused under `MPG-DEC-049`.
 - **MR-6**: Admin/support route code is present, but hosted support-access database/authorization activation remains intentionally not enabled for production.
@@ -108,7 +108,7 @@
 
 ## 5. Frozen MR-7C Sequence
 
-1. **MR-7C.1**: Privacy Lifecycle Contract + Direct Delete Safety *(Current Slice — READY FOR OWNER REVIEW)*
+1. **MR-7C.1**: Privacy Lifecycle Contract + Direct Delete Safety *(OWNER ACCEPTED)*
 2. **MR-7C.2**: Customer Privacy Export
 3. **MR-7C.3**: Controlled Customer Erasure / Anonymization
 4. **MR-7C.4**: Retention + Automatic Aging/Purge Controls
@@ -131,5 +131,5 @@ If rollback of MR-7C.1 is required:
 - **Live messaging remains disabled** (`ENABLE_LIVE_EMAIL=false`).
 - **Live billing remains paused** under `MPG-DEC-049`.
 - **Controlled Pilot (MR-8) remains strictly GATED**.
-- Feature branch `chatgpt/mr7c1-delete-safety-lifecycle-contract` is prepared for review.
-- No MR-7C.1 merge to `main`, production deployment, or hosted database mutation has occurred.
+- Feature branch `chatgpt/mr7c1-delete-safety-lifecycle-contract` contains the owner-accepted MR-7C.1 implementation.
+- Hosted migration `20261008010000` has been applied and verified. Owner explicitly authorized merge to `main` and the automatic Vercel deployment triggered by that merge.

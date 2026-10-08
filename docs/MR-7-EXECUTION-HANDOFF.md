@@ -5,11 +5,11 @@
 | Date | 2026-10-08 |
 | Authority | Owner direction (Company OS source of truth: techwithmpg/mpg-company-os; reconciliation outstanding) |
 | Milestone | MR-7 (Trust / Security / Compliance) — ACTIVE |
-| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED** (NOT `MR-7 — COMPLETE`) |
-| Current Bounded Slice | MR-7C.2 — Customer Privacy Export — NOT STARTED |
-| Inspected Product Baseline | `014ed995e8fccb6be899c68bacfedc65f56b4367` (on `main`) |
-| Feature Branch | `chatgpt/mr7c1-delete-safety-lifecycle-contract` |
-| Public Safe | Yes; synthetic fixtures only; zero customer PII in outbox or transport payloads |
+| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — ENGINEERING COMPLETE / READY FOR OWNER REVIEW** (NOT `MR-7 — COMPLETE`) |
+| Current Bounded Slice | MR-7C.2A — Customer Privacy Export Contract + Server-Side Export Foundation — ENGINEERING COMPLETE / READY FOR OWNER REVIEW |
+| Inspected Product Baseline | `23f4458128eb6d54ed3b2d9e11689d1d27623743` (on `main`) |
+| Feature Branch | `chatgpt/mr7c2-customer-privacy-export` |
+| Public Safe | Yes; local synthetic fixtures only for MR-7C.2A verification; no real customer data used |
 
 ---
 
@@ -44,6 +44,19 @@
     - Grants `DELETE` on `public.customers` to `service_role` only for trusted server workflows.
   - Retains all existing `SELECT`, `INSERT`, and `UPDATE` capabilities for tenant users.
   - Invariants 1 through 8 frozen for subsequent MR-7C slices.
+- **MR-7C.2A — ENGINEERING COMPLETE / READY FOR OWNER REVIEW**:
+  - Owner decision freezes privacy-export authority to tenant `OWNER` and `ADMIN` only. `OPERATOR` and `VIEWER` are denied.
+  - Adds the per-customer structured JSON export foundation in `src/domain/privacy/customer-export.ts`.
+  - Tenant-visible customer, completion, review, event, and suppression reads use the authenticated Supabase client and existing RLS boundaries.
+  - `service_role` is limited to reading system-owned `messaging_authority_evidence` and writing the mandatory privacy-export audit event.
+  - Every export is explicitly scoped to `organizationId` + `customerId`; foreign and nonexistent customer targets fail without cross-tenant disclosure.
+  - Authorization is checked before data collection and rechecked immediately before release.
+  - Required read failures or audit persistence failures withhold the complete export rather than returning partial data.
+  - Export fields are explicitly allowlisted. Review/unsubscribe bearer tokens and hashes, provider IDs, raw event metadata, suppression hashes, credentials, outbox payloads, and other internal secrets are excluded.
+  - Suppression membership is resolved with the canonical suppression hash function, but the pseudonymous `contact_hash` itself is not exported.
+  - Successful exports write `privacy.customer_export` to `audit_events` with schema version and aggregate counts only; customer name, email, phone, raw PII, and export payloads are not copied into audit metadata.
+  - No schema migration is required by MR-7C.2A.
+  - No customer erasure, retention purge, production deployment, hosted database mutation, or live messaging/billing change is included.
 
 ---
 
@@ -73,14 +86,25 @@
 7. **No Retention Periods Invented**: Specific retention timelines await owner/legal policy.
 8. **External Processors Are Separate**: Provider data reconciliation treated as explicit external dependencies.
 
+### 2.4 MR-7C.2A Privacy Export Boundary
+- Privacy exports are customer-scoped, not bulk tenant dumps.
+- Export authority is restricted to `OWNER` and `ADMIN`.
+- Normal authenticated/RLS reads remain the default data-access path.
+- Elevated access is intentionally narrow: system-only authority evidence plus mandatory audit persistence.
+- The export is assembled from an explicit allowlist instead of forwarding database rows or arbitrary JSON metadata wholesale.
+- Suppression evidence remains privacy-safe: subject-associated suppressions may be represented, but raw pseudonymous contact hashes are not disclosed.
+- Security-sensitive bearer tokens, token hashes, provider identifiers, raw webhook/event metadata, ingestion credentials, billing records, support/admin records, and unrelated tenant records remain outside the export contract.
+- MR-7C.2A establishes the server-side export foundation only. Destructive erasure remains gated behind MR-7C.3.
+
 ---
 
 ## 3. Scope Boundaries & Non-Goals
 
 - **No Destruction / Erasure Execution**: MR-7C.1 does not execute any customer erasures or deletions.
-- **No Export Implementation**: Export functionality is scheduled for MR-7C.2.
+- **Privacy Export Boundary**: MR-7C.2A implements the server-side per-customer export foundation only; it does not add bulk tenant export, destructive erasure, or a public/self-service export surface.
 - **No Retention Cron / Purge**: Automated purging is scheduled for MR-7C.4.
 - **MR-7C.1 Production Activation**: Owner explicitly authorized the hosted migration, merge to main, and automatic Vercel deployment associated with the main merge. Hosted migration `20261008010000` was applied and verified before merge.
+- **MR-7C.2A Production Activation**: None. This slice introduces no database migration and has not been merged or deployed.
 - **Live Messaging**: Remains completely OFF (`ENABLE_LIVE_EMAIL=false`).
 - **Billing**: Unchanged and paused under `MPG-DEC-049`.
 - **MR-6**: Admin/support route code is present, but hosted support-access database/authorization activation remains intentionally not enabled for production.
@@ -93,6 +117,7 @@
 |---|---|---|
 | `pnpm lint` | **PASS** | ESLint passes with zero warnings, zero errors |
 | `pnpm typecheck` | **PASS** | TypeScript cleanly passes with zero errors |
+| `pnpm test test/integration/customer-privacy-export.test.ts` | **PASS** | 7 tests passed: OWNER/ADMIN authorization, OPERATOR/VIEWER denial, cross-tenant denial, field allowlisting/secret exclusion, mandatory audit, fail-closed reads, authorization recheck, and no mutation outside audit |
 | `pnpm test test/integration/real-rls.test.ts` | **PASS** | 16 tests passed (enforces customer delete denial for OWNER, ADMIN, OPERATOR, VIEWER, anon, cross-tenant; verifies service_role deletion and tenant mutation preservation) |
 | `pnpm test test/integration/unsubscribe.test.ts` | **PASS** | 16 tests passed (unsubscribe flow and suppression invariants fully preserved) |
 | `pnpm test test/integration/mr7b1-authority-send-invariant.test.ts` | **PASS** | 5 tests passed (B1 regression clean) |
@@ -109,7 +134,7 @@
 ## 5. Frozen MR-7C Sequence
 
 1. **MR-7C.1**: Privacy Lifecycle Contract + Direct Delete Safety *(OWNER ACCEPTED)*
-2. **MR-7C.2**: Customer Privacy Export
+2. **MR-7C.2**: Customer Privacy Export *(IN PROGRESS — MR-7C.2A ENGINEERING COMPLETE / READY FOR OWNER REVIEW)*
 3. **MR-7C.3**: Controlled Customer Erasure / Anonymization
 4. **MR-7C.4**: Retention + Automatic Aging/Purge Controls
 5. **MR-7C.5**: Processor Deletion/Retention Reconciliation
@@ -127,9 +152,10 @@ If rollback of MR-7C.1 is required:
 
 ## 7. Owner Gate
 
-- **Milestone Status**: MR-7 is ACTIVE; MR-7B.1, MR-7B.2, and MR-7B.3 are **OWNER ACCEPTED** (MR-7B.3 app deployed to production); MR-7C.1 is **READY FOR OWNER REVIEW**.
+- **Milestone Status**: MR-7 is ACTIVE; MR-7B.1, MR-7B.2, and MR-7B.3 are **OWNER ACCEPTED**; MR-7C.1 is **OWNER ACCEPTED / HOSTED VERIFIED**; MR-7C.2A is **ENGINEERING COMPLETE / READY FOR OWNER REVIEW**.
 - **Live messaging remains disabled** (`ENABLE_LIVE_EMAIL=false`).
 - **Live billing remains paused** under `MPG-DEC-049`.
 - **Controlled Pilot (MR-8) remains strictly GATED**.
-- Feature branch `chatgpt/mr7c1-delete-safety-lifecycle-contract` contains the owner-accepted MR-7C.1 implementation.
-- Hosted migration `20261008010000` has been applied and verified. Owner explicitly authorized merge to `main` and the automatic Vercel deployment triggered by that merge.
+- Feature branch `chatgpt/mr7c2-customer-privacy-export` contains the MR-7C.2A implementation prepared for owner review.
+- Hosted migration `20261008010000` for MR-7C.1 has been applied and verified. Owner explicitly authorized the MR-7C.1 merge to `main` and the automatic Vercel deployment triggered by that merge.
+- MR-7C.2A requires no database migration. No MR-7C.2A merge, production deployment, hosted database mutation, customer erasure, live messaging activation, or billing activation has been authorized or performed.

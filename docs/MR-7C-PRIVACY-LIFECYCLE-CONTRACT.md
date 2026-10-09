@@ -273,8 +273,9 @@ graph LR
        - Zero non-atomic application-side cleanups; single transactional RPC execution.
        - Schema constraints verified: `source_customer_id` and `source_transaction_id` are nullable (`TEXT NULL`).
        - Preserves all C3B controls: OWNER-only authority, in-transaction role recheck, row locking, idempotency, atomic rollback, suppression and recipient evidence preservation, zero hard deletes.
-   - **MR-7C.3C (Delivery): Customer Erasure Delivery Surface (Completed / Ready for Owner Review)**:
+   - **MR-7C.3C (Delivery): Customer Erasure Delivery Surface (Owner Accepted)**:
      - Exposes the accepted controlled erasure engine (`8796b5e6fb89cea49a96c85917e4808ad5891fa6`) through the authenticated product application.
+     - Owner-accepted delivery correction commit: `50e1bcf0fa833d9be16471c3b748a464e9ea5b76`.
      - **Strict OWNER Authority**: Only authenticated organization members with role `'OWNER'` can perform preflight checks or execute customer erasure. `ADMIN`, `OPERATOR`, `VIEWER`, and anonymous requests are denied with safe denied responses.
      - **Single-Customer Boundary & Minimized Attack Surface**: Strictly one customer per request; zero bulk erasure, zero CSV-driven erasure, zero automated purge. Eliminates redundant HTTP API route; delivery is executed exclusively through authenticated Next.js Server Actions.
      - **Preflight Verification**: Preflight action (`checkCustomerErasurePreflightAction`) and domain handler (`handleCustomerErasurePreflight`) verify user authentication, tenant boundaries, customer existence, and legacy recipient evidence gate (`checkCustomerErasureEligibility`).
@@ -283,7 +284,15 @@ graph LR
      - **UI Integration & Revalidation**: `CustomerErasureButton` in `src/app/app/customers/customer-actions.tsx` rendered conditionally for OWNERs only in `src/app/app/customers/page.tsx`. Revalidates Next.js path `/app/customers` upon execution to immediately display tombstone state (`[Deleted Customer]`, `—`, `Erased` badge).
      - **Security Isolation**: Browser clients never invoke service-role RPCs directly; server boundaries maintain strict RLS and tenant scoping; database transaction performs final in-transaction authority re-verification.
 4. **MR-7C.4 — Retention & Automatic Aging / Purge Controls**:
-   - Technical scheduling infrastructure for data aging and purge automation.
-   - Parameterized retention policies awaiting owner authorization.
+   - **MR-7C.4A: Retention Requirements + Data-Class Decision Matrix (Completed / Ready for Owner Review)**:
+     - Authoritative specification: [`docs/MR-7C4-RETENTION-DECISION-MATRIX.md`](./MR-7C4-RETENTION-DECISION-MATRIX.md).
+     - **Complete 25-Table Audit**: Classifies all persisted database entities across PII, operational history, security/authority evidence, compliance evidence, financial records, system diagnostics, and tenant configurations.
+     - **Catastrophic Cascade Deletion Hazard Identified**: Confirms that hard deleting `customers` (`DELETE FROM public.customers`) triggers an automatic cascade deleting completion events, review requests, message events, recipient evidence (breaking unsubscribe links), regulatory authority evidence (breaking anti-spam compliance proof), and erasure compliance certificates. Hard delete of customer rows is strictly forbidden; data aging must utilize in-place anonymization/redaction tombstones.
+     - **Suppression & Unsubscribe Continuity Verified**: `public.suppressions` (keyed by SHA-256 contact hash) and `public.review_request_recipient_evidence` operate independently of mutable customer PII and must survive customer erasure.
+     - **Zero Invented Retention Periods**: Strict enforcement that zero arbitrary statutory retention periods (e.g. 30/90 days, 1/7 years) are assumed or hardcoded. All unconfirmed periods are explicitly marked `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`.
+     - **External Processors Audited**: Analyzed retention boundaries for Resend, Inngest, Supabase Auth, Vercel logs, and application logs. Confirmed MPG does not control provider-side retention; formal reconciliation is scheduled for MR-7C.5.
+     - **12 Explicit Owner Decisions Documented**: Comprehensive catalog of required policy decisions (active PII duration, intake redaction window, deduplication key lifetime, link token validity, statutory unsubscribe lifespan, consent evidence duration, suppression permanency, erasure certificate retention, audit log retention, financial ledger retention, inactive tenant decommissioning, and dispatched outbox retention).
+   - **MR-7C.4B (Future Engineering Slice)**: Parameter-driven non-destructive aging query definitions and purge safety guards.
+   - **MR-7C.4C (Future Engineering Slice)**: Controlled purge execution routines with cascade safety verification.
 5. **MR-7C.5 — External Processor Reconciliation**:
    - Reconcile external processor copies (Resend, Inngest, backups) in accordance with verified provider APIs and policies.

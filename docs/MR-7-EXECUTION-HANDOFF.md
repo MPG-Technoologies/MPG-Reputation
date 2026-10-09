@@ -294,7 +294,7 @@
    - **MR-7C.4B1**: Frozen Retention Controls Foundation *(OWNER ACCEPTED — `dd9af1a7630da5c802b10b9c2345b8b525542d63`)*
    - **MR-7C.4B2**: Multi-Tenant Maintenance Workflows & Bounded Scheduling *(OWNER ACCEPTED — `17ff5bc331b225eb589694607754ac58f30e2473`)*
 5. **MR-7C.5**: Processor Deletion/Retention Reconciliation
-   - **MR-7C.5A**: External Processor Data Map + Retention / Deletion Contract *(ENGINEERING COMPLETE / READY FOR OWNER REVIEW)*
+   - **MR-7C.5A**: External Processor Data Map + Retention / Deletion Contract *(ENGINEERING COMPLETE / READY FOR OWNER REVIEW — Authoritative specification in `docs/MR-7C5-EXTERNAL-PROCESSOR-RETENTION-MAP.md`; audited Resend, Inngest, Supabase, Vercel, Stripe; identified Inngest step output PII leakage for MR-7C.5B remediation; identified Case B Restore Privacy Gap; verified zero public deletion APIs for Resend/Inngest/Vercel; confirmed Stripe paused)*
    - **MR-7C.5B**: External Processor Privacy Hardening & Verification *(FUTURE)*
 
 ---

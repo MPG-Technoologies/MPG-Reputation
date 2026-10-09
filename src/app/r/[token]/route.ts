@@ -1,7 +1,75 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isValidTokenFormat, hashTrackingToken } from '@/domain/tracking'
 import { validateGoogleReviewUrl } from '@/domain/destination'
+import { isReviewRequestLinkExpired } from '@/domain/privacy/retention-controls'
 import { createAdminClient } from '@/lib/supabase/admin'
+
+function renderExpiredLinkHtml(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Review Link Expired</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      box-sizing: border-box;
+    }
+    .card {
+      background-color: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+      max-width: 480px;
+      width: 100%;
+      margin: 16px;
+      padding: 32px;
+      box-sizing: border-box;
+      text-align: center;
+    }
+    h1 {
+      margin: 0 0 12px 0;
+      font-size: 20px;
+      font-weight: 600;
+      line-height: 1.3;
+      color: #0f172a;
+    }
+    p {
+      margin: 0 0 16px 0;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #475569;
+    }
+    .footer {
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px solid #f1f5f9;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Review Link Expired</h1>
+    <p>This review request link is no longer active. Review request links expire after 90 days.</p>
+    <p>Thank you for your feedback.</p>
+    <div class="footer">
+      MPG Reputation
+    </div>
+  </main>
+</body>
+</html>`.trim()
+}
 
 export async function GET(
   request: NextRequest,
@@ -19,12 +87,30 @@ export async function GET(
   // 1. Resolve review request by token_hash
   const { data: reviewRequest, error: reqError } = await supabase
     .from('review_requests')
-    .select('id, organization_id, location_id, destination_id, status')
+    .select('id, organization_id, location_id, destination_id, status, sent_at, created_at')
     .eq('token_hash', tokenHash)
     .maybeSingle()
 
   if (reqError || !reviewRequest) {
     return new NextResponse('Review request not found or expired.', { status: 404 })
+  }
+
+  // MR-7C.4 Decision 4: 90-day review request routing link expiration.
+  // After 90 days from authoritative request timestamp (sent_at ?? created_at),
+  // routing fails closed, rendering a safe expired state with zero internal IDs.
+  if (
+    isReviewRequestLinkExpired({
+      sent_at: reviewRequest.sent_at,
+      created_at: reviewRequest.created_at,
+    })
+  ) {
+    return new NextResponse(renderExpiredLinkHtml(), {
+      status: 410,
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store, max-age=0',
+      },
+    })
   }
 
   // Prompt Correction 7: Guard tracking click state

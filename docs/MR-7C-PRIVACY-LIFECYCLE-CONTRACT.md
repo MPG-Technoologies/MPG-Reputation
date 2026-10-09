@@ -284,15 +284,31 @@ graph LR
      - **UI Integration & Revalidation**: `CustomerErasureButton` in `src/app/app/customers/customer-actions.tsx` rendered conditionally for OWNERs only in `src/app/app/customers/page.tsx`. Revalidates Next.js path `/app/customers` upon execution to immediately display tombstone state (`[Deleted Customer]`, `—`, `Erased` badge).
      - **Security Isolation**: Browser clients never invoke service-role RPCs directly; server boundaries maintain strict RLS and tenant scoping; database transaction performs final in-transaction authority re-verification.
 4. **MR-7C.4 — Retention & Automatic Aging / Purge Controls**:
-   - **MR-7C.4A: Retention Requirements + Data-Class Decision Matrix (Completed / Ready for Owner Review)**:
+   - **MR-7C.4A: Retention Requirements + Data-Class Decision Matrix (OWNER ACCEPTED / FROZEN at `924a7f009d18bfeadd0944f5bca082548eac9e54`)**:
      - Authoritative specification: [`docs/MR-7C4-RETENTION-DECISION-MATRIX.md`](./MR-7C4-RETENTION-DECISION-MATRIX.md).
      - **Complete 25-Table Audit**: Classifies all persisted database entities across PII, operational history, security/authority evidence, compliance evidence, financial records, system diagnostics, and tenant configurations.
      - **Catastrophic Cascade Deletion Hazard Identified**: Confirms that hard deleting `customers` (`DELETE FROM public.customers`) triggers an automatic cascade deleting completion events, review requests, message events, recipient evidence (breaking unsubscribe links), regulatory authority evidence (breaking anti-spam compliance proof), and erasure compliance certificates. Hard delete of customer rows is strictly forbidden; data aging must utilize in-place anonymization/redaction tombstones.
      - **Suppression & Unsubscribe Continuity Verified**: `public.suppressions` (keyed by SHA-256 contact hash) and `public.review_request_recipient_evidence` operate independently of mutable customer PII and must survive customer erasure.
-     - **Zero Invented Retention Periods**: Strict enforcement that zero arbitrary statutory retention periods are assumed or hardcoded. All unconfirmed periods are explicitly marked `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`.
-     - **External Processors Audited**: Analyzed retention boundaries for Resend, Inngest, Supabase Auth, Vercel logs, and application logs. Confirmed MPG does not control provider-side retention; formal reconciliation is scheduled for MR-7C.5.
-     - **12 Explicit Owner Decisions Documented**: Comprehensive catalog of required policy decisions (active PII duration, intake redaction window, deduplication key lifetime, link token validity, statutory unsubscribe lifespan, consent evidence duration, suppression permanency, erasure certificate retention, audit log retention, financial ledger retention, inactive tenant decommissioning, and dispatched outbox retention).
-   - **MR-7C.4B (Future Engineering Slice)**: Parameter-driven non-destructive aging query definitions and purge safety guards.
-   - **MR-7C.4C (Future Engineering Slice)**: Controlled purge execution routines with cascade safety verification.
+     - **12 Explicit Owner Decisions Frozen**:
+       - Active customer PII retained until explicit Owner erasure (no automatic customer aging).
+       - Completion contact payload redacted after 30 days (`contact = '{}'::jsonb`).
+       - Ingestion deduplication key (`source_event_id`) retained permanently.
+       - Review link validity window set to 90 days (fails closed, status 410 HTML, unsubscribe remains operational).
+       - Unsubscribe capability and recipient evidence retained indefinitely.
+       - Messaging authority evidence retained indefinitely.
+       - Suppression registry retained permanently per organization.
+       - Erasure certificates retained permanently.
+       - Audit events retained indefinitely in initial product stage.
+       - Financial and usage ledgers retained indefinitely while MR-5 billing is paused.
+       - Inactive tenants soft-deactivated only (no hard tenant deletes).
+       - Domain event outbox: PENDING never purged; DISPATCHED eligible for purge after 30 days.
+   - **MR-7C.4B1: Frozen Retention Controls Foundation (ENGINEERING COMPLETE / READY FOR OWNER REVIEW)**:
+     - Implemented initial executable retention controls foundation in `src/domain/privacy/retention-controls.ts`.
+     - **Completion Contact Redaction**: `redactAgedCompletionContacts` safely sets `contact = '{}'::jsonb` on completions older than 30 days; preserves `source_event_id`, timestamps, and operational records; records aggregate audit event with zero raw PII.
+     - **Review Link Expiration**: `isReviewRequestLinkExpired` in `src/app/r/[token]/route.ts` enforces 90-day validity window from authoritative request timestamp (`sent_at ?? created_at`), rendering a safe, accessible HTTP 410 Gone page with zero internal IDs.
+     - **Dispatched Outbox Aging**: `purgeDispatchedDomainOutbox` purges `domain_event_outbox` records where `status = 'DISPATCHED'` and `dispatched_at` is older than 30 days in bounded batches; strictly guards `PENDING` and failed records from deletion; records aggregate audit event.
+     - **Permanent-Retention Guards**: Runtime assertion `assertProtectedClassImmunity` and test suite verify all 9 permanent retention classes (`suppressions`, `review_request_recipient_evidence`, `messaging_authority_evidence`, `customer_erasure_records`, `audit_events`, `usage_ledger`, `cost_ledger`, `organization_usage`, `customer_completion_events.source_event_id`) are strictly protected from purge routines.
+     - **Test Verification**: 25 comprehensive domain tests in `test/domain/retention-controls.test.ts`. Zero production scheduler activation.
+   - **MR-7C.4B2 (Future Engineering Slice)**: Parameterized multi-tenant maintenance workflows and bounded scheduling activation.
 5. **MR-7C.5 — External Processor Reconciliation**:
    - Reconcile external processor copies (Resend, Inngest, backups) in accordance with verified provider APIs and policies.

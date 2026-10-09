@@ -1,13 +1,13 @@
-# MPG Reputation — MR-7C.4A Retention Requirements & Data-Class Decision Matrix
+# MPG Reputation — MR-7C.4 Retention Requirements & Data-Class Decision Matrix
 
 | Metadata | Value |
 |---|---|
-| Milestone Slice | MR-7C.4A — Retention Requirements + Data-Class Decision Matrix |
-| Document Type | Architecture Evidence & Retention Policy Foundation |
+| Milestone Slice | MR-7C.4A — Retention Requirements + Data-Class Decision Matrix (**OWNER ACCEPTED / FROZEN** at `924a7f009d18bfeadd0944f5bca082548eac9e54`)<br>MR-7C.4B1 — Frozen Retention Controls Foundation (**ENGINEERING COMPLETE / READY FOR OWNER REVIEW**) |
+| Document Type | Architecture Evidence & Frozen Retention Policy Foundation |
 | Program | MPG Reputation Market-Ready Build (MR-0 through MR-11) |
-| Authority | `MPG-DEC-050`; Owner Acceptance of MR-7C.3B, MR-7C.3C, and MR-7C.3C Delivery Correction (`50e1bcf0fa833d9be16471c3b748a464e9ea5b76`) |
-| Status | COMPLETED / READY FOR OWNER REVIEW |
-| Execution Policy | Strictly Research & Architecture Evidence; **ZERO Implementation Code, ZERO Scheduled Purge/Cron, ZERO Destructive Migrations** |
+| Authority | `MPG-DEC-050`; Owner Acceptance of MR-7C.4A (`924a7f009d18bfeadd0944f5bca082548eac9e54`) |
+| Status | OWNER APPROVED / FROZEN RETENTION POLICY; MR-7C.4B1 IMPLEMENTED |
+| Execution Policy | Strict Data Class Retention Operations; Zero Generic Purge; Zero Hard Customer Deletes; Zero Production Scheduling Activation |
 
 ---
 
@@ -214,78 +214,108 @@ Data processed by MPG Reputation flows into external third-party infrastructure.
 
 ---
 
-## 6. OWNER DECISIONS REQUIRED
+## 6. AUTHORITATIVE OWNER DECISIONS (FROZEN RETENTION POLICY)
 
-Before any executable data aging or purge code (MR-7C.4B / MR-7C.4C) can be engineered, the following 12 explicit policy decisions must be authorized by the Owner and Legal Counsel in Company OS (`E:\MPG`):
+Under `MPG-DEC-050` and the Authoritative Owner Review of MR-7C.4A (`924a7f009d18bfeadd0944f5bca082548eac9e54`), the following 12 policy decisions are **OWNER APPROVED / FROZEN**:
 
-### Decision 1: Active Customer PII Retention Period
-- **Question**: How long after creation or latest transaction should active customer PII (`first_name`, `last_name`, `email`, `phone` in `public.customers`) be retained before automatic in-place anonymization (`[Deleted Customer]`, PII set to `NULL`)?
-- **Options**:
-  - A: Indefinite until manual Owner erasure request (current state).
-  - B: Parameterized duration (e.g. N days/months post-creation or post-dispatch).
-  - C: Differential policy (uncontacted/ineligible customers anonymized sooner than messaged customers).
-- **Status**: `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`
+### Decision 1: Active Customer PII Retention Period — OWNER APPROVED / FROZEN
+- **Policy**: Retain active customer PII until explicit OWNER-controlled erasure.
+  - No automatic customer PII aging.
+  - Do not automatically anonymize active customer rows.
+  - Continue using the accepted C3B/C3C OWNER-only erasure workflow (`executeCustomerErasureInternal`).
+- **Classification**: Permanent retention until explicit owner erasure.
 
-### Decision 2: Transaction Intake Contact Payload Redaction Period
-- **Question**: How long should raw intake contact data (`customer_completion_events.contact`) be retained before automatic redaction to `{"redacted": true}`?
-- **Status**: `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`
+### Decision 2: Completion Contact Payload Redaction — OWNER APPROVED / FROZEN
+- **Policy**: Automatically redact `customer_completion_events.contact` after **30 days**.
+  - The completion record must remain.
+  - Preserve: `source_event_id`, timestamps, completion history, operational relationships.
+  - Do not delete the completion event.
+  - Expected representation: `contact = '{}'::jsonb`.
+- **Classification**: Temporary launch-stage policy (Launch duration: 30 days).
 
-### Decision 3: Ingestion Source Deduplication Window
-- **Question**: How long must `customer_completion_events.source_event_id` and `source` be retained to prevent duplicate review solicitations when client CRMs re-import historical transactions?
-- **Status**: `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`
+### Decision 3: Ingestion Deduplication Retention — OWNER APPROVED / FROZEN
+- **Policy**: Retain `customer_completion_events.source_event_id` **permanently**.
+  - Never include `source_event_id` in automatic aging/purge jobs.
+- **Classification**: Permanent retention class (strictly protected).
 
-### Decision 4: Review Request Link Token Validity Window
-- **Question**: What is the active expiration lifetime of the review request redirect token (`/r/[token]`)?
-- **Status**: `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`
+### Decision 4: Review Request Link Validity — OWNER APPROVED / FROZEN
+- **Policy**: Review request routing links (`/r/[token]`) expire after **90 days**.
+  - After expiration:
+    - Do not route to the review destination.
+    - Show a safe, user-friendly expired-link state (HTTP 410 Gone).
+    - Do not reveal tenant/internal/customer information.
+    - Expiration must NOT disable unsubscribe functionality.
+    - Do not delete the `review_requests` row simply because the routing token expired.
+- **Classification**: Temporary launch-stage policy (Launch duration: 90 days).
 
-### Decision 5: Unsubscribe Mechanism Validity & Recipient Evidence Retention
-- **Statutory Standards & Engineering Floor**:
-  - CAN-SPAM unsubscribe mechanism minimum validity: 30 days after send.
-  - CASL unsubscribe mechanism minimum validity: 60 days after send.
-  - MPG cross-US/Canada engineering floor: at least 60 days.
-  - Longer or indefinite unsubscribe capability remains allowed (the 60-day engineering floor does not mean the link must expire at day 60).
-  - Suppression registry retention remains completely independent from link validity.
-- **Question**: Beyond the statutory 60-day engineering floor, should historical `review_requests` and `review_request_recipient_evidence` be retained indefinitely or aged/purged under a bounded policy?
-- **Status**: `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`
+### Decision 5: Unsubscribe Capability & Recipient Evidence — OWNER APPROVED / FROZEN
+- **Policy**: Retain unsubscribe capability and recipient evidence **indefinitely**.
+  - Protect `public.review_request_recipient_evidence`.
+  - Do not purge it automatically.
+  - The statutory 60-day cross-US/Canada value is only a minimum floor; MPG's policy is indefinite functionality.
+- **Classification**: Permanent retention class (strictly protected).
 
-### Decision 6: Messaging Authority Evidence Retention
-- **Context**: `messaging_authority_evidence` contains zero direct PII and provides legal defense regarding lawful consent/authority to message under applicable regimes. Legal limitation periods do not automatically establish database-deletion dates.
-- **Question**: What is the authoritative database retention policy for `messaging_authority_evidence` (e.g., indefinite retention vs. bounded retention)?
-- **Status**: `MESSAGING AUTHORITY EVIDENCE RETENTION — OWNER/LEGAL DECISION REQUIRED`
+### Decision 6: Messaging Authority Evidence — OWNER APPROVED / FROZEN
+- **Policy**: Retain `public.messaging_authority_evidence` **indefinitely**.
+  - No automatic purge.
+- **Classification**: Permanent retention class (strictly protected).
 
-### Decision 7: Suppression Registry Lifespan
-- **Question**: Are `public.suppressions` records permanent per organization, or subject to statutory expiration?
-- **Status**: `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`
+### Decision 7: Suppression Registry — OWNER APPROVED / FROZEN
+- **Policy**: Retain `public.suppressions` **permanently per organization**.
+  - No suppression expiry.
+  - No automatic purge.
+- **Classification**: Permanent retention class (strictly protected).
 
-### Decision 8: Erasure Certificate Retention Window
-- **Question**: How long must `customer_erasure_records` and `privacy.customer_erasure` audit events be retained to prove compliance with data subject erasure requests?
-- **Status**: `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`
+### Decision 8: Erasure Certificates — OWNER APPROVED / FROZEN
+- **Policy**: Retain `public.customer_erasure_records` **permanently**.
+  - They protect erasure evidence and tombstone immutability.
+  - No automatic purge.
+- **Classification**: Permanent retention class (strictly protected).
 
-### Decision 9: Enterprise Security Audit Log Retention
-- **Question**: What is the authoritative retention period for `public.audit_events`?
-- **Status**: `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`
+### Decision 9: Audit Events — OWNER APPROVED / FROZEN
+- **Policy**: For the initial product stage, retain `public.audit_events` **indefinitely**.
+  - No automatic audit purge in this slice.
+  - This policy must be revisited before enterprise contractual retention requirements are introduced.
+- **Classification**: Temporary launch-stage policy (Indefinite retention in initial slice).
 
-### Decision 10: Financial & Usage Ledger Retention
-- **Question**: What is the retention duration for itemized usage records (`public.usage_ledger`) before aggregation or archival for tax/financial audit purposes?
-- **Status**: `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`
+### Decision 10: Financial / Usage Ledgers — OWNER APPROVED / FROZEN
+- **Policy**: For the initial product stage retain:
+  - `public.organization_usage`
+  - `public.usage_ledger`
+  - `public.cost_ledger`
+  indefinitely.
+  - No automatic purge while MR-5 billing remains paused and accounting policy is not finalized.
+  - Revisit when billing/accounting policy becomes active.
+- **Classification**: Temporary launch-stage policy (Indefinite retention while billing paused).
 
-### Decision 11: Inactive Tenant Decommissioning & Grace Period
-- **Question**: What is the timeline for deactivating, archiving, and eventually purging organizations marked `INACTIVE` or `SUSPENDED`?
-- **Status**: `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`
+### Decision 11: Inactive Tenants — OWNER APPROVED / FROZEN
+- **Policy**: Use soft deactivation only (`status = 'INACTIVE' | 'SUSPENDED'`).
+  - Do NOT automatically hard-delete organizations.
+  - No tenant-wide purge lifecycle in C4B1.
+- **Classification**: Temporary launch-stage policy (Soft deactivation only).
 
-### Decision 12: Dispatched Domain Event Outbox Retention
-- **Question**: How long after successful dispatch (`status = 'DISPATCHED'`) should records in `public.domain_event_outbox` be retained for recovery inspection before automated purging?
-- **Status**: `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`
+### Decision 12: Domain Event Outbox — OWNER APPROVED / FROZEN
+- **Policy**: For `public.domain_event_outbox`:
+  - `PENDING` records: NEVER automatically purge.
+  - Successfully `DISPATCHED` records: eligible for purge after **30 days**.
+  - Do not purge failed or unresolved rows merely because they are old.
+- **Classification**: Temporary launch-stage policy (Launch duration: 30 days for DISPATCHED).
 
 ---
 
-## 7. Next Steps in MR-7C Sequence
+## 7. Data Classification Taxonomy Summary
 
-1. **Owner Review of MR-7C.4A**:
-   - Review and authorize this retention requirements and data-class decision matrix.
-   - Address policy decisions in Section 6 or confirm they remain parameterized pending commercial terms.
-2. **MR-7C.4B (Future Engineering Slice — Subject to Authorization)**:
-   - Design parameter-driven, non-destructive aging query definitions and purge safety guards.
-   - Enforce cascade hazard protections in code.
-3. **MR-7C.5 (Future Engineering Slice — Subject to Authorization)**:
-   - Processor Deletion / Retention Reconciliation for Resend, Inngest, and external processor boundaries.
+| Category | Data Classes / Tables | Policy Summary | Purge Eligibility |
+|---|---|---|---|
+| **Permanent-Retention Classes (Immune)** | `suppressions`<br>`review_request_recipient_evidence`<br>`messaging_authority_evidence`<br>`customer_erasure_records`<br>`customer_completion_events.source_event_id`<br>`customers` (active PII) | Retained indefinitely/permanently to protect anti-spam, legal authority, and idempotency invariants. Active customer PII retained until explicit Owner erasure. | **IMMUNE / NEVER PURGED** |
+| **Temporary Launch-Stage Policies** | `customer_completion_events.contact`<br>`review_requests` routing link (`/r/[token]`)<br>`domain_event_outbox` (`DISPATCHED`)<br>`audit_events`<br>`organization_usage`, `usage_ledger`, `cost_ledger`<br>`organizations` | - Contact payload redacted after 30 days.<br>- Review link expires after 90 days (fails closed).<br>- Dispatched outbox purged after 30 days.<br>- Audit events and ledgers retained indefinitely in launch stage.<br>- Inactive tenants soft-deactivated only. | **EXECUTABLE CONTROLS IMPLEMENTED IN MR-7C.4B1** |
+| **Deferred / Unresolved Retention Classes** | `message_events`<br>`review_request_events`<br>`completion_ingestion_requests`<br>`support_access_grants`<br>`billing_webhook_events`<br>`organization_users`<br>`review_destinations`<br>Billing/subscription records | Remain outside MR-7C.4B1 implementation. No automatic purge or aging authorized without explicit owner policy. | **EXCLUDED FROM PURGE JOBS** |
+
+---
+
+## 8. Implementation Verification (MR-7C.4B1)
+
+The frozen launch retention controls foundation is implemented in:
+- Module: `src/domain/privacy/retention-controls.ts`
+- Routing: `src/app/r/[token]/route.ts` (90-day expiration check and user-friendly HTTP 410 response)
+- Test Suite: `test/domain/retention-controls.test.ts` (25 tests covering all redaction, expiration, outbox purge, and permanent-retention immunity guards)

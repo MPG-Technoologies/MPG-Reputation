@@ -5,10 +5,10 @@
 | Date | 2026-10-09 |
 | Authority | Owner direction (Company OS source of truth: techwithmpg/mpg-company-os; reconciliation outstanding) |
 | Milestone | MR-7 (Trust / Security / Compliance) — ACTIVE |
-| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.2B — OWNER ACCEPTED**<br>**MR-7C.2 — OWNER ACCEPTED / COMPLETE**<br>**MR-7C.3A — OWNER ACCEPTED** (`5bef1ae68309767b645415fb80e09f70da576e0d`)<br>**MR-7C.3B — OWNER ACCEPTED** (`856d7b8849b2576b92a4a7bf309cf7149a888c3a`)<br>**MR-7C.3C External Identifier Erasure Enforcement — OWNER ACCEPTED** (`8796b5e6fb89cea49a96c85917e4808ad5891fa6`)<br>**MR-7C.3C Customer Erasure Delivery Surface — OWNER ACCEPTED** (`50e1bcf0fa833d9be16471c3b748a464e9ea5b76`)<br>**MR-7C.4A Retention Requirements + Data-Class Decision Matrix — COMPLETED / READY FOR OWNER REVIEW** (NOT `MR-7 — COMPLETE`) |
-| Current Bounded Slice | MR-7C.4A — Retention Requirements + Data-Class Decision Matrix — COMPLETED / READY FOR OWNER REVIEW |
+| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.2B — OWNER ACCEPTED**<br>**MR-7C.2 — OWNER ACCEPTED / COMPLETE**<br>**MR-7C.3A — OWNER ACCEPTED** (`5bef1ae68309767b645415fb80e09f70da576e0d`)<br>**MR-7C.3B — OWNER ACCEPTED** (`856d7b8849b2576b92a4a7bf309cf7149a888c3a`)<br>**MR-7C.3C External Identifier Erasure Enforcement — OWNER ACCEPTED** (`8796b5e6fb89cea49a96c85917e4808ad5891fa6`)<br>**MR-7C.3C Customer Erasure Delivery Surface — OWNER ACCEPTED** (`50e1bcf0fa833d9be16471c3b748a464e9ea5b76`)<br>**MR-7C.4A Retention Requirements + Data-Class Decision Matrix — OWNER ACCEPTED / FROZEN** (`924a7f009d18bfeadd0944f5bca082548eac9e54`)<br>**MR-7C.4B1 Initial Retention Controls Foundation — ENGINEERING COMPLETE / READY FOR OWNER REVIEW** (NOT `MR-7 — COMPLETE`) |
+| Current Bounded Slice | MR-7C.4B1 — Frozen Retention Controls Foundation — ENGINEERING COMPLETE / READY FOR OWNER REVIEW |
 | Inspected Product Baseline | `a2c3df3076b814dd74996d674dadfe400428c012` (on `main`) |
-| Feature Branch | `chatgpt/mr7c4a-retention-requirements` (active; stacked on accepted C3C `50e1bcf`) |
+| Feature Branch | `chatgpt/mr7c4b1-retention-controls` (active; branched from accepted C4A `924a7f0`) |
 | Public Safe | Yes; local synthetic fixtures only for verification; no real customer data used |
 
 ---
@@ -156,20 +156,19 @@
     - Zero service-role credentials or raw RPC calls exposed to browser/client bundle.
     - Database transaction performs final authoritative OWNER check inside `execute_customer_erasure` plpgsql function, closing TOCTOU race conditions.
   - **Verification**: 21/21 integration tests in `test/integration/customer-erasure-delivery.test.ts` pass cleanly.
-- **MR-7C.4A — RETENTION REQUIREMENTS & DATA-CLASS DECISION MATRIX (COMPLETED / READY FOR OWNER REVIEW)**:
+- **MR-7C.4A — RETENTION REQUIREMENTS & DATA-CLASS DECISION MATRIX (OWNER ACCEPTED / FROZEN — `924a7f009d18bfeadd0944f5bca082548eac9e54`)**:
   - Authoritative standalone specification: [`docs/MR-7C4-RETENTION-DECISION-MATRIX.md`](./MR-7C4-RETENTION-DECISION-MATRIX.md).
-  - Complete 25-table PostgreSQL database audit covering: `customers`, `customer_completion_events`, `review_requests`, `review_request_recipient_evidence`, `review_request_events`, `message_events`, `messaging_authority_evidence`, `suppressions`, `customer_erasure_records`, `audit_events`, `organization_usage`, `usage_ledger`, `cost_ledger`, `organization_entitlements`, `organization_billing_accounts`, `organization_subscriptions`, `billing_webhook_events`, `organizations`, `locations`, `organization_users`, `support_access_grants`, `completion_api_credentials`, `completion_ingestion_requests`, `domain_event_outbox`, and `review_destinations`.
-  - **Catastrophic Cascade Deletion Hazard Identified**: Discovered that hard-deleting rows from `customers` (`DELETE FROM public.customers`) cascades and destroys:
-    1) Unsubscribe recipient resolution evidence (`review_request_recipient_evidence`), permanently breaking unsubscribe functionality.
-    2) Regulatory messaging authority evidence (`messaging_authority_evidence`), destroying legal consent proof under CAN-SPAM, CASL, and TCPA.
-    3) Proof of prior erasure (`customer_erasure_records`).
-    4) Ingestion deduplication keys (`customer_completion_events.source_event_id`), enabling re-import replay.
-    5) Operational delivery history (`review_requests`, `message_events`).
-    *Conclusion*: Hard deletes of customer rows are strictly forbidden for retention aging; data aging must utilize in-place anonymization/redaction tombstones.
-  - **Zero Invented Retention Periods**: Strict enforcement that zero arbitrary statutory retention periods are invented or hardcoded. All unconfirmed periods are explicitly marked `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`.
-  - **External Processors Audited**: Analyzed Resend, Inngest, Supabase Auth, Vercel logs, and application logs. Confirmed MPG does not control third-party retention; formal reconciliation is scheduled for MR-7C.5.
-  - **12 Explicit Owner Decisions Documented**: Comprehensive list of unresolved policy questions required from the Owner and Legal Counsel prior to engineering purge code.
-  - **Zero Code Implementation**: Zero cron jobs, pg_cron routines, scheduled functions, purge RPCs, destructive migrations, or retention configuration columns were introduced in this slice.
+  - Complete 25-table PostgreSQL database audit covering all tables and foreign key relationships.
+  - Catastrophic cascade deletion hazard identified; hard delete of `customers` strictly forbidden; in-place anonymization/redaction tombstones mandated.
+  - Suppression and unsubscribe continuity verified independent of customer PII.
+  - 12 authoritative Owner decisions reviewed and frozen.
+- **MR-7C.4B1 — INITIAL RETENTION CONTROLS FOUNDATION (ENGINEERING COMPLETE / READY FOR OWNER REVIEW)**:
+  - Implemented the three executable retention mechanisms authorized by the Owner:
+    1) **Completion Contact Redaction (30 Days)**: Safely identifies `customer_completion_events` with `created_at` older than 30 days and redacts `contact` to `'{}'::jsonb`. Preserves completion rows, `source_event_id`, timestamps, relationships; idempotent; tenant-safe; records aggregate audit event with zero raw PII.
+    2) **Review Link Expiration (90 Days)**: Route handler `/r/[token]` derives expiration deterministically from authoritative request timestamp (`sent_at ?? created_at`) without schema changes. After 90 days, fails closed, rendering a clean, user-friendly HTTP 410 Gone page with zero internal IDs. Unsubscribe capability remains operational indefinitely.
+    3) **Dispatched Outbox Aging (30 Days)**: Safely purges `domain_event_outbox` records where `status = 'DISPATCHED'` and `dispatched_at` is older than 30 days. Hard code guard guarantees `PENDING` and failed/unresolved records are never purged. Bounded batching and zero-payload aggregate audit evidence.
+  - **Permanent-Retention Protections**: Hard code guards (`assertProtectedClassImmunity`) and tests verify all 9 permanent retention classes (`suppressions`, `review_request_recipient_evidence`, `messaging_authority_evidence`, `customer_erasure_records`, `audit_events`, `usage_ledger`, `cost_ledger`, `organization_usage`, `customer_completion_events.source_event_id`) can never be targeted by purge operations. Zero generic purge infrastructure.
+  - **Verification**: 25/25 unit and domain tests in `test/domain/retention-controls.test.ts` pass cleanly. Production build and lint pass with zero errors. Zero production scheduler activation.
 
 ---
 
@@ -265,30 +264,42 @@
    - **MR-7C.3C**: External Identifier Erasure Enforcement *(OWNER ACCEPTED)*
    - **MR-7C.3C (Delivery)**: Customer Erasure Delivery Surface *(OWNER ACCEPTED — `50e1bcf0fa833d9be16471c3b748a464e9ea5b76`)*
 4. **MR-7C.4**: Retention + Automatic Aging/Purge Controls
-   - **MR-7C.4A**: Retention Requirements + Data-Class Decision Matrix *(COMPLETED / READY FOR OWNER REVIEW)*
-   - **MR-7C.4B**: Parameterized Aging Queries & Purge Safety Guards *(ACTIVE NEXT)*
-   - **MR-7C.4C**: Controlled Purge Execution Routines *(FUTURE)*
+   - **MR-7C.4A**: Retention Requirements + Data-Class Decision Matrix *(OWNER ACCEPTED / FROZEN — `924a7f009d18bfeadd0944f5bca082548eac9e54`)*
+   - **MR-7C.4B1**: Frozen Retention Controls Foundation *(ENGINEERING COMPLETE / READY FOR OWNER REVIEW)*
+   - **MR-7C.4B2**: Multi-Tenant Maintenance Workflows & Bounded Scheduling *(FUTURE)*
 5. **MR-7C.5**: Processor Deletion/Retention Reconciliation *(FUTURE)*
 
 ---
 
 ## 6. Rollback Implications
 
-If rollback of MR-7C.4A is required:
-1. Revert documentation changes in `docs/MR-7C4-RETENTION-DECISION-MATRIX.md`, `docs/MR-7C-PRIVACY-LIFECYCLE-CONTRACT.md`, and `docs/MR-7-EXECUTION-HANDOFF.md`.
-2. As MR-7C.4A is strictly an architecture and requirements evidence slice, zero executable code, database migrations, RPC functions, or scheduled jobs were introduced. Rollback carries zero operational or database risk.
+If rollback of MR-7C.4B1 is required:
+1. Revert `src/domain/privacy/retention-controls.ts`, `src/app/r/[token]/route.ts`, and `test/domain/retention-controls.test.ts`.
+2. As MR-7C.4B1 introduced zero database migrations, zero schema changes, and zero scheduled cron jobs, rollback requires zero database rollback scripts or data repairs.
 
 ---
 
 ## 7. Owner Gate
 
-- **Milestone Status**: MR-7 is ACTIVE; MR-7B.1, MR-7B.2, MR-7B.3, MR-7C.1, MR-7C.2, MR-7C.3A, MR-7C.3B, MR-7C.3C External Identifier Erasure, and MR-7C.3C Customer Erasure Delivery Surface are **OWNER ACCEPTED**; MR-7C.4A Retention Requirements + Data-Class Decision Matrix is **COMPLETED / READY FOR OWNER REVIEW**.
+- **Milestone Status**: MR-7 is ACTIVE; MR-7B.1, MR-7B.2, MR-7B.3, MR-7C.1, MR-7C.2, MR-7C.3A, MR-7C.3B, MR-7C.3C External Identifier Erasure, MR-7C.3C Customer Erasure Delivery Surface, and MR-7C.4A Retention Requirements + Data-Class Decision Matrix are **OWNER ACCEPTED**; MR-7C.4B1 Initial Retention Controls Foundation is **ENGINEERING COMPLETE / READY FOR OWNER REVIEW**.
 - **Customer Erasure Authority**: Frozen by Owner Decision to **OWNER ONLY**.
 - **External Identifier Erasure Policy**: Resolved by Owner Decision (`source_customer_id = NULL`, `source_transaction_id = NULL`, `source_event_id = RETAIN`).
-- **Retention Duration Policy**: Zero invented retention periods. All retention periods marked `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED` pending Owner and Legal Counsel authorization.
-- **Zero Execution Purge Code**: Zero cron jobs, pg_cron routines, scheduled functions, purge RPCs, destructive migrations, or retention configuration columns were introduced in this slice.
+- **Frozen Retention Policy**:
+  - Active customer PII: retained until explicit Owner erasure (no automatic aging).
+  - Completion contact payload: redacted to `'{}'::jsonb` after 30 days.
+  - Ingestion deduplication key: `source_event_id` retained permanently.
+  - Review request routing links: expire after 90 days (fails closed, HTTP 410 HTML, unsubscribe remains operational).
+  - Unsubscribe capability & recipient evidence: retained indefinitely.
+  - Messaging authority evidence: retained indefinitely.
+  - Suppression registry: retained permanently per organization.
+  - Erasure certificates: retained permanently.
+  - Audit events: retained indefinitely in initial stage.
+  - Financial & usage ledgers: retained indefinitely while MR-5 billing is paused.
+  - Inactive tenants: soft deactivation only (no hard tenant delete).
+  - Domain event outbox: PENDING never purged; DISPATCHED eligible after 30 days.
+- **Zero Production Scheduling**: Zero cron jobs, pg_cron routines, or production background schedulers activated.
 - **Live messaging remains disabled** (`ENABLE_LIVE_EMAIL=false`).
 - **Live billing remains paused** under `MPG-DEC-049`.
 - **Controlled Pilot (MR-8) remains strictly GATED**.
-- Feature branch `chatgpt/mr7c4a-retention-requirements` contains the finalized MR-7C.4A retention requirements and data-class decision matrix stacked on accepted C3C delivery (`50e1bcf0fa833d9be16471c3b748a464e9ea5b76`).
+- Feature branch `chatgpt/mr7c4b1-retention-controls` contains the MR-7C.4B1 initial retention controls foundation branched from accepted C4A (`924a7f009d18bfeadd0944f5bca082548eac9e54`).
 - **Hosted application or migration is NOT authorized**. Live messaging activation, billing activation, automated purging, and deployment remain strictly unauthorized.

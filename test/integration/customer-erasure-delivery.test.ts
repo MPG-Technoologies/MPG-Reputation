@@ -28,10 +28,8 @@ vi.mock('@/lib/supabase/admin', () => ({
 }))
 
 import {
-  GET,
-  POST,
-} from '../../src/app/api/organizations/[organizationId]/customers/[customerId]/erase/route'
-import { handleCustomerErasureExecution } from '../../src/domain/privacy/erasure-delivery'
+  handleCustomerErasureExecution,
+} from '../../src/domain/privacy/erasure-delivery'
 import {
   checkCustomerErasurePreflightAction,
   executeCustomerErasureAction,
@@ -80,15 +78,14 @@ describe.skipIf(!isLocalDatabase)(
     const userIds: string[] = []
 
     let orgA: string
-    let orgB: string
     let locA: string
+    let orgB: string
     let locB: string
 
     let ownerId: string
     let adminId: string
     let operatorId: string
     let viewerId: string
-    let ownerBId: string
 
     let ownerClient: SupabaseClient<Database>
     let adminUserClient: SupabaseClient<Database>
@@ -97,55 +94,41 @@ describe.skipIf(!isLocalDatabase)(
     let anonClient: SupabaseClient<Database>
 
     let customerA: string
+    let customerAFirstName: string
+    let customerAEmail: string
     let customerB: string
-    const customerAEmail = 'alex.erasure.test@example.test'
-    const customerAPhone = '+15555550301'
-    const customerAFirstName = 'Alex'
-    const customerALastName = 'ErasureTarget'
 
-    async function checked<T>(
-      result:
-        | PromiseLike<{ data: T; error: unknown }>
-        | { data: T; error: unknown }
-    ): Promise<T> {
-      const resolved = await result
-      if (resolved.error) {
-        throw new Error('Synthetic fixture failed', {
-          cause: resolved.error,
-        })
+    async function checked<T>(promise: PromiseLike<{ data: T; error: unknown }>): Promise<T> {
+      const res = await promise
+      if (res.error) {
+        throw new Error(`DB Error: ${JSON.stringify(res.error)}`)
       }
-      return resolved.data
+      return res.data
     }
 
-    async function createUser(prefix: string) {
-      const password = randomUUID()
-      const email = `${prefix}-${randomUUID()}@example.test`
-
-      const result = await admin.auth.admin.createUser({
+    async function createUser(emailPrefix: string) {
+      const email = `${emailPrefix}.${randomUUID().slice(0, 8)}@example.test`
+      const password = 'Password123!'
+      const userRes = await admin.auth.admin.createUser({
         email,
         password,
         email_confirm: true,
       })
-
-      if (result.error || !result.data.user) {
-        throw new Error(`Failed to create ${prefix} user`)
+      if (userRes.error || !userRes.data.user) {
+        throw new Error(`Failed to create auth user: ${JSON.stringify(userRes.error)}`)
       }
-
-      userIds.push(result.data.user.id)
+      const userId = userRes.data.user.id
+      userIds.push(userId)
 
       const client = createClient<Database>(url, anonKey, options)
-
-      const signIn = await client.auth.signInWithPassword({
-        email,
-        password,
-      })
-
-      if (signIn.error) {
-        throw new Error(`Failed to authenticate ${prefix} user`)
+      const signinRes = await client.auth.signInWithPassword({ email, password })
+      if (signinRes.error) {
+        throw new Error(`Failed to sign in: ${JSON.stringify(signinRes.error)}`)
       }
 
       return {
-        id: result.data.user.id,
+        id: userId,
+        email,
         client,
       }
     }
@@ -225,13 +208,12 @@ describe.skipIf(!isLocalDatabase)(
       viewerClient = viewerUser.client
       await addMember(orgA, viewerId, 'VIEWER')
 
-      const ownerBUser = await createUser('owner-b')
-      ownerBId = ownerBUser.id
-      await addMember(orgB, ownerBId, 'OWNER')
-
+      // Anonymous client (unauthenticated)
       anonClient = createClient<Database>(url, anonKey, options)
 
       // Seed customer in Org A
+      customerAFirstName = 'John'
+      customerAEmail = `john.${randomUUID().slice(0, 8)}@example.test`
       const custA = await checked(
         admin
           .from('customers')
@@ -239,9 +221,9 @@ describe.skipIf(!isLocalDatabase)(
             organization_id: orgA,
             location_id: locA,
             first_name: customerAFirstName,
-            last_name: customerALastName,
+            last_name: 'Doe',
             email: customerAEmail,
-            phone: customerAPhone,
+            phone: '+15555550301',
             permission_email: 'allowed',
             permission_source: 'test',
           })
@@ -307,131 +289,79 @@ describe.skipIf(!isLocalDatabase)(
     })
 
     // =========================================================================
-    // 1. Authorization Matrix: Preflight (GET) & Execution (POST)
+    // 1. Authorization Matrix: Preflight & Execution
     // =========================================================================
     describe('Authorization & Role Matrix Enforcement', () => {
       it('1. OWNER can access preflight and receives ELIGIBLE status', async () => {
         activeClient = ownerClient
-        const res = await GET(new Request('http://localhost'), {
-          params: Promise.resolve({ organizationId: orgA, customerId: customerA }),
-        })
-        expect(res.status).toBe(200)
-        expect(res.headers.get('Cache-Control')).toBe('no-store')
-
-        const body = await res.json()
-        expect(body.status).toBe('ELIGIBLE')
-        expect(body.eligible).toBe(true)
-        expect(body.message).toBe('Eligible for erasure.')
+        const res = await checkCustomerErasurePreflightAction(orgA, customerA)
+        expect(res.status).toBe('ELIGIBLE')
+        expect(res.eligible).toBe(true)
+        expect(res.message).toBe('Eligible for erasure.')
       })
 
-      it('2. ADMIN is denied preflight access (403 Not authorized)', async () => {
+      it('2. ADMIN is denied preflight access (DENIED Not authorized)', async () => {
         activeClient = adminUserClient
-        const res = await GET(new Request('http://localhost'), {
-          params: Promise.resolve({ organizationId: orgA, customerId: customerA }),
-        })
-        expect(res.status).toBe(403)
-        const body = await res.json()
-        expect(body.status).toBe('DENIED')
-        expect(body.eligible).toBe(false)
-        expect(body.message).toBe('Not authorized')
+        const res = await checkCustomerErasurePreflightAction(orgA, customerA)
+        expect(res.status).toBe('DENIED')
+        expect(res.eligible).toBe(false)
+        expect(res.message).toBe('Not authorized')
       })
 
-      it('3. ADMIN is denied erasure execution (403 Not authorized)', async () => {
+      it('3. ADMIN is denied erasure execution (DENIED Not authorized)', async () => {
         activeClient = adminUserClient
-        const res = await POST(
-          new Request('http://localhost', {
-            method: 'POST',
-            body: JSON.stringify({ confirmation: 'ERASE' }),
-          }),
-          {
-            params: Promise.resolve({ organizationId: orgA, customerId: customerA }),
-          }
-        )
-        expect(res.status).toBe(403)
-        const body = await res.json()
-        expect(body.status).toBe('DENIED')
-        expect(body.success).toBe(false)
-        expect(body.error).toBe('Not authorized')
+        const res = await executeCustomerErasureAction(orgA, customerA, 'ERASE')
+        expect(res.status).toBe('DENIED')
+        expect(res.success).toBe(false)
+        expect(res.error).toBe('Not authorized')
       })
 
-      it('4. OPERATOR is denied preflight access (403 Not authorized)', async () => {
+      it('4. OPERATOR is denied preflight access (DENIED Not authorized)', async () => {
         activeClient = operatorClient
-        const res = await GET(new Request('http://localhost'), {
-          params: Promise.resolve({ organizationId: orgA, customerId: customerA }),
-        })
-        expect(res.status).toBe(403)
-        const body = await res.json()
-        expect(body.status).toBe('DENIED')
-        expect(body.eligible).toBe(false)
+        const res = await checkCustomerErasurePreflightAction(orgA, customerA)
+        expect(res.status).toBe('DENIED')
+        expect(res.eligible).toBe(false)
+        expect(res.message).toBe('Not authorized')
       })
 
-      it('5. OPERATOR is denied erasure execution (403 Not authorized)', async () => {
+      it('5. OPERATOR is denied erasure execution (DENIED Not authorized)', async () => {
         activeClient = operatorClient
-        const res = await POST(
-          new Request('http://localhost', {
-            method: 'POST',
-            body: JSON.stringify({ confirmation: 'ERASE' }),
-          }),
-          {
-            params: Promise.resolve({ organizationId: orgA, customerId: customerA }),
-          }
-        )
-        expect(res.status).toBe(403)
-        const body = await res.json()
-        expect(body.status).toBe('DENIED')
-        expect(body.success).toBe(false)
+        const res = await executeCustomerErasureAction(orgA, customerA, 'ERASE')
+        expect(res.status).toBe('DENIED')
+        expect(res.success).toBe(false)
+        expect(res.error).toBe('Not authorized')
       })
 
-      it('6. VIEWER is denied preflight access (403 Not authorized)', async () => {
+      it('6. VIEWER is denied preflight access (DENIED Not authorized)', async () => {
         activeClient = viewerClient
-        const res = await GET(new Request('http://localhost'), {
-          params: Promise.resolve({ organizationId: orgA, customerId: customerA }),
-        })
-        expect(res.status).toBe(403)
-        const body = await res.json()
-        expect(body.status).toBe('DENIED')
+        const res = await checkCustomerErasurePreflightAction(orgA, customerA)
+        expect(res.status).toBe('DENIED')
+        expect(res.eligible).toBe(false)
+        expect(res.message).toBe('Not authorized')
       })
 
-      it('7. VIEWER is denied erasure execution (403 Not authorized)', async () => {
+      it('7. VIEWER is denied erasure execution (DENIED Not authorized)', async () => {
         activeClient = viewerClient
-        const res = await POST(
-          new Request('http://localhost', {
-            method: 'POST',
-            body: JSON.stringify({ confirmation: 'ERASE' }),
-          }),
-          {
-            params: Promise.resolve({ organizationId: orgA, customerId: customerA }),
-          }
-        )
-        expect(res.status).toBe(403)
-        const body = await res.json()
-        expect(body.status).toBe('DENIED')
+        const res = await executeCustomerErasureAction(orgA, customerA, 'ERASE')
+        expect(res.status).toBe('DENIED')
+        expect(res.success).toBe(false)
+        expect(res.error).toBe('Not authorized')
       })
 
-      it('8. Anonymous is denied preflight access (403 Not authorized)', async () => {
+      it('8. Anonymous is denied preflight access (DENIED Not authorized)', async () => {
         activeClient = anonClient
-        const res = await GET(new Request('http://localhost'), {
-          params: Promise.resolve({ organizationId: orgA, customerId: customerA }),
-        })
-        expect(res.status).toBe(403)
-        const body = await res.json()
-        expect(body.status).toBe('DENIED')
+        const res = await checkCustomerErasurePreflightAction(orgA, customerA)
+        expect(res.status).toBe('DENIED')
+        expect(res.eligible).toBe(false)
+        expect(res.message).toBe('Not authorized')
       })
 
-      it('9. Anonymous is denied erasure execution (403 Not authorized)', async () => {
+      it('9. Anonymous is denied erasure execution (DENIED Not authorized)', async () => {
         activeClient = anonClient
-        const res = await POST(
-          new Request('http://localhost', {
-            method: 'POST',
-            body: JSON.stringify({ confirmation: 'ERASE' }),
-          }),
-          {
-            params: Promise.resolve({ organizationId: orgA, customerId: customerA }),
-          }
-        )
-        expect(res.status).toBe(403)
-        const body = await res.json()
-        expect(body.status).toBe('DENIED')
+        const res = await executeCustomerErasureAction(orgA, customerA, 'ERASE')
+        expect(res.status).toBe('DENIED')
+        expect(res.success).toBe(false)
+        expect(res.error).toBe('Not authorized')
       })
     })
 
@@ -439,74 +369,44 @@ describe.skipIf(!isLocalDatabase)(
     // 2. Tenant Scoping & Zero-Existence Leakage
     // =========================================================================
     describe('Tenant Scoping & Existence Leakage Protection', () => {
-      it('10. Foreign-tenant customer cannot be preflighted or erased by Org A OWNER (403 Not authorized)', async () => {
+      it('10. Foreign-tenant customer cannot be preflighted or erased by Org A OWNER (DENIED Not authorized)', async () => {
         activeClient = ownerClient
         // customerB belongs to Org B
-        const preflightRes = await GET(new Request('http://localhost'), {
-          params: Promise.resolve({ organizationId: orgA, customerId: customerB }),
-        })
-        expect(preflightRes.status).toBe(403)
-        const preflightBody = await preflightRes.json()
-        expect(preflightBody.status).toBe('DENIED')
-        expect(preflightBody.message).toBe('Not authorized')
+        const preflightRes = await checkCustomerErasurePreflightAction(orgA, customerB)
+        expect(preflightRes.status).toBe('DENIED')
+        expect(preflightRes.eligible).toBe(false)
+        expect(preflightRes.message).toBe('Not authorized')
 
-        const execRes = await POST(
-          new Request('http://localhost', {
-            method: 'POST',
-            body: JSON.stringify({ confirmation: 'ERASE' }),
-          }),
-          {
-            params: Promise.resolve({ organizationId: orgA, customerId: customerB }),
-          }
-        )
-        expect(execRes.status).toBe(403)
-        const execBody = await execRes.json()
-        expect(execBody.status).toBe('DENIED')
-        expect(execBody.error).toBe('Not authorized')
+        const execRes = await executeCustomerErasureAction(orgA, customerB, 'ERASE')
+        expect(execRes.status).toBe('DENIED')
+        expect(execRes.success).toBe(false)
+        expect(execRes.error).toBe('Not authorized')
       })
 
-      it('11. Nonexistent customer does not leak existence (returns identical 403 Not authorized)', async () => {
+      it('11. Nonexistent customer does not leak existence (returns identical DENIED Not authorized)', async () => {
         activeClient = ownerClient
         const nonExistentId = randomUUID()
 
-        const preflightRes = await GET(new Request('http://localhost'), {
-          params: Promise.resolve({ organizationId: orgA, customerId: nonExistentId }),
-        })
-        expect(preflightRes.status).toBe(403)
-        const preflightBody = await preflightRes.json()
-        expect(preflightBody.status).toBe('DENIED')
+        const preflightRes = await checkCustomerErasurePreflightAction(orgA, nonExistentId)
+        expect(preflightRes.status).toBe('DENIED')
+        expect(preflightRes.eligible).toBe(false)
+        expect(preflightRes.message).toBe('Not authorized')
 
-        const execRes = await POST(
-          new Request('http://localhost', {
-            method: 'POST',
-            body: JSON.stringify({ confirmation: 'ERASE' }),
-          }),
-          {
-            params: Promise.resolve({ organizationId: orgA, customerId: nonExistentId }),
-          }
-        )
-        expect(execRes.status).toBe(403)
-        const execBody = await execRes.json()
-        expect(execBody.status).toBe('DENIED')
+        const execRes = await executeCustomerErasureAction(orgA, nonExistentId, 'ERASE')
+        expect(execRes.status).toBe('DENIED')
+        expect(execRes.success).toBe(false)
+        expect(execRes.error).toBe('Not authorized')
       })
 
-      it('12. Malformed UUIDs fail closed immediately with 403 Not authorized', async () => {
+      it('12. Malformed UUIDs fail closed immediately with DENIED Not authorized', async () => {
         activeClient = ownerClient
-        const res = await GET(new Request('http://localhost'), {
-          params: Promise.resolve({ organizationId: 'invalid-org', customerId: 'invalid-cust' }),
-        })
-        expect(res.status).toBe(403)
+        const preflightRes = await checkCustomerErasurePreflightAction('invalid-org', 'invalid-cust')
+        expect(preflightRes.status).toBe('DENIED')
+        expect(preflightRes.eligible).toBe(false)
 
-        const postRes = await POST(
-          new Request('http://localhost', {
-            method: 'POST',
-            body: JSON.stringify({ confirmation: 'ERASE' }),
-          }),
-          {
-            params: Promise.resolve({ organizationId: 'invalid-org', customerId: 'invalid-cust' }),
-          }
-        )
-        expect(postRes.status).toBe(403)
+        const execRes = await executeCustomerErasureAction('invalid-org', 'invalid-cust', 'ERASE')
+        expect(execRes.status).toBe('DENIED')
+        expect(execRes.success).toBe(false)
       })
     })
 
@@ -514,21 +414,12 @@ describe.skipIf(!isLocalDatabase)(
     // 3. Confirmation Requirement & Preflight Blocking
     // =========================================================================
     describe('Confirmation Requirement & Preflight Guarding', () => {
-      it('13. POST without confirmation returns 400 CONFIRMATION_REQUIRED without mutating database', async () => {
+      it('13. Action without confirmation returns CONFIRMATION_REQUIRED without mutating database', async () => {
         activeClient = ownerClient
-        const res = await POST(
-          new Request('http://localhost', {
-            method: 'POST',
-            body: JSON.stringify({}),
-          }),
-          {
-            params: Promise.resolve({ organizationId: orgA, customerId: customerA }),
-          }
-        )
-        expect(res.status).toBe(400)
-        const body = await res.json()
-        expect(body.status).toBe('CONFIRMATION_REQUIRED')
-        expect(body.error).toContain('type ERASE to confirm')
+        const res = await executeCustomerErasureAction(orgA, customerA, '')
+        expect(res.status).toBe('CONFIRMATION_REQUIRED')
+        expect(res.success).toBe(false)
+        expect(res.error).toContain('type ERASE to confirm')
 
         // Verify customer row remains untouched
         const { data: cust } = await admin
@@ -540,21 +431,13 @@ describe.skipIf(!isLocalDatabase)(
         expect(cust?.email).toBe(customerAEmail)
       })
 
-      it('14. POST with incorrect confirmation string (e.g. "erase", "DELETE") returns 400 CONFIRMATION_REQUIRED', async () => {
+      it('14. Action with incorrect confirmation string returns CONFIRMATION_REQUIRED', async () => {
         activeClient = ownerClient
-        for (const wrongText of ['erase', 'DELETE', 'YES', 'erase me', '']) {
-          const res = await POST(
-            new Request('http://localhost', {
-              method: 'POST',
-              body: JSON.stringify({ confirmation: wrongText }),
-            }),
-            {
-              params: Promise.resolve({ organizationId: orgA, customerId: customerA }),
-            }
-          )
-          expect(res.status).toBe(400)
-          const body = await res.json()
-          expect(body.status).toBe('CONFIRMATION_REQUIRED')
+        for (const wrongText of ['erase', 'DELETE', 'YES', 'erase me']) {
+          const res = await executeCustomerErasureAction(orgA, customerA, wrongText)
+          expect(res.status).toBe('CONFIRMATION_REQUIRED')
+          expect(res.success).toBe(false)
+          expect(res.error).toContain('type ERASE to confirm')
         }
       })
 
@@ -612,29 +495,16 @@ describe.skipIf(!isLocalDatabase)(
         )
 
         // Check preflight
-        const preflightRes = await GET(new Request('http://localhost'), {
-          params: Promise.resolve({ organizationId: orgA, customerId: blockedCustId }),
-        })
-        expect(preflightRes.status).toBe(200)
-        const preflightBody = await preflightRes.json()
-        expect(preflightBody.status).toBe('BLOCKED')
-        expect(preflightBody.eligible).toBe(false)
-        expect(preflightBody.message).toContain('historical delivery evidence cannot be safely resolved')
+        const preflightRes = await checkCustomerErasurePreflightAction(orgA, blockedCustId)
+        expect(preflightRes.status).toBe('BLOCKED')
+        expect(preflightRes.eligible).toBe(false)
+        expect(preflightRes.message).toContain('historical delivery evidence cannot be safely resolved')
 
-        // Attempt POST erasure on blocked customer: must be rejected with 409 BLOCKED
-        const execRes = await POST(
-          new Request('http://localhost', {
-            method: 'POST',
-            body: JSON.stringify({ confirmation: 'ERASE' }),
-          }),
-          {
-            params: Promise.resolve({ organizationId: orgA, customerId: blockedCustId }),
-          }
-        )
-        expect(execRes.status).toBe(409)
-        const execBody = await execRes.json()
-        expect(execBody.status).toBe('BLOCKED')
-        expect(execBody.error).toContain('historical delivery evidence cannot be safely resolved')
+        // Attempt execution on blocked customer: must be rejected with BLOCKED
+        const execRes = await executeCustomerErasureAction(orgA, blockedCustId, 'ERASE')
+        expect(execRes.status).toBe('BLOCKED')
+        expect(execRes.success).toBe(false)
+        expect(execRes.error).toContain('historical delivery evidence cannot be safely resolved')
 
         // Verify customer was NOT erased
         const { data: custAfter } = await admin
@@ -687,30 +557,20 @@ describe.skipIf(!isLocalDatabase)(
         })
       })
 
-      it('16. Successful OWNER POST erases customer, scrubs PII, zeroes external IDs, and returns safe non-PII output', async () => {
+      it('16. Successful OWNER execution erases customer, scrubs PII, zeroes external IDs, and returns safe non-PII output WITHOUT customerId', async () => {
         activeClient = ownerClient
-        const res = await POST(
-          new Request('http://localhost', {
-            method: 'POST',
-            body: JSON.stringify({ confirmation: 'ERASE' }),
-          }),
-          {
-            params: Promise.resolve({ organizationId: orgA, customerId: targetCustId }),
-          }
-        )
-        expect(res.status).toBe(200)
-        expect(res.headers.get('Cache-Control')).toBe('no-store')
+        const res = await executeCustomerErasureAction(orgA, targetCustId, 'ERASE')
+        expect(res.status).toBe('ERASED')
+        expect(res.success).toBe(true)
+        expect(res.erasedAt).toBeDefined()
+        expect(res.alreadyErased).toBe(false)
 
-        const body = await res.json()
-        expect(body.status).toBe('SUCCESS')
-        expect(body.success).toBe(true)
-        expect(body.customerId).toBe(targetCustId)
-        expect(body.erasedAt).toBeDefined()
-        expect(body.alreadyErased).toBe(false)
-        // Verify response contains NO PII, no error details, no database schema details
-        expect(JSON.stringify(body)).not.toContain(targetEmail)
-        expect(JSON.stringify(body)).not.toContain(targetSrcCustId)
-        expect(JSON.stringify(body)).not.toContain(targetSrcTxId)
+        // Strict Requirement: customerId must NOT be returned in response payload
+        expect(res).not.toHaveProperty('customerId')
+        expect(JSON.stringify(res)).not.toContain(targetCustId)
+        expect(JSON.stringify(res)).not.toContain(targetEmail)
+        expect(JSON.stringify(res)).not.toContain(targetSrcCustId)
+        expect(JSON.stringify(res)).not.toContain(targetSrcTxId)
 
         // Verify customer record in database is tombstoned
         const { data: custInDb } = await admin
@@ -745,22 +605,13 @@ describe.skipIf(!isLocalDatabase)(
         expect(erasureRecord?.actor_id).toBe(ownerId)
       })
 
-      it('17. Repeated execution is idempotent, does not fail or revive identifiers, and returns alreadyErased: true', async () => {
+      it('17. Repeated execution is idempotent, returns alreadyErased: true, and omits customerId', async () => {
         activeClient = ownerClient
-        const repeatRes = await POST(
-          new Request('http://localhost', {
-            method: 'POST',
-            body: JSON.stringify({ confirmation: 'ERASE' }),
-          }),
-          {
-            params: Promise.resolve({ organizationId: orgA, customerId: targetCustId }),
-          }
-        )
-        expect(repeatRes.status).toBe(200)
-        const repeatBody = await repeatRes.json()
-        expect(repeatBody.status).toBe('SUCCESS')
-        expect(repeatBody.success).toBe(true)
-        expect(repeatBody.alreadyErased).toBe(true)
+        const repeatRes = await executeCustomerErasureAction(orgA, targetCustId, 'ERASE')
+        expect(repeatRes.status).toBe('ERASED')
+        expect(repeatRes.success).toBe(true)
+        expect(repeatRes.alreadyErased).toBe(true)
+        expect(repeatRes).not.toHaveProperty('customerId')
 
         // Verify database state remains tombstoned and NULL
         const { data: compCheck } = await admin
@@ -821,9 +672,9 @@ describe.skipIf(!isLocalDatabase)(
           actionCustId,
           'ERASE'
         )
-        expect(execResult.status).toBe('SUCCESS')
+        expect(execResult.status).toBe('ERASED')
         expect(execResult.success).toBe(true)
-        expect(execResult.customerId).toBe(actionCustId)
+        expect(execResult).not.toHaveProperty('customerId')
 
         // Customer in database is erased
         const { data: custInDb } = await admin
@@ -840,8 +691,7 @@ describe.skipIf(!isLocalDatabase)(
     // 6. Security Boundaries & Zero Secret Exposure
     // =========================================================================
     describe('Security Boundaries & Client Code Leakage Prevention', () => {
-      it('19. Browser client files do NOT reference service_role credentials or raw execute_customer_erasure RPC', async () => {
-        // Read client component source files
+      it('19. Browser client files do NOT reference service_role credentials or raw execute_customer_erasure RPC, and no erase HTTP route exists', async () => {
         const fs = await import('node:fs')
         const path = await import('node:path')
 
@@ -857,6 +707,12 @@ describe.skipIf(!isLocalDatabase)(
           expect(content).not.toContain('execute_customer_erasure')
           expect(content).not.toContain('customer_erasure_records')
         }
+
+        // Verify the redundant HTTP route file has been eliminated to reduce attack surface
+        const eraseRoutePath = path.resolve(
+          'src/app/api/organizations/[organizationId]/customers/[customerId]/erase/route.ts'
+        )
+        expect(fs.existsSync(eraseRoutePath)).toBe(false)
       })
 
       it('20. CustomersPage statically and contractually gates CustomerErasureButton strictly to userRole === OWNER', async () => {
@@ -874,7 +730,7 @@ describe.skipIf(!isLocalDatabase)(
         expect(pageContent).not.toContain("isOwner = userRole === 'VIEWER'")
       })
 
-      it('21. Unexpected database/internal error in delivery handler masks raw SQL details with safe 503 UNAVAILABLE', async () => {
+      it('21. Unexpected database/internal error in delivery handler masks raw SQL details with safe UNAVAILABLE', async () => {
         activeClient = ownerClient
         // Create a synthetic mock client that throws a raw database exception
         const brokenClient = {
@@ -892,14 +748,13 @@ describe.skipIf(!isLocalDatabase)(
         const res = await handleCustomerErasureExecution(orgA, customerA, 'ERASE', {
           tenantClient: brokenClient,
         })
-        expect(res.status).toBe(503)
-        const body = await res.json()
-        expect(body.status).toBe('UNAVAILABLE')
-        expect(body.error).toBe('Temporarily unavailable')
+        expect(res.status).toBe('UNAVAILABLE')
+        expect(res.success).toBe(false)
+        expect(res.error).toBe('Temporarily unavailable')
         // Ensure zero raw SQL text or stack trace leaks
-        expect(JSON.stringify(body)).not.toContain('postgresql')
-        expect(JSON.stringify(body)).not.toContain('socket')
-        expect(JSON.stringify(body)).not.toContain('FATAL')
+        expect(JSON.stringify(res)).not.toContain('postgresql')
+        expect(JSON.stringify(res)).not.toContain('socket')
+        expect(JSON.stringify(res)).not.toContain('FATAL')
       })
     })
   }

@@ -15,8 +15,7 @@ export async function checkCustomerErasurePreflightAction(
   organizationId: string,
   customerId: string
 ): Promise<CustomerErasurePreflightResponse> {
-  const response = await handleCustomerErasurePreflight(organizationId, customerId)
-  return response.json()
+  return handleCustomerErasurePreflight(organizationId, customerId)
 }
 
 /**
@@ -27,12 +26,11 @@ export async function executeCustomerErasureAction(
   customerId: string,
   confirmation: string
 ): Promise<CustomerErasureExecutionResponse> {
-  const response = await handleCustomerErasureExecution(
+  const result = await handleCustomerErasureExecution(
     organizationId,
     customerId,
     confirmation
   )
-  const result: CustomerErasureExecutionResponse = await response.json()
 
   if (result.success) {
     try {

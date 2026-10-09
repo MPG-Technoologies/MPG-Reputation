@@ -11,6 +11,10 @@ import {
   XIcon,
 } from '@/components/ui/icons'
 import { useModal } from '@/components/ui/modal-system'
+import {
+  checkCustomerErasurePreflightAction,
+  executeCustomerErasureAction,
+} from '@/actions/customer-erasure'
 
 interface RecordCompletionButtonProps {
   label?: string
@@ -180,15 +184,9 @@ export function CustomerErasureButton({
     setConfirmText('')
 
     try {
-      const url = `/api/organizations/${encodeURIComponent(organizationId)}/customers/${encodeURIComponent(customerId)}/erase`
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: { Accept: 'application/json' },
-      })
+      const data = await checkCustomerErasurePreflightAction(organizationId, customerId)
 
-      const data = await res.json().catch(() => null)
-
-      if (res.status === 200 && data?.status === 'ELIGIBLE') {
+      if (data?.status === 'ELIGIBLE') {
         setPreflightStatus('eligible')
         setPreflightMessage(data.message || 'Eligible for erasure.')
       } else if (data?.status === 'BLOCKED') {
@@ -197,7 +195,7 @@ export function CustomerErasureButton({
           data.message ||
             'Erasure blocked because historical delivery evidence cannot be safely resolved.'
         )
-      } else if (res.status === 403) {
+      } else if (data?.status === 'DENIED') {
         setPreflightStatus('error')
         setPreflightMessage('Not authorized')
       } else {
@@ -247,19 +245,13 @@ export function CustomerErasureButton({
     setSubmitError(null)
 
     try {
-      const url = `/api/organizations/${encodeURIComponent(organizationId)}/customers/${encodeURIComponent(customerId)}/erase`
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({ confirmation: confirmText }),
-      })
+      const data = await executeCustomerErasureAction(
+        organizationId,
+        customerId,
+        confirmText
+      )
 
-      const data = await res.json().catch(() => null)
-
-      if (res.ok && data?.success) {
+      if (data?.success && data?.status === 'ERASED') {
         setIsSuccess(true)
         router.refresh()
         setTimeout(() => {
@@ -267,11 +259,13 @@ export function CustomerErasureButton({
         }, 1200)
       } else {
         let msg = data?.error || 'Erasure failed'
-        if (res.status === 403) msg = 'Not authorized'
-        else if (res.status === 409)
+        if (data?.status === 'DENIED') msg = 'Not authorized'
+        else if (data?.status === 'BLOCKED')
           msg =
             'Erasure blocked because historical delivery evidence cannot be safely resolved'
-        else if (res.status === 503) msg = 'Temporarily unavailable'
+        else if (data?.status === 'CONFIRMATION_REQUIRED')
+          msg = data?.error || 'Confirmation required. Please type ERASE to confirm.'
+        else if (data?.status === 'UNAVAILABLE') msg = 'Temporarily unavailable'
 
         setSubmitError(msg)
       }

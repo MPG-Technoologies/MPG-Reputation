@@ -20,9 +20,8 @@ export interface CustomerErasurePreflightResponse {
 }
 
 export interface CustomerErasureExecutionResponse {
-  status: 'SUCCESS' | 'DENIED' | 'BLOCKED' | 'CONFIRMATION_REQUIRED' | 'UNAVAILABLE'
+  status: 'ERASED' | 'DENIED' | 'BLOCKED' | 'CONFIRMATION_REQUIRED' | 'UNAVAILABLE'
   success: boolean
-  customerId?: string
   erasedAt?: string
   alreadyErased?: boolean
   error?: string
@@ -33,11 +32,11 @@ export interface CustomerErasureExecutionResponse {
  *
  * Security & Invariant Rules:
  * - Requires authenticated session.
- * - OWNER only in organization_users; ADMIN, OPERATOR, VIEWER, and anon are DENIED (403).
- * - Customer must belong to organizationId; foreign/nonexistent returns DENIED (403) to prevent existence leakage.
+ * - OWNER only in organization_users; ADMIN, OPERATOR, VIEWER, and anon are DENIED.
+ * - Customer must belong to organizationId; foreign/nonexistent returns DENIED to prevent existence leakage.
  * - Checks legacy recipient evidence gate:
- *   - If blocked by legacy requests -> returns safe non-PII blocked status (200).
- *   - If eligible -> returns safe ELIGIBLE status (200).
+ *   - If blocked by legacy requests -> returns safe non-PII blocked status.
+ *   - If eligible -> returns safe ELIGIBLE status.
  * - Never returns raw SQL errors, stack traces, hashes, or sensitive identifiers.
  */
 export async function handleCustomerErasurePreflight(
@@ -47,24 +46,18 @@ export async function handleCustomerErasurePreflight(
     tenantClient?: SupabaseClient<Database>
     adminClient?: SupabaseClient<Database>
   }
-): Promise<Response> {
+): Promise<CustomerErasurePreflightResponse> {
   if (
     !organizationId ||
     !UUID_REGEX.test(organizationId) ||
     !customerId ||
     !UUID_REGEX.test(customerId)
   ) {
-    return Response.json(
-      {
-        status: 'DENIED',
-        eligible: false,
-        message: 'Not authorized',
-      } satisfies CustomerErasurePreflightResponse,
-      {
-        status: 403,
-        headers: { 'Cache-Control': 'no-store' },
-      }
-    )
+    return {
+      status: 'DENIED',
+      eligible: false,
+      message: 'Not authorized',
+    }
   }
 
   try {
@@ -75,17 +68,11 @@ export async function handleCustomerErasurePreflight(
     } = await tenantClient.auth.getUser()
 
     if (authError || !user || user.is_anonymous) {
-      return Response.json(
-        {
-          status: 'DENIED',
-          eligible: false,
-          message: 'Not authorized',
-        } satisfies CustomerErasurePreflightResponse,
-        {
-          status: 403,
-          headers: { 'Cache-Control': 'no-store' },
-        }
-      )
+      return {
+        status: 'DENIED',
+        eligible: false,
+        message: 'Not authorized',
+      }
     }
 
     const authority = await checkErasureAuthority(
@@ -95,17 +82,11 @@ export async function handleCustomerErasurePreflight(
     )
 
     if (authority !== 'AUTHORIZED') {
-      return Response.json(
-        {
-          status: 'DENIED',
-          eligible: false,
-          message: 'Not authorized',
-        } satisfies CustomerErasurePreflightResponse,
-        {
-          status: 403,
-          headers: { 'Cache-Control': 'no-store' },
-        }
-      )
+      return {
+        status: 'DENIED',
+        eligible: false,
+        message: 'Not authorized',
+      }
     }
 
     // Verify customer exists in tenant
@@ -117,32 +98,20 @@ export async function handleCustomerErasurePreflight(
       .maybeSingle()
 
     if (custError) {
-      return Response.json(
-        {
-          status: 'UNAVAILABLE',
-          eligible: false,
-          message: 'Temporarily unavailable',
-        } satisfies CustomerErasurePreflightResponse,
-        {
-          status: 503,
-          headers: { 'Cache-Control': 'no-store' },
-        }
-      )
+      return {
+        status: 'UNAVAILABLE',
+        eligible: false,
+        message: 'Temporarily unavailable',
+      }
     }
 
     if (!customer) {
       // Fail closed without leaking existence
-      return Response.json(
-        {
-          status: 'DENIED',
-          eligible: false,
-          message: 'Not authorized',
-        } satisfies CustomerErasurePreflightResponse,
-        {
-          status: 403,
-          headers: { 'Cache-Control': 'no-store' },
-        }
-      )
+      return {
+        status: 'DENIED',
+        eligible: false,
+        message: 'Not authorized',
+      }
     }
 
     const adminClient = options?.adminClient ?? createAdminClient()
@@ -154,58 +123,34 @@ export async function handleCustomerErasurePreflight(
 
     if (!eligibility.eligible) {
       if (eligibility.decision === 'CUSTOMER_NOT_FOUND') {
-        return Response.json(
-          {
-            status: 'DENIED',
-            eligible: false,
-            message: 'Not authorized',
-          } satisfies CustomerErasurePreflightResponse,
-          {
-            status: 403,
-            headers: { 'Cache-Control': 'no-store' },
-          }
-        )
+        return {
+          status: 'DENIED',
+          eligible: false,
+          message: 'Not authorized',
+        }
       }
 
       if (eligibility.decision === 'BLOCKED_BY_UNRESOLVED_LEGACY_REQUESTS') {
-        return Response.json(
-          {
-            status: 'BLOCKED',
-            eligible: false,
-            message:
-              'Erasure blocked because historical delivery evidence cannot be safely resolved.',
-          } satisfies CustomerErasurePreflightResponse,
-          {
-            status: 200,
-            headers: { 'Cache-Control': 'no-store' },
-          }
-        )
+        return {
+          status: 'BLOCKED',
+          eligible: false,
+          message:
+            'Erasure blocked because historical delivery evidence cannot be safely resolved.',
+        }
       }
     }
 
-    return Response.json(
-      {
-        status: 'ELIGIBLE',
-        eligible: true,
-        message: 'Eligible for erasure.',
-      } satisfies CustomerErasurePreflightResponse,
-      {
-        status: 200,
-        headers: { 'Cache-Control': 'no-store' },
-      }
-    )
+    return {
+      status: 'ELIGIBLE',
+      eligible: true,
+      message: 'Eligible for erasure.',
+    }
   } catch {
-    return Response.json(
-      {
-        status: 'UNAVAILABLE',
-        eligible: false,
-        message: 'Temporarily unavailable',
-      } satisfies CustomerErasurePreflightResponse,
-      {
-        status: 503,
-        headers: { 'Cache-Control': 'no-store' },
-      }
-    )
+    return {
+      status: 'UNAVAILABLE',
+      eligible: false,
+      message: 'Temporarily unavailable',
+    }
   }
 }
 
@@ -215,11 +160,11 @@ export async function handleCustomerErasurePreflight(
  * Security & Invariant Rules:
  * - Requires explicit typed confirmation `ERASE`.
  * - Requires authenticated session.
- * - OWNER only in organization_users; ADMIN, OPERATOR, VIEWER, and anon are DENIED (403).
- * - Customer must belong to organizationId; foreign/nonexistent returns DENIED (403) to prevent existence leakage.
+ * - OWNER only in organization_users; ADMIN, OPERATOR, VIEWER, and anon are DENIED.
+ * - Customer must belong to organizationId; foreign/nonexistent returns DENIED to prevent existence leakage.
  * - Invokes domain eraseCustomer -> database execute_customer_erasure RPC inside single transaction.
  * - Final authority check performed inside PostgreSQL transaction.
- * - Zero PII, zero internal details, zero database error leakage in response.
+ * - Zero PII, zero internal details, zero database error leakage, zero customerId in success response.
  */
 export async function handleCustomerErasureExecution(
   organizationId: string,
@@ -229,39 +174,27 @@ export async function handleCustomerErasureExecution(
     tenantClient?: SupabaseClient<Database>
     adminClient?: SupabaseClient<Database>
   }
-): Promise<Response> {
+): Promise<CustomerErasureExecutionResponse> {
   if (
     !organizationId ||
     !UUID_REGEX.test(organizationId) ||
     !customerId ||
     !UUID_REGEX.test(customerId)
   ) {
-    return Response.json(
-      {
-        status: 'DENIED',
-        success: false,
-        error: 'Not authorized',
-      } satisfies CustomerErasureExecutionResponse,
-      {
-        status: 403,
-        headers: { 'Cache-Control': 'no-store' },
-      }
-    )
+    return {
+      status: 'DENIED',
+      success: false,
+      error: 'Not authorized',
+    }
   }
 
   // Require explicit confirmation
   if (confirmation !== 'ERASE') {
-    return Response.json(
-      {
-        status: 'CONFIRMATION_REQUIRED',
-        success: false,
-        error: 'Confirmation required. Please type ERASE to confirm.',
-      } satisfies CustomerErasureExecutionResponse,
-      {
-        status: 400,
-        headers: { 'Cache-Control': 'no-store' },
-      }
-    )
+    return {
+      status: 'CONFIRMATION_REQUIRED',
+      success: false,
+      error: 'Confirmation required. Please type ERASE to confirm.',
+    }
   }
 
   try {
@@ -276,73 +209,42 @@ export async function handleCustomerErasureExecution(
     })
 
     if (eraseResult.status === 'DENIED') {
-      return Response.json(
-        {
-          status: 'DENIED',
-          success: false,
-          error: 'Not authorized',
-        } satisfies CustomerErasureExecutionResponse,
-        {
-          status: 403,
-          headers: { 'Cache-Control': 'no-store' },
-        }
-      )
+      return {
+        status: 'DENIED',
+        success: false,
+        error: 'Not authorized',
+      }
     }
 
     if (eraseResult.status === 'BLOCKED_BY_UNRESOLVED_LEGACY_REQUESTS') {
-      return Response.json(
-        {
-          status: 'BLOCKED',
-          success: false,
-          error:
-            'Erasure blocked because historical delivery evidence cannot be safely resolved.',
-        } satisfies CustomerErasureExecutionResponse,
-        {
-          status: 409,
-          headers: { 'Cache-Control': 'no-store' },
-        }
-      )
+      return {
+        status: 'BLOCKED',
+        success: false,
+        error:
+          'Erasure blocked because historical delivery evidence cannot be safely resolved.',
+      }
     }
 
     if (eraseResult.status === 'UNAVAILABLE') {
-      return Response.json(
-        {
-          status: 'UNAVAILABLE',
-          success: false,
-          error: 'Temporarily unavailable',
-        } satisfies CustomerErasureExecutionResponse,
-        {
-          status: 503,
-          headers: { 'Cache-Control': 'no-store' },
-        }
-      )
-    }
-
-    // Success: return safe non-PII operational response
-    return Response.json(
-      {
-        status: 'SUCCESS',
-        success: true,
-        customerId: eraseResult.customerId,
-        erasedAt: eraseResult.erasedAt,
-        alreadyErased: eraseResult.alreadyErased,
-      } satisfies CustomerErasureExecutionResponse,
-      {
-        status: 200,
-        headers: { 'Cache-Control': 'no-store' },
-      }
-    )
-  } catch {
-    return Response.json(
-      {
+      return {
         status: 'UNAVAILABLE',
         success: false,
         error: 'Temporarily unavailable',
-      } satisfies CustomerErasureExecutionResponse,
-      {
-        status: 503,
-        headers: { 'Cache-Control': 'no-store' },
       }
-    )
+    }
+
+    // Success: return safe non-PII operational response without customerId
+    return {
+      status: 'ERASED',
+      success: true,
+      erasedAt: eraseResult.erasedAt,
+      alreadyErased: eraseResult.alreadyErased,
+    }
+  } catch {
+    return {
+      status: 'UNAVAILABLE',
+      success: false,
+      error: 'Temporarily unavailable',
+    }
   }
 }

@@ -129,23 +129,24 @@
 - **MR-7C.3C — CUSTOMER ERASURE DELIVERY SURFACE (COMPLETED / READY FOR OWNER REVIEW)**:
   - **Objective & Scope**:
     - Exposes the accepted controlled erasure engine (`8796b5e6fb89cea49a96c85917e4808ad5891fa6`) to the authenticated product application.
-    - Strictly OWNER-only: `organization_users.role === 'OWNER'`. `ADMIN`, `OPERATOR`, `VIEWER`, and anonymous requests are denied (403, safe denied response).
+    - Strictly OWNER-only: `organization_users.role === 'OWNER'`. `ADMIN`, `OPERATOR`, `VIEWER`, and anonymous requests are denied with safe denied responses.
     - Single-customer erasure only: strictly one customer per explicit request. Zero bulk erasure, zero CSV-driven erasure, zero automated purging.
   - **Delivery Architecture & Server Boundary**:
-    - Dedicated server delivery domain module: `src/domain/privacy/erasure-delivery.ts` provides `handleCustomerErasurePreflight` (GET) and `handleCustomerErasureExecution` (POST).
-    - HTTP API Route: `src/app/api/organizations/[organizationId]/customers/[customerId]/erase/route.ts` mapping GET to preflight and POST to execution.
-    - Server Actions: `src/actions/customer-erasure.ts` exporting `checkCustomerErasurePreflightAction` and `executeCustomerErasureAction`, wrapping Next.js `revalidatePath('/app/customers')` for automatic cache invalidation upon completion.
+    - Dedicated server delivery domain module: `src/domain/privacy/erasure-delivery.ts` provides `handleCustomerErasurePreflight` and `handleCustomerErasureExecution`.
+    - Authenticated Server Actions boundary: `src/actions/customer-erasure.ts` exports `checkCustomerErasurePreflightAction` and `executeCustomerErasureAction`, serving as the single dashboard delivery boundary and wrapping Next.js `revalidatePath('/app/customers')` for automatic cache invalidation upon completion.
+    - Attack surface minimized: redundant HTTP route `src/app/api/.../erase/route.ts` eliminated; all client interaction routes strictly through typed Server Actions.
   - **Preflight Eligibility Check**:
     - Verifies user authentication, organization membership, and strict OWNER authority.
-    - Validates customer existence and tenant boundaries (foreign/nonexistent returns safe 403 without existence leakage).
-    - Invokes domain eligibility logic `checkCustomerErasureEligibility`: checks for already-erased state and fails closed (`BLOCKED_BY_UNRESOLVED_LEGACY_REQUESTS` / 409) if any historical review request lacks immutable recipient evidence in provider-ambiguous/delivered states.
-    - Returns safe non-PII preflight response (`eligible: boolean`, `status`, `reasons`).
+    - Validates customer existence and tenant boundaries (foreign/nonexistent returns safe denied without existence leakage).
+    - Invokes domain eligibility logic `checkCustomerErasureEligibility`: checks for already-erased state and fails closed (`BLOCKED_BY_UNRESOLVED_LEGACY_REQUESTS`) if any historical review request lacks immutable recipient evidence in provider-ambiguous/delivered states.
+    - Returns safe non-PII preflight response (`eligible: boolean`, `status`, `message`).
   - **Explicit Confirmation Contract**:
-    - Execution endpoint and action strictly enforce explicit typed confirmation: request body must provide `{ confirmation: 'ERASE' }` matching case-sensitive string.
-    - Empty or mismatched confirmation fails with safe 400 Bad Request (`CONFIRMATION_REQUIRED`).
-  - **Safe Error Contract & Zero Leakage**:
+    - Action strictly enforces explicit typed confirmation: input must provide confirmation matching `'ERASE'`.
+    - Empty or mismatched confirmation fails with safe `CONFIRMATION_REQUIRED` error.
+  - **Minimal Non-PII Response Contract**:
+    - Execution returns strictly `{ success: true, status: 'ERASED', erasedAt }` (and optional `alreadyErased`). Target `customerId` is omitted from response payload to prevent redundant identification.
     - Never leaks database exceptions, SQL text, plpgsql stack traces, service-role keys, contact hashes, provider payloads, or suppression internals.
-    - Safe error mapping: 401 for unauthenticated, 403 for unauthorized / cross-tenant / nonexistent, 409 for blocked legacy evidence / already erased, 500 for unexpected errors.
+    - Safe error mapping: safe denied response for unauthorized / cross-tenant / nonexistent, blocked response for unresolvable legacy evidence, unavailable response for unexpected errors.
   - **UI Integration & Tombstone Representation**:
     - `CustomerErasureButton` in `src/app/app/customers/customer-actions.tsx`: accessible only to OWNERs, opens accessible modal dialog detailing irreversible anonymization, runs preflight check, displays non-PII status, requires typing `ERASE`, and executes via server action.
     - `src/app/app/customers/page.tsx`: evaluates `isOwner = userRole === 'OWNER'` and conditionally renders `CustomerErasureButton` in desktop table and mobile card views for OWNER only.
@@ -257,7 +258,7 @@
 
 If rollback of MR-7C.3C delivery is required:
 1. Revert UI changes in `src/app/app/customers/customer-actions.tsx` and `src/app/app/customers/page.tsx`.
-2. Remove route `src/app/api/organizations/[organizationId]/customers/[customerId]/erase/route.ts`, actions `src/actions/customer-erasure.ts`, and domain `src/domain/privacy/erasure-delivery.ts`.
+2. Remove actions `src/actions/customer-erasure.ts` and domain `src/domain/privacy/erasure-delivery.ts`.
 3. The underlying engine RPC and schema remain intact.
 4. No historical operational records or table schemas are lost.
 

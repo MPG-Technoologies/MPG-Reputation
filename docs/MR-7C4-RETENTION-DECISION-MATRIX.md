@@ -326,14 +326,17 @@ Implementation components:
 
 ---
 
-## 9. Multi-Tenant Maintenance Workflow (MR-7C.4B2 — ENGINEERING COMPLETE / READY FOR OWNER REVIEW)
+## 9. Multi-Tenant Maintenance Workflow (MR-7C.4B2 — ENGINEERING COMPLETE / CORRECTIONS APPLIED / READY FOR OWNER REVIEW)
 
 The server-side bounded multi-tenant retention maintenance workflow coordinates the accepted C4B1 retention operations across organizations without rewriting C4B1 logic or modifying retention policy:
 
-### 1. Architecture & Security Boundary
+### 1. Architecture, Registration Boundary & Security Guard
 - Coordinator: `src/domain/privacy/retention-maintenance.ts` (`executeMultiTenantRetentionMaintenance`).
 - Scheduled Inngest Function: `src/inngest/functions/retention-maintenance.ts` (`retentionMaintenanceWorkflow`).
-- Registered in Inngest handler router: `src/app/api/inngest/route.ts`.
+- Function List Builder: `src/inngest/functions/index.ts` (`getInngestFunctions`).
+- Registered in Inngest handler router: `src/app/api/inngest/route.ts` via `getInngestFunctions()`.
+- **Defense-in-Depth Inngest Registration Guard**: When `ENABLE_RETENTION_MAINTENANCE !== 'true'`, `retentionMaintenanceWorkflow` is completely omitted from the functions list passed to Inngest's `serve` handler. No retention cron metadata is exposed for synchronization, and no retention cron can become scheduled merely because the application is deployed.
+- **Secondary Runtime/Handler Guard**: If handler code is invoked directly while disabled, it immediately returns `SKIPPED_DISABLED` without database mutation.
 - Server/system only: zero browser or client invocation surface, zero public endpoints, zero service-role credential leakage. Normal organization users cannot invoke global multi-tenant maintenance.
 
 ### 2. Bounded Execution & Cursor Pagination
@@ -344,21 +347,22 @@ The server-side bounded multi-tenant retention maintenance workflow coordinates 
 - Deterministic cursor pagination: batches ordered by `id ASC` with `id > lastSeenOrgId` cursor filtering.
 - Organization status eligibility: `['ACTIVE', 'INACTIVE', 'SUSPENDED']`. Evaluates retained data across inactive organizations subject to policy without deleting any organization (preserving Decision 11 soft-deactivation).
 
-### 3. Tenant Isolation & Failure Isolation
-- Processing is executed separately per organization.
-- Try/catch per organization isolates failures: an error in one tenant is captured in a sanitized error log and does not abort, roll back, or corrupt maintenance for other tenants.
-- Aggregate safe operational reporting: returns strictly `{ status, organizationsEvaluated, organizationsSucceeded, organizationsFailed, totalContactsRedacted, totalOutboxRowsPurged, batchesProcessed, durationMs, errors }`. Strictly zero customer emails, names, phone numbers, tokens, hashes, payloads, or socket errors.
+### 3. Tenant Isolation & Fixed Safe Failure Codes
+- Processing is executed separately per organization boundary.
+- Try/catch per organization isolates failures: an error in one tenant is captured as a fixed failure code and does not abort, roll back, or corrupt maintenance for other tenants.
+- **Fixed Safe Failure Categories**: Replaced all free-form error strings and regex sanitization with static failure codes (`ORGANIZATION_QUERY_FAILED`, `CONTACT_REDACTION_FAILED`, `OUTBOX_PURGE_FAILED`, `TENANT_MAINTENANCE_FAILED`). Error items contain strictly `{ organizationId, code }`.
+- **Zero Sensitive Data Leakage**: Results, audit records, and logs strictly exclude customer IDs, customer names, emails, phones, contact JSON, `source_event_id`, tracking/unsubscribe tokens, token hashes, provider identifiers, outbox payloads, SQL queries, database connection strings, and PostgreSQL/Supabase error messages.
+- Aggregate safe operational reporting: returns strictly `{ status, enabled, organizationsEvaluated, organizationsSucceeded, organizationsFailed, totalContactsRedacted, totalOutboxRowsPurged, batchesProcessed, durationMs, errors }`.
 
-### 4. Idempotency & Overlap Safety
+### 4. Idempotency & Concurrency Note
 - Fully idempotent: repeated executions produce zero additional mutations and leave already-redacted contacts and already-purged outbox rows intact.
-- Inngest concurrency policy: configured with `concurrency: 1` to strictly prevent overlapping maintenance runs.
+- **Concurrency Note**: Configured with `concurrency: 1`. Inngest concurrency limits concurrent step execution; because this workflow currently executes the bounded coordinator within one maintenance step, this provides the intended active-execution serialization. (It is not a universal distributed lock).
 
-### 5. Scheduling Guard (Disabled by Default)
+### 5. Scheduling Guard & Policy Preservation
 - **STRICTLY DISABLED BY DEFAULT**: Checked via `isRetentionMaintenanceEnabled()` evaluating `ENABLE_RETENTION_MAINTENANCE === 'true'`.
-- Handler and coordinator fail-safe / no-op immediately returning `SKIPPED_DISABLED` when disabled.
-- Schedule cadence: `'0 3 * * *'` (daily at 03:00 UTC) defined as an implementation default. Cadence changes do not alter frozen 30-day contact / 30-day outbox / 90-day review-link retention durations.
+- Schedule cadence: `'0 3 * * *'` (daily at 03:00 UTC) defined as an implementation default. Cadence definition does not alter frozen MPG retention-policy cutoffs (30-day contact redaction, 30-day dispatched outbox purge, 90-day review link expiration; these are owner-approved MPG product policy, not statutory retention periods).
 - Zero production environment changes; zero hosted scheduler activation.
 
 ### 6. Verification
-- Domain Suite: `test/domain/retention-maintenance.test.ts` (13 tests covering feature flag guard, bounded cursor pagination, failure isolation, sanitized aggregate reporting, Inngest definition, and permanent retention protections).
+- Domain Suite: `test/domain/retention-maintenance.test.ts` (18 tests covering feature flag guard, Inngest registration omission when disabled, fail-safe handler execution, bounded cursor pagination, tenant failure isolation, adversarial PII/secrets suppression, fixed failure categories, concurrency definition, and permanent retention protections).
 - Real PostgreSQL Integration Suite: `test/integration/retention-maintenance.test.ts` (5 tests covering disabled guard, multi-tenant pagination across ACTIVE/INACTIVE/SUSPENDED tenants, repeated idempotency, zero-PII audit logging, and permanent retention classes in PostgreSQL).

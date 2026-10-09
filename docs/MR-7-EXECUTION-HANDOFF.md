@@ -169,22 +169,32 @@
     3) **Dispatched Outbox Aging (30 Days)**: Safely purges `domain_event_outbox` records where `status = 'DISPATCHED'` and `dispatched_at` is older than 30 days. Hard code guard guarantees `PENDING` and failed/unresolved records are never purged. Bounded batching and zero-payload aggregate audit evidence.
   - **Permanent-Retention Protections**: Hard code guards (`assertProtectedClassImmunity`) and tests verify all 9 permanent retention classes (`suppressions`, `review_request_recipient_evidence`, `messaging_authority_evidence`, `customer_erasure_records`, `audit_events`, `usage_ledger`, `cost_ledger`, `organization_usage`, `customer_completion_events.source_event_id`) can never be targeted by purge operations. Zero generic purge infrastructure.
   - **Verification**: 25 domain tests in `test/domain/retention-controls.test.ts` and 15 PostgreSQL integration tests in `test/integration/retention-controls.test.ts` pass cleanly. Zero production scheduler activation.
-- **MR-7C.4B2 — BOUNDED MULTI-TENANT RETENTION MAINTENANCE WORKFLOW (ENGINEERING COMPLETE / READY FOR OWNER REVIEW)**:
+- **MR-7C.4B2 — BOUNDED MULTI-TENANT RETENTION MAINTENANCE WORKFLOW (ENGINEERING COMPLETE / CORRECTIONS APPLIED / READY FOR OWNER REVIEW)**:
   - **Server-Side Orchestration Coordinator**: `src/domain/privacy/retention-maintenance.ts` (`executeMultiTenantRetentionMaintenance`) safely orchestrates the accepted C4B1 retention operations (`redactAgedCompletionContacts`, `purgeDispatchedDomainOutbox`) across organizations without duplicating SQL or rewriting retention policy.
+  - **Defense-in-Depth Inngest Registration Boundary (Correction 1)**:
+    - `src/inngest/functions/index.ts` (`getInngestFunctions`) conditionally registers `retentionMaintenanceWorkflow` only when `ENABLE_RETENTION_MAINTENANCE === 'true'`.
+    - When disabled (default), the retention cron function is omitted from registration with `serve({ client, functions })` in `src/app/api/inngest/route.ts`. Zero retention cron metadata is synced or scheduled.
+    - Secondary runtime/handler guard in `executeMultiTenantRetentionMaintenance` and `executeRetentionMaintenanceHandler` remains fail-safe, returning `SKIPPED_DISABLED` immediately.
   - **Bounded Execution Limits & Cursor Pagination**:
     - Default organization page size: 50 (capped at 200).
     - Default per-organization contact batch size: 100 (capped at 500).
     - Default per-organization outbox batch size: 100 (capped at 500).
     - Deterministic cursor pagination with `id > lastSeenOrgId` ordering.
   - **Tenant & Failure Isolation**:
-    - Evaluates each organization independently; one organization's error is caught and sanitized without rolling back or failing unrelated organizations.
+    - Evaluates each organization independently; one organization's failure is caught without rolling back or failing unrelated organizations.
     - Preserves soft-deactivation (evaluates ACTIVE, INACTIVE, and SUSPENDED tenants without deleting any organization).
+  - **Fixed Safe Failure Categories (Correction 2)**:
+    - Replaced free-form error messages and regex sanitization with fixed failure categories: `ORGANIZATION_QUERY_FAILED`, `CONTACT_REDACTION_FAILED`, `OUTBOX_PURGE_FAILED`, `TENANT_MAINTENANCE_FAILED`.
+    - Errors contain strictly `{ organizationId, code }`. Zero raw `error.message` is ever returned, audited, or logged.
+    - Adversarial privacy tests prove emails, phones, UUIDs, tokens, hashes, SQL statements, connection strings, and PostgreSQL error texts never leak.
   - **Zero PII Aggregate Reporting**: Returns safe operational summary counters (`organizationsEvaluated`, `organizationsSucceeded`, `organizationsFailed`, `totalContactsRedacted`, `totalOutboxRowsPurged`, `batchesProcessed`). Strictly zero customer emails, names, phone numbers, tokens, hashes, payloads, or internal stack traces.
-  - **Scheduled Inngest Function**: Defined in `src/inngest/functions/retention-maintenance.ts` (`retentionMaintenanceWorkflow`) with `concurrency: 1` to prevent overlapping runs.
-  - **Strictly Disabled by Default Guard**: Guarded by `ENABLE_RETENTION_MAINTENANCE === 'true'`. Handler and coordinator immediately return `SKIPPED_DISABLED` when disabled.
-  - **Cadence Separation**: Conservative daily cron cadence (`'0 3 * * *'`) defined as an implementation default. Scheduler cadence does not alter frozen 30/90-day retention cutoff periods.
+  - **Scheduled Inngest Function**: Defined in `src/inngest/functions/retention-maintenance.ts` (`retentionMaintenanceWorkflow`).
+  - **Concurrency Note**: Configured with `concurrency: 1`. Inngest concurrency limits concurrent step execution; because the coordinator executes bounded work within one maintenance step, this serializes execution (not a universal distributed lock).
+  - **Cadence Separation & Retention-Policy Wording (Correction 3)**:
+    - Conservative daily cron cadence (`'0 3 * * *'`) defined as an implementation default.
+    - Scheduler cadence does not alter frozen MPG retention-policy cutoffs (30-day contact redaction, 30-day dispatched outbox purge, 90-day review-link expiration; these are owner-approved MPG product policy, not statutory retention periods).
   - **Security & Privilege Boundary**: Server/system only; zero browser/client invocation surface. Normal tenant users cannot trigger global multi-tenant maintenance.
-  - **Verification**: 13 domain unit tests (`test/domain/retention-maintenance.test.ts`) and 5 PostgreSQL integration tests (`test/integration/retention-maintenance.test.ts`) pass cleanly. Production build, lint, and typecheck pass with zero errors. Zero production scheduler activation.
+  - **Verification**: 18 domain unit tests (`test/domain/retention-maintenance.test.ts`) and 5 PostgreSQL integration tests (`test/integration/retention-maintenance.test.ts`) pass cleanly. Production build, lint, and typecheck pass with zero errors. Zero production scheduler activation.
 
 ---
 

@@ -1,14 +1,8 @@
 import { serve } from "inngest/next"
 import { inngest } from "@/inngest/client"
-import { processReviewRequestWorkflow } from "@/inngest/functions/review-request"
-import { recoverPendingOutboxWorkflow } from "@/inngest/functions/outbox-recovery"
-import { retentionMaintenanceWorkflow } from "@/inngest/functions/retention-maintenance"
+import { getInngestFunctions } from "@/inngest/functions"
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [
-    processReviewRequestWorkflow,
-    recoverPendingOutboxWorkflow,
-    retentionMaintenanceWorkflow,
-  ],
+  functions: getInngestFunctions(),
 })

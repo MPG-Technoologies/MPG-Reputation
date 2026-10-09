@@ -19,11 +19,9 @@ export const DEFAULT_MAINTENANCE_CRON_CADENCE = '0 3 * * *'
 export const RETENTION_MAINTENANCE_FLAG = 'ENABLE_RETENTION_MAINTENANCE'
 
 /**
- * Eligible Organization Statuses for Retention Maintenance:
- * Data retention policies (30-day completion contact redaction, 30-day outbox purge)
- * apply to all retained tenant data regardless of whether an organization is currently
- * ACTIVE, INACTIVE, or SUSPENDED. Under Owner Decision 11, inactive organizations
- * are soft-deactivated and NEVER automatically hard-deleted.
+ * Organizations eligible for retention maintenance:
+ * - Inactive and suspended organizations remain subject to retention policy cutoffs (Decision 11).
+ * - Organizations are NEVER hard-deleted; soft-deactivation is strictly preserved.
  */
 export const ELIGIBLE_ORGANIZATION_STATUSES = [
   'ACTIVE',
@@ -45,9 +43,23 @@ export interface MultiTenantRetentionMaintenanceOptions {
   actorId?: string | null
 }
 
+/**
+ * Fixed safe failure categories for retention maintenance operations.
+ * Free-form error messages, stack traces, database details, payloads, and PII are strictly excluded.
+ */
+export const MAINTENANCE_FAILURE_CODES = [
+  'ORGANIZATION_QUERY_FAILED',
+  'CONTACT_REDACTION_FAILED',
+  'OUTBOX_PURGE_FAILED',
+  'TENANT_MAINTENANCE_FAILED',
+] as const
+
+export type MaintenanceFailureCode =
+  (typeof MAINTENANCE_FAILURE_CODES)[number]
+
 export interface TenantMaintenanceFailure {
   organizationId: string
-  sanitizedError: string
+  code: MaintenanceFailureCode
 }
 
 export interface MultiTenantRetentionMaintenanceResult {
@@ -65,35 +77,12 @@ export interface MultiTenantRetentionMaintenanceResult {
 
 /**
  * Checks whether retention maintenance is enabled via the environment flag.
- * Default is FALSE unless explicitly configured.
+ * Default is FALSE unless explicitly configured with 'true'.
  */
-export function isRetentionMaintenanceEnabled(): boolean {
-  return process.env[RETENTION_MAINTENANCE_FLAG] === 'true'
-}
-
-/**
- * Strips internal SQL details, connection strings, payloads, or potential PII from error messages.
- */
-export function sanitizeMaintenanceErrorMessage(rawMessage: string): string {
-  if (!rawMessage || typeof rawMessage !== 'string') {
-    return 'Unknown maintenance error'
-  }
-
-  // Remove potential emails
-  let sanitized = rawMessage.replace(
-    /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
-    '[REDACTED_EMAIL]'
-  )
-
-  // Remove postgres connection strings / credentials if present
-  sanitized = sanitized.replace(
-    /postgres(?:ql)?:\/\/[^\s]+/gi,
-    '[REDACTED_CONNECTION]'
-  )
-
-  // Remove raw UUID tokens that could represent sensitive event or request IDs
-  // Keep first 80 characters for diagnostic categorization
-  return sanitized.slice(0, 120).trim()
+export function isRetentionMaintenanceEnabled(
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env
+): boolean {
+  return env[RETENTION_MAINTENANCE_FLAG] === 'true'
 }
 
 /**
@@ -103,25 +92,19 @@ export function sanitizeMaintenanceErrorMessage(rawMessage: string): string {
  * 1. Obtains organizations through trusted server/system boundary.
  * 2. Processes organizations in bounded cursor-based batches.
  * 3. Invokes accepted C4B1 operations per organization (preserving tenant isolation).
- * 4. Isolates tenant failures: one failure does not fail or rollback other tenants.
- * 5. Idempotent: repeated runs cause zero harmful side effects.
- * 6. Emits strictly aggregate safe operational metrics (zero PII, zero payloads).
- * 7. Disabled by default via ENABLE_RETENTION_MAINTENANCE=false.
- * 8. Never deletes organizations (Decision 11 soft-deactivation preserved).
- * 9. Asserts permanent retention immunity for protected classes.
+ * 4. Isolates failures: single tenant failure never rolls back other tenants.
+ * 5. Idempotent: repeated runs are safe with zero state corruption.
+ * 6. Emits aggregate operational counters only (strictly zero customer PII or raw error strings).
+ * 7. Hard-guards against targeting permanent retention classes.
  */
 export async function executeMultiTenantRetentionMaintenance(
   supabase: SupabaseClient<Database>,
   options: MultiTenantRetentionMaintenanceOptions = {}
 ): Promise<MultiTenantRetentionMaintenanceResult> {
   const startTime = Date.now()
+  const isEnabled = options.enabledOverride ?? isRetentionMaintenanceEnabled()
 
-  // 1. Guard check: Must be enabled via environment flag or explicit test override
-  const isEnabled =
-    options.enabledOverride !== undefined
-      ? options.enabledOverride
-      : isRetentionMaintenanceEnabled()
-
+  // 1. Production Scheduling / Activation Guard: Default fail-safe
   if (!isEnabled) {
     return {
       status: 'SKIPPED_DISABLED',
@@ -159,8 +142,8 @@ export async function executeMultiTenantRetentionMaintenance(
     ),
     500
   )
+  const maxOrgs = options.maxOrganizations ?? 1000
   const asOf = options.asOf ?? new Date()
-  const maxOrgs = options.maxOrganizations ?? Infinity
 
   let organizationsEvaluated = 0
   let organizationsSucceeded = 0
@@ -195,7 +178,7 @@ export async function executeMultiTenantRetentionMaintenance(
     if (fetchErr) {
       tenantErrors.push({
         organizationId: 'SYSTEM',
-        sanitizedError: sanitizeMaintenanceErrorMessage(fetchErr.message),
+        code: 'ORGANIZATION_QUERY_FAILED',
       })
       break
     }
@@ -212,6 +195,9 @@ export async function executeMultiTenantRetentionMaintenance(
       lastSeenOrgId = org.id
       organizationsEvaluated++
 
+      let contactRedactedCount = 0
+      let contactFailed = false
+
       try {
         // C4B1 Operation 1: 30-day completion contact payload redaction
         const contactResult = await redactAgedCompletionContacts(supabase, {
@@ -221,7 +207,28 @@ export async function executeMultiTenantRetentionMaintenance(
           actorType: options.actorType || 'system',
           actorId: options.actorId || null,
         })
+        contactRedactedCount = contactResult.redactedCount
+      } catch {
+        contactFailed = true
+        organizationsFailed++
+        tenantErrors.push({
+          organizationId: org.id,
+          code: 'CONTACT_REDACTION_FAILED',
+        })
+      }
 
+      if (contactFailed) {
+        if (organizationsEvaluated >= maxOrgs) {
+          hasMore = false
+          break
+        }
+        continue
+      }
+
+      let outboxPurgedCount = 0
+      let outboxFailed = false
+
+      try {
         // C4B1 Operation 2: 30-day successfully DISPATCHED outbox purge
         const outboxResult = await purgeDispatchedDomainOutbox(supabase, {
           organizationId: org.id,
@@ -230,19 +237,20 @@ export async function executeMultiTenantRetentionMaintenance(
           actorType: options.actorType || 'system',
           actorId: options.actorId || null,
         })
-
-        organizationsSucceeded++
-        totalContactsRedacted += contactResult.redactedCount
-        totalOutboxRowsPurged += outboxResult.purgedCount
-      } catch (tenantErr) {
-        // Strict failure isolation: One tenant failure never aborts other tenants
+        outboxPurgedCount = outboxResult.purgedCount
+      } catch {
+        outboxFailed = true
         organizationsFailed++
-        const rawMsg =
-          tenantErr instanceof Error ? tenantErr.message : String(tenantErr)
         tenantErrors.push({
           organizationId: org.id,
-          sanitizedError: sanitizeMaintenanceErrorMessage(rawMsg),
+          code: 'OUTBOX_PURGE_FAILED',
         })
+      }
+
+      if (!outboxFailed) {
+        organizationsSucceeded++
+        totalContactsRedacted += contactRedactedCount
+        totalOutboxRowsPurged += outboxPurgedCount
       }
 
       if (organizationsEvaluated >= maxOrgs) {
@@ -259,9 +267,10 @@ export async function executeMultiTenantRetentionMaintenance(
   const durationMs = Date.now() - startTime
 
   let status: MultiTenantRetentionMaintenanceResult['status'] = 'COMPLETED'
-  if (organizationsFailed > 0 && organizationsSucceeded > 0) {
+  const hasFailures = organizationsFailed > 0 || tenantErrors.length > 0
+  if (hasFailures && organizationsSucceeded > 0) {
     status = 'PARTIALLY_FAILED'
-  } else if (organizationsFailed > 0 && organizationsSucceeded === 0) {
+  } else if (hasFailures && organizationsSucceeded === 0) {
     status = 'FAILED'
   }
 

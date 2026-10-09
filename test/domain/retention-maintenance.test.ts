@@ -5,8 +5,8 @@ import {
   DEFAULT_MAINTENANCE_CRON_CADENCE,
   RETENTION_MAINTENANCE_FLAG,
   ELIGIBLE_ORGANIZATION_STATUSES,
+  MAINTENANCE_FAILURE_CODES,
   isRetentionMaintenanceEnabled,
-  sanitizeMaintenanceErrorMessage,
   executeMultiTenantRetentionMaintenance,
 } from '@/domain/privacy/retention-maintenance'
 import {
@@ -20,6 +20,11 @@ import {
   retentionMaintenanceWorkflow,
   executeRetentionMaintenanceHandler,
 } from '@/inngest/functions/retention-maintenance'
+import {
+  getInngestFunctions,
+  processReviewRequestWorkflow,
+  recoverPendingOutboxWorkflow,
+} from '@/inngest/functions'
 
 describe('MR-7C.4B2 Domain & Orchestration Retention Maintenance Suite', () => {
   const originalEnv = process.env
@@ -68,12 +73,62 @@ describe('MR-7C.4B2 Domain & Orchestration Retention Maintenance Suite', () => {
       expect(result.organizationsFailed).toBe(0)
       expect(result.totalContactsRedacted).toBe(0)
       expect(result.totalOutboxRowsPurged).toBe(0)
+      expect(result.batchesProcessed).toBe(0)
+      expect(result.errors).toEqual([])
       expect(mockSupabase.from).not.toHaveBeenCalled()
     })
   })
 
-  describe('2. Bounded Pagination & Execution Limits', () => {
-    it('5. processes organizations in bounded batches using cursor pagination', async () => {
+  describe('2. Inngest Serve Registration Boundary (Correction 1)', () => {
+    it('5. flag absent: retention workflow is NOT registered in Inngest functions list', () => {
+      const fns = getInngestFunctions({})
+      expect(fns).toContain(processReviewRequestWorkflow)
+      expect(fns).toContain(recoverPendingOutboxWorkflow)
+      expect(fns).not.toContain(retentionMaintenanceWorkflow)
+      expect(fns.length).toBe(2)
+    })
+
+    it('6. flag false: retention workflow is NOT registered in Inngest functions list', () => {
+      const fns = getInngestFunctions({ ENABLE_RETENTION_MAINTENANCE: 'false' })
+      expect(fns).toContain(processReviewRequestWorkflow)
+      expect(fns).toContain(recoverPendingOutboxWorkflow)
+      expect(fns).not.toContain(retentionMaintenanceWorkflow)
+      expect(fns.length).toBe(2)
+    })
+
+    it('7. flag true: retention workflow is registered exactly once in Inngest functions list', () => {
+      const fns = getInngestFunctions({ ENABLE_RETENTION_MAINTENANCE: 'true' })
+      expect(fns).toContain(processReviewRequestWorkflow)
+      expect(fns).toContain(recoverPendingOutboxWorkflow)
+      expect(fns).toContain(retentionMaintenanceWorkflow)
+      expect(fns.filter((fn) => fn === retentionMaintenanceWorkflow).length).toBe(1)
+      expect(fns.length).toBe(3)
+    })
+
+    it('8. direct retention handler remains fail-safe even if invoked while registration is disabled', async () => {
+      delete process.env.ENABLE_RETENTION_MAINTENANCE
+
+      const mockStep = {
+        run: vi.fn().mockImplementation((name, fn) => fn()),
+      }
+
+      const mockSupabase = {
+        from: vi.fn(),
+      } as unknown as SupabaseClient<Database>
+
+      const res = await executeRetentionMaintenanceHandler({
+        step: mockStep,
+        adminClient: mockSupabase,
+      })
+
+      expect(res.status).toBe('SKIPPED_DISABLED')
+      expect(res.organizationsEvaluated).toBe(0)
+      expect(mockSupabase.from).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('3. Bounded Pagination & Execution Limits', () => {
+    it('9. processes organizations in bounded batches using cursor pagination', async () => {
       const mockOrgs = [
         { id: 'org-001', status: 'ACTIVE' },
         { id: 'org-002', status: 'ACTIVE' },
@@ -135,32 +190,35 @@ describe('MR-7C.4B2 Domain & Orchestration Retention Maintenance Suite', () => {
       expect(mockQueryBuilder.gt).toHaveBeenCalledWith('id', 'org-002')
     })
 
-    it('6. respects maxOrganizations upper bound if supplied', async () => {
+    it('10. respects maxOrganizations upper bound if supplied', async () => {
       const mockOrgs = [
         { id: 'org-001', status: 'ACTIVE' },
         { id: 'org-002', status: 'ACTIVE' },
         { id: 'org-003', status: 'ACTIVE' },
       ]
 
-      const mockQueryBuilder = {
-        select: vi.fn().mockReturnThis(),
-        in: vi.fn().mockReturnThis(),
-        order: vi.fn().mockReturnThis(),
-        gt: vi.fn().mockReturnThis(),
-        limit: vi.fn().mockResolvedValue({ data: mockOrgs.slice(0, 2), error: null }),
-      }
-
       const mockSupabase = {
         from: vi.fn().mockImplementation((table: string) => {
-          if (table === 'organizations') return mockQueryBuilder
-          return {
-            select: vi.fn().mockReturnThis(),
-            lt: vi.fn().mockReturnThis(),
-            eq: vi.fn().mockReturnThis(),
-            not: vi.fn().mockReturnThis(),
-            order: vi.fn().mockReturnThis(),
-            limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+          if (table === 'organizations') {
+            return {
+              select: vi.fn().mockReturnThis(),
+              in: vi.fn().mockReturnThis(),
+              order: vi.fn().mockReturnThis(),
+              gt: vi.fn().mockReturnThis(),
+              limit: vi.fn().mockResolvedValue({ data: mockOrgs, error: null }),
+            }
           }
+          if (table === 'customer_completion_events' || table === 'domain_event_outbox') {
+            return {
+              select: vi.fn().mockReturnThis(),
+              lt: vi.fn().mockReturnThis(),
+              eq: vi.fn().mockReturnThis(),
+              not: vi.fn().mockReturnThis(),
+              order: vi.fn().mockReturnThis(),
+              limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+            }
+          }
+          return {}
         }),
       } as unknown as SupabaseClient<Database>
 
@@ -174,12 +232,12 @@ describe('MR-7C.4B2 Domain & Orchestration Retention Maintenance Suite', () => {
     })
   })
 
-  describe('3. Failure Isolation & Sanitized Aggregate Reporting', () => {
-    it('7. isolates single-tenant errors so other tenants succeed (PARTIALLY_FAILED)', async () => {
+  describe('4. Failure Isolation & Fixed Safe Failure Codes (Correction 2)', () => {
+    it('11. isolates single-tenant errors so other tenants succeed (PARTIALLY_FAILED)', async () => {
       const mockOrgs = [
-        { id: 'org-success-1', status: 'ACTIVE' },
+        { id: 'org-ok-1', status: 'ACTIVE' },
         { id: 'org-fail', status: 'ACTIVE' },
-        { id: 'org-success-2', status: 'ACTIVE' },
+        { id: 'org-ok-2', status: 'ACTIVE' },
       ]
 
       const mockSupabase = {
@@ -199,7 +257,7 @@ describe('MR-7C.4B2 Domain & Orchestration Retention Maintenance Suite', () => {
               lt: vi.fn().mockReturnThis(),
               eq: vi.fn().mockImplementation((col: string, val: string) => {
                 if (col === 'organization_id' && val === 'org-fail') {
-                  throw new Error('Database connection timeout for sensitive patient.doe@example.com')
+                  throw new Error('Simulated database error')
                 }
                 return {
                   order: vi.fn().mockReturnThis(),
@@ -232,71 +290,134 @@ describe('MR-7C.4B2 Domain & Orchestration Retention Maintenance Suite', () => {
       expect(result.organizationsFailed).toBe(1)
       expect(result.errors.length).toBe(1)
       expect(result.errors[0].organizationId).toBe('org-fail')
-
-      // 8. Sanitized output contains zero PII or raw email
-      expect(result.errors[0].sanitizedError).not.toContain('patient.doe@example.com')
-      expect(result.errors[0].sanitizedError).toContain('[REDACTED_EMAIL]')
+      expect(result.errors[0].code).toBe('CONTACT_REDACTION_FAILED')
     })
 
-    it('8. sanitizeMaintenanceErrorMessage removes emails, connections, and limits length', () => {
-      const emailErr = 'Failed to process customer john.smith@company.org in database'
-      expect(sanitizeMaintenanceErrorMessage(emailErr)).toBe(
-        'Failed to process customer [REDACTED_EMAIL] in database'
-      )
+    it('12. ADVERSARIAL PRIVACY TEST: Thrown errors containing sensitive PII/secrets NEVER escape into results', async () => {
+      const mockOrgs = [{ id: 'org-adversarial', status: 'ACTIVE' }]
 
-      const connErr = 'FATAL: connect to postgres://user:secret@db.internal:5432/prod failed'
-      expect(sanitizeMaintenanceErrorMessage(connErr)).toBe(
-        'FATAL: connect to [REDACTED_CONNECTION] failed'
-      )
+      const adversarialPayload = JSON.stringify({
+        email: 'attacker.patient@example.test',
+        phone: '+1-555-867-5309',
+        uuid: 'd3b07384-d113-46fb-a04a-446fec3fa8c0',
+        tokenHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        urlToken: 'https://mpg.internal/r/track?token=secret_123456789',
+        pgDetail: 'DETAIL: Key (email)=(victim@domain.test) already exists.',
+        connStr: 'postgresql://postgres:mysecretpass@db.internal:5432/prod',
+        payload: { patient_name: 'John Doe', ssn: '123-45-6789' },
+      })
 
-      const longErr = 'X'.repeat(300)
-      expect(sanitizeMaintenanceErrorMessage(longErr).length).toBeLessThanOrEqual(120)
+      const mockSupabase = {
+        from: vi.fn().mockImplementation((table: string) => {
+          if (table === 'organizations') {
+            return {
+              select: vi.fn().mockReturnThis(),
+              in: vi.fn().mockReturnThis(),
+              order: vi.fn().mockReturnThis(),
+              gt: vi.fn().mockReturnThis(),
+              limit: vi.fn().mockResolvedValue({ data: mockOrgs, error: null }),
+            }
+          }
+          if (table === 'customer_completion_events') {
+            return {
+              select: vi.fn().mockReturnThis(),
+              lt: vi.fn().mockReturnThis(),
+              eq: vi.fn().mockImplementation(() => {
+                throw new Error(`Database failure with sensitive data: ${adversarialPayload}`)
+              }),
+            }
+          }
+          return {}
+        }),
+      } as unknown as SupabaseClient<Database>
+
+      const result = await executeMultiTenantRetentionMaintenance(mockSupabase, {
+        enabledOverride: true,
+      })
+
+      expect(result.status).toBe('FAILED')
+      expect(result.errors.length).toBe(1)
+      expect(result.errors[0].code).toBe('CONTACT_REDACTION_FAILED')
+      expect(result.errors[0].organizationId).toBe('org-adversarial')
+
+      // Serialize entire result object to verify zero string leakage
+      const serializedResult = JSON.stringify(result)
+
+      expect(serializedResult).not.toContain('attacker.patient@example.test')
+      expect(serializedResult).not.toContain('+1-555-867-5309')
+      expect(serializedResult).not.toContain('d3b07384-d113-46fb-a04a-446fec3fa8c0')
+      expect(serializedResult).not.toContain('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')
+      expect(serializedResult).not.toContain('secret_123456789')
+      expect(serializedResult).not.toContain('victim@domain.test')
+      expect(serializedResult).not.toContain('mysecretpass')
+      expect(serializedResult).not.toContain('John Doe')
+      expect(serializedResult).not.toContain('123-45-6789')
+    })
+
+    it('13. organization query failure returns fixed safe ORGANIZATION_QUERY_FAILED code with SYSTEM scope', async () => {
+      const mockSupabase = {
+        from: vi.fn().mockImplementation(() => ({
+          select: vi.fn().mockReturnThis(),
+          in: vi.fn().mockReturnThis(),
+          order: vi.fn().mockReturnThis(),
+          gt: vi.fn().mockReturnThis(),
+          limit: vi.fn().mockResolvedValue({
+            data: null,
+            error: { message: 'Database connection failed with sensitive postgresql://admin:p@db:5432/m' },
+          }),
+        })),
+      } as unknown as SupabaseClient<Database>
+
+      const result = await executeMultiTenantRetentionMaintenance(mockSupabase, {
+        enabledOverride: true,
+      })
+
+      expect(result.status).toBe('FAILED')
+      expect(result.errors).toEqual([
+        {
+          organizationId: 'SYSTEM',
+          code: 'ORGANIZATION_QUERY_FAILED',
+        },
+      ])
+
+      const serialized = JSON.stringify(result)
+      expect(serialized).not.toContain('postgresql://')
+      expect(serialized).not.toContain('admin:p@db')
+    })
+
+    it('14. fixed failure categories set contains only authorized category strings', () => {
+      expect(MAINTENANCE_FAILURE_CODES).toEqual([
+        'ORGANIZATION_QUERY_FAILED',
+        'CONTACT_REDACTION_FAILED',
+        'OUTBOX_PURGE_FAILED',
+        'TENANT_MAINTENANCE_FAILED',
+      ])
     })
   })
 
-  describe('4. Scheduling Definition & Cadence Separation', () => {
-    it('9. retentionMaintenanceWorkflow has concurrency limit 1', () => {
-      // Concurrency prevents overlapping runs
+  describe('5. Scheduling Definition & Cadence Separation', () => {
+    it('15. retentionMaintenanceWorkflow has concurrency limit 1', () => {
       expect(retentionMaintenanceWorkflow).toBeDefined()
     })
 
-    it('10. default cadence is daily and does not alter frozen retention durations', () => {
+    it('16. default cadence is daily and does not alter frozen retention durations', () => {
       expect(DEFAULT_MAINTENANCE_CRON_CADENCE).toBe('0 3 * * *')
-      // Retention cutoffs remain strictly authoritative
       expect(COMPLETION_CONTACT_RETENTION_DAYS).toBe(30)
       expect(REVIEW_LINK_EXPIRATION_DAYS).toBe(90)
       expect(DISPATCHED_OUTBOX_RETENTION_DAYS).toBe(30)
     })
-
-    it('11. executeRetentionMaintenanceHandler wraps coordinator in Inngest step', async () => {
-      const mockStep = {
-        run: vi.fn().mockImplementation(async (_name: string, fn: () => Promise<unknown>) => fn()),
-      }
-
-      const mockSupabase = {
-        from: vi.fn(),
-      } as unknown as SupabaseClient<Database>
-
-      const res = await executeRetentionMaintenanceHandler({
-        step: mockStep,
-        adminClient: mockSupabase,
-        options: { enabledOverride: false },
-      })
-
-      expect(mockStep.run).toHaveBeenCalledWith(
-        'execute-multi-tenant-retention-maintenance',
-        expect.any(Function)
-      )
-      expect(res.status).toBe('SKIPPED_DISABLED')
-    })
   })
 
-  describe('5. Organization Eligibility & Permanent-Retention Protections', () => {
-    it('12. eligible organization statuses include ACTIVE, INACTIVE, and SUSPENDED without deletion', () => {
-      expect(ELIGIBLE_ORGANIZATION_STATUSES).toEqual(['ACTIVE', 'INACTIVE', 'SUSPENDED'])
+  describe('6. Organization Eligibility & Permanent-Retention Protections', () => {
+    it('17. eligible organization statuses include ACTIVE, INACTIVE, and SUSPENDED without deletion', () => {
+      expect(ELIGIBLE_ORGANIZATION_STATUSES).toEqual([
+        'ACTIVE',
+        'INACTIVE',
+        'SUSPENDED',
+      ])
     })
 
-    it('13. permanent retention classes remain immune from coordinator', () => {
+    it('18. permanent retention classes remain immune from coordinator', () => {
       for (const cls of PERMANENT_RETENTION_CLASSES) {
         expect(isProtectedClass(cls)).toBe(true)
       }

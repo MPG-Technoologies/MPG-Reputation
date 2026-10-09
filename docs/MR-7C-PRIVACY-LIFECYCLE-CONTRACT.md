@@ -230,10 +230,40 @@ graph LR
      - **Initial Send Retries & Reminders**: Verifies stored binding against fresh recipient hash; mismatched recipients are blocked with zero-PII audit reason `RECIPIENT_CHANGED`.
      - **Conservative Legacy Policy**: Zero historical recipient guessing or fallback to mutable `customers.email` or completion snapshots; requests without immutable evidence fail closed safely.
      - **Expanded C3B Erasure Gate**: `checkCustomerErasureEligibility` treats any request without immutable evidence in provider-ambiguous states (`SENDING`, `FAILED`, `SENT`, `DELIVERED`, `CLICKED`, or with `sent_at != null` or `message_events`) as blocking customer erasure (`BLOCKED_BY_UNRESOLVED_LEGACY_REQUESTS`).
-   - **MR-7C.3B: Controlled Customer Erasure Engine (Active Next)**:
-     - Implement audited server-side erasure workflow (`service_role` only).
-     - Must enforce C3B legacy-erasure gate before removing customer PII.
-     - Anonymize direct PII while preserving suppression records and operational delivery invariants.
+   - **MR-7C.3B: Controlled Customer Erasure / Anonymization Engine Foundation (Completed / Ready for Owner Review)**:
+     - **Owner Authority Decision (Frozen & Transactionally Enforced)**:
+       - Customer erasure / anonymization authority is **OWNER ONLY** (`organization_users.role === 'OWNER'`). `ADMIN`, `OPERATOR`, `VIEWER`, and anonymous requests are denied. Export authority remains unchanged: `OWNER` + `ADMIN`. Foreign-tenant and nonexistent customer targets fail closed without existence leakage.
+       - **In-Transaction Authority Enforcement**: The atomic PostgreSQL function `execute_customer_erasure(p_org_id, p_customer_id, p_actor_id, p_actor_type)` directly re-verifies inside the database transaction that `p_actor_id` exists, belongs to `p_org_id`, and currently holds the `'OWNER'` role in `organization_users`. This guarantees immunity from TOCTOU race conditions and prevents `service_role` callers from bypassing OWNER authority.
+     - **No Hard Customer Deletes**: The customer row in `public.customers` is retained in-place. Direct `DELETE FROM customers` is strictly forbidden to preserve operational foreign keys without triggering cascade deletion.
+     - **Field-Level Erasure, Anonymization & Error Scrub Map**:
+       - `customers.first_name`: ANONYMIZE to deterministic non-PII tombstone `'[Deleted Customer]'` (`first_name` is `NOT NULL`).
+       - `customers.last_name`: ERASE (`NULL`).
+       - `customers.email`: ERASE (`NULL`).
+       - `customers.phone`: ERASE (`NULL`).
+       - `customers.permission_*`: RETAIN operational compliance state.
+       - `customer_completion_events.contact`: ERASE raw PII (`'{}'::jsonb`).
+       - `customer_completion_events.source_event_id`: RETAIN (deduplication idempotency key).
+       - `customer_completion_events.source_transaction_id`: UNRESOLVED / OWNER-LEGAL DECISION (indirect identifier risk; retained in Phase B1 under C3C gate).
+       - `customer_completion_events.source_customer_id`: UNRESOLVED / OWNER-LEGAL DECISION (external CRM identifier; retained in Phase B1 under C3C gate).
+       - `review_requests.error_message`: ERASE (`NULL` for erased customer's review requests; scrubs historical provider failure text).
+       - `message_events.sanitized_error`: ERASE (`NULL` for message events of erased customer's review requests; scrubs historical error text).
+       - `suppressions.contact_hash`: RETAIN byte-for-byte (preserves anti-spam suppression across re-imports).
+       - `review_request_recipient_evidence.suppression_contact_hash`: RETAIN byte-for-byte (preserves historical unsubscribe).
+       - Operational records (`review_requests`, `message_events`, `review_request_events`, `messaging_authority_evidence`, `audit_events`, `organization_usage`): RETAIN non-PII operational records, status, provider, timestamps, review_request_id.
+     - **MR-7C.3C External Identifier Gate (Frozen Invariant)**:
+       - `source_customer_id` and `source_transaction_id` remain `UNRESOLVED / OWNER-LEGAL DECISION`.
+       - **Frozen Invariant**: MR-7C.3C MUST NOT expose customer erasure until the external identifier policy for `source_customer_id` and `source_transaction_id` is explicitly resolved.
+     - **Durable Tombstone & Database Defense in Depth**:
+       - Durable evidence table `public.customer_erasure_records` with append-only access for `service_role` (`SELECT` + `INSERT` only); revoked from `PUBLIC`, `anon`, `authenticated`.
+       - Database trigger `protect_erased_customer_immutability` on `public.customers` structurally blocks restoring `email`, `phone`, `last_name`, or changing `first_name` away from `'[Deleted Customer]'` on privacy-erased rows. Non-erased customer editing is unaffected.
+     - **Atomic Transactional RPC with In-Transaction Authority Enforcement**:
+       - `public.execute_customer_erasure(p_org_id, p_customer_id, p_actor_id, p_actor_type)` plpgsql function runs with `SECURITY DEFINER` and `SET search_path = public, pg_temp`, granted only to `service_role`.
+       - Atomically executes in-transaction OWNER authority verification, row locking (`FOR UPDATE`), idempotency verification, legacy recipient evidence gate, erasure record creation, customer PII anonymization, completion event contact redaction, historical error text scrubbing (`review_requests.error_message = NULL` and `message_events.sanitized_error = NULL`), and mandatory zero-PII audit event emission (`privacy.customer_erasure`). Any exception triggers full rollback.
+     - **Precondition Legacy Gate**:
+       - `checkCustomerErasureEligibility` blocks erasure (`BLOCKED_BY_UNRESOLVED_LEGACY_REQUESTS`) if any review request lacks recipient evidence in provider-ambiguous or delivered states.
+     - **No Delivery Surface**: Phase B1 implements the engine foundation only. Zero UI buttons, public routes, or bulk erasure tools are exposed.
+   - **MR-7C.3C: Customer Erasure Delivery Surface (Active Next)**:
+     - Authorized owner-only delivery interface and audit verification. Gated until owner review and acceptance of MR-7C.3B and explicit resolution of the external identifier policy.
 4. **MR-7C.4 — Retention & Automatic Aging / Purge Controls**:
    - Technical scheduling infrastructure for data aging and purge automation.
    - Parameterized retention policies awaiting owner authorization.

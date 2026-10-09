@@ -5,10 +5,10 @@
 | Date | 2026-10-09 |
 | Authority | Owner direction (Company OS source of truth: techwithmpg/mpg-company-os; reconciliation outstanding) |
 | Milestone | MR-7 (Trust / Security / Compliance) — ACTIVE |
-| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.2B — OWNER ACCEPTED**<br>**MR-7C.2 — OWNER ACCEPTED / COMPLETE**<br>**MR-7C.3A — COMPLETED / READY FOR OWNER REVIEW** (NOT `MR-7 — COMPLETE`) |
-| Current Bounded Slice | MR-7C.3A — Erasure-Safe Unsubscribe Decoupling — COMPLETED / READY FOR OWNER REVIEW |
+| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.2B — OWNER ACCEPTED**<br>**MR-7C.2 — OWNER ACCEPTED / COMPLETE**<br>**MR-7C.3A — OWNER ACCEPTED** (`5bef1ae68309767b645415fb80e09f70da576e0d`)<br>**MR-7C.3B — COMPLETED / READY FOR OWNER REVIEW** (NOT `MR-7 — COMPLETE`) |
+| Current Bounded Slice | MR-7C.3B Phase B1 — Controlled Customer Erasure / Anonymization Engine Foundation — COMPLETED / READY FOR OWNER REVIEW |
 | Inspected Product Baseline | `a2c3df3076b814dd74996d674dadfe400428c012` (on `main`) |
-| Feature Branch | `chatgpt/mr7c3a-erasure-safe-unsubscribe` (active; stacked on accepted C2B HEAD `e7c8f6b`) |
+| Feature Branch | `chatgpt/mr7c3b-controlled-erasure` (active; stacked on accepted C3A HEAD `5bef1ae`) |
 | Public Safe | Yes; local synthetic fixtures only for verification; no real customer data used |
 
 ---
@@ -69,34 +69,53 @@
   - No duplicate v1 endpoint; single internal product route with minimal attack surface.
   - No database migration required.
   - Verification & Attribution: Full repository suite has pre-existing canonical-main failures; no MR-7C.2B regression was found. (Known baseline issues outside C2B: `completion-source-platform` test 22; two `staging-readiness` `useRouter` mock failures; one parallel-only eligibility query concurrency flake.)
-- **MR-7C.3A — ERASURE-SAFE UNSUBSCRIBE DECOUPLING (COMPLETED / READY FOR OWNER REVIEW)**:
-  - Establishes immutable, server-owned suppression-contact hash (`suppression_contact_hash`) on `public.review_requests` to decouple historical unsubscribe links from mutable/erasable `customers.email`.
-  - Check constraint enforcing 64-char lowercase hex SHA-256 format (`ck_review_requests_supp_contact_hash`).
-  - Index `idx_review_requests_supp_contact_hash` on `(organization_id, suppression_contact_hash)`.
-  - **Owner-Approved Conservative Rule & Historical Recipient Evidence**:
-    - Prior to MR-7C.3A, review requests did not record an immutable recipient hash at send time.
-    - Neither intake completion snapshots nor mutable customer rows prove the recipient actually delivered for historical communications.
-    - To prevent fabricating recipient identities, historical delivered review requests created before C3A remain `suppression_contact_hash = NULL` rather than receiving guessed hashes. No broad or speculative backfill is claimed or performed.
-  - **New / Future Send Immutability**:
-    - New review requests obtain an immutable recipient suppression identity tied directly to fresh final authority immediately around provider dispatch and persisted upon confirmed delivery (`status = 'SENT'`).
-    - Once initial delivery succeeds, `suppression_contact_hash` is permanent and cannot drift or be replaced.
-    - Retry correctness before confirmed delivery is preserved (re-evaluates fresh authority and updates pending hash if recipient was corrected prior to delivery).
-  - **Reminder Recipient Invariant (Drift Guard)**:
-    - Re-reads fresh final dispatch authority immediately before reminder dispatch.
-    - Computes `freshReminderHash` via canonical `hashSuppressionContact('email', freshReminderEmail)` and compares against the stored immutable `suppression_contact_hash`.
-    - If recipient matches: reminder proceeds normally.
-    - If recipient changed or is unproven: reminder dispatch is strictly blocked, `suppression_contact_hash` is NOT overwritten, historical request status remains intact, `reminded_at` remains NULL, and a zero-PII audit event (`review_request.reminder_blocked` with `decision: 'RECIPIENT_CHANGED'`) is recorded without email or hash in metadata.
-  - **Legacy Null Linkage & C3B Erasure Gate**:
-    - Legacy requests with `suppression_contact_hash = NULL` temporarily resolve unsubscribe via current customer email only while direct PII exists, but fail closed (404) if customer PII has been removed.
-    - Explicit C3B Precondition: Customer erasure (MR-7C.3B) must fail closed and refuse erasure (`checkCustomerErasureEligibility` returns `BLOCKED_BY_UNRESOLVED_LEGACY_REQUESTS`) for any customer while an unresolved historical delivered review request still depends on customer PII for unsubscribe resolution.
-  - Domain engine `processCustomerUnsubscribe()` resolves suppression contact hash from `review_requests.suppression_contact_hash`, completely eliminating the read dependency on `customers.email` for all decoupled requests.
-  - Route handlers `GET /unsubscribe/[token]` and `POST /unsubscribe/[token]` operate without `customers.email`.
-  - Server-owned and tenant-isolated: authenticated tenant roles cannot mutate `review_requests.suppression_contact_hash` directly (system-write-only RLS). Zero customer PII or raw contact hashes exposed in URLs, audit metadata, or client UI.
-  - Verification: 29/29 integration tests in `test/integration/mr7c3a-erasure-safe-unsubscribe.test.ts` pass cleanly (including all 12 Owner Review correction cases). Full suite baseline attribution confirmed identical to canonical main.
-- **MR-7C.3B — CONTROLLED CUSTOMER ERASURE / ANONYMIZATION (ACTIVE NEXT)**:
-  - Authorized customer PII redaction engine operating under Invariants 1-8.
-  - Precondition: Must enforce `checkCustomerErasureEligibility` gate refusing erasure when unresolved legacy delivered requests exist.
-  - Gated until owner review and acceptance of MR-7C.3A.
+- **MR-7C.3A — ERASURE-SAFE UNSUBSCRIBE DECOUPLING (OWNER ACCEPTED)**:
+  - Accepted HEAD: `5bef1ae68309767b645415fb80e09f70da576e0d`.
+  - Feature branch `chatgpt/mr7c3a-erasure-safe-unsubscribe` pushed to `canonical`.
+  - Separates recipient suppression evidence into durable server-owned table `public.review_request_recipient_evidence` (`suppression_contact_hash` column).
+  - Append-only access model: `service_role` has `SELECT` + `INSERT` only (`UPDATE`, `DELETE`, `TRUNCATE` revoked); tenant roles (`OWNER`, `ADMIN`, `OPERATOR`, `VIEWER`) and `anon` have zero access.
+  - Immutability trigger `protect_recipient_evidence_immutability` blocks post-delivery recipient mutation.
+  - Test helper RPCs cleanly removed from production schema; privilege verification performed directly via `has_table_privilege`.
+  - Verification: 16/16 tests in `test/integration/mr7c3a-erasure-safe-unsubscribe.test.ts` pass cleanly.
+- **MR-7C.3B — CONTROLLED CUSTOMER ERASURE / ANONYMIZATION ENGINE FOUNDATION (COMPLETED / READY FOR OWNER REVIEW)**:
+  - **Owner Authority Decision (Frozen & Transactionally Enforced)**:
+    - Customer erasure / anonymization authority is **OWNER ONLY** (`organization_users.role === 'OWNER'`). `ADMIN`, `OPERATOR`, `VIEWER`, and anonymous requests are denied. Export authority remains unchanged: `OWNER` + `ADMIN`. Foreign-tenant and nonexistent customer targets fail closed without existence leakage.
+    - **In-Transaction Authority Enforcement**: The atomic PostgreSQL function `execute_customer_erasure(p_org_id, p_customer_id, p_actor_id, p_actor_type)` directly re-verifies inside the database transaction that `p_actor_id` exists, belongs to `p_org_id`, and currently holds the `'OWNER'` role in `organization_users`. This completely closes any TOCTOU race condition (e.g. role revoked between app preflight and RPC execution) and prevents direct `service_role` RPC invocation from bypassing OWNER authority.
+  - **No Hard Deletes**: The customer row in `public.customers` is retained in-place. `DELETE FROM customers` is strictly forbidden to prevent foreign-key cascade deletions across `customer_completion_events`, `review_requests`, `message_events`, `review_request_events`, and `messaging_authority_evidence`.
+  - **Field-Level Anonymization, Redaction & Error Scrubbing Map**:
+    - `customers.first_name`: ANONYMIZE to deterministic non-PII tombstone `'[Deleted Customer]'` (`first_name` is `NOT NULL`).
+    - `customers.last_name`: ERASE (`NULL`).
+    - `customers.email`: ERASE (`NULL`).
+    - `customers.phone`: ERASE (`NULL`).
+    - `customers.permission_*`: RETAIN operational compliance state.
+    - `customer_completion_events.contact`: ERASE raw PII (`'{}'::jsonb`).
+    - `customer_completion_events.source_event_id`: RETAIN (deduplication idempotency key).
+    - `customer_completion_events.source_transaction_id`: UNRESOLVED / OWNER-LEGAL DECISION (indirect identifier risk; retained in B1 under C3C gate).
+    - `customer_completion_events.source_customer_id`: UNRESOLVED / OWNER-LEGAL DECISION (external CRM identifier; retained in B1 under C3C gate).
+    - `review_requests.error_message`: ERASE (`NULL` for erased customer's review requests; eliminates potential raw email/name leaks from provider exceptions).
+    - `message_events.sanitized_error`: ERASE (`NULL` for message events of erased customer's review requests; scrubs historical provider error text).
+    - `suppressions.contact_hash`: RETAIN (byte-for-byte; preserves suppression across future re-imports).
+    - `review_request_recipient_evidence.suppression_contact_hash`: RETAIN (byte-for-byte; preserves unsubscribe resolution).
+    - `review_requests`, `message_events`, `review_request_events`, `messaging_authority_evidence`, `audit_events`, `organization_usage`: RETAIN non-PII operational records, status, provider, timestamps, review_request_id.
+  - **MR-7C.3C External Identifier Gate (Frozen Invariant)**:
+    - `source_customer_id` and `source_transaction_id` remain `UNRESOLVED / OWNER-LEGAL DECISION`.
+    - **Frozen Invariant**: MR-7C.3C MUST NOT expose customer erasure until the external identifier policy for `source_customer_id` and `source_transaction_id` is explicitly resolved.
+  - **Durable Tombstone & Database Immutability Guard**:
+    - Durable server-owned table `public.customer_erasure_records` records `organization_id`, `customer_id`, `erased_at`, `actor_type`, `actor_id` with unique constraint `(organization_id, customer_id)`.
+    - Append-only for `service_role` (`SELECT` + `INSERT` only); revoked from `PUBLIC`, `anon`, `authenticated`.
+    - Database trigger `protect_erased_customer_immutability` on `public.customers` enforces that an erased customer cannot have `email`, `phone`, `last_name` restored or `first_name` changed away from `'[Deleted Customer]'`. Non-erased customer editing is completely unaffected.
+  - **Atomic Transactional RPC**:
+    - Plpgsql function `public.execute_customer_erasure(p_org_id, p_customer_id, p_actor_id, p_actor_type)` runs in a single transaction with `SECURITY DEFINER` and `SET search_path = public, pg_temp`.
+    - Granted strictly to `service_role`; revoked from `PUBLIC`, `anon`, `authenticated`.
+    - Atomically performs in-transaction OWNER authority verification, row locking (`FOR UPDATE`), idempotency check, legacy recipient evidence gate, erasure record insertion, customer PII anonymization, completion event contact redaction, historical error text scrubbing (`review_requests.error_message = NULL` and `message_events.sanitized_error = NULL`), and mandatory zero-PII audit event insertion in a single unit. Any failure rolls back all mutations.
+  - **Mandatory Minimized Audit Event**:
+    - Inserts `privacy.customer_erasure` audit record with `entity_type: 'customer'`, `schema_version: '1.0'`, `decision: 'ERASED'`, `fields_anonymized`, `fields_erased`, `completion_events_redacted_count`, `review_request_errors_scrubbed_count`, and `message_event_errors_scrubbed_count`. Strictly zero customer PII, zero contact hashes, and zero historical error strings in metadata.
+  - **Precondition Legacy Gate**:
+    - `checkCustomerErasureEligibility` fails closed with `BLOCKED_BY_UNRESOLVED_LEGACY_REQUESTS` if any historical review request lacks immutable recipient evidence in provider-ambiguous or delivered states (`SENDING`, `FAILED`, `SENT`, `DELIVERED`, `CLICKED`, or `sent_at != null` or with `message_events`).
+  - **No Delivery Surface**: Phase B1 implements the engine foundation only. Zero UI buttons, public APIs, general tenant routes, or bulk erasure tools are exposed.
+  - **Verification**: 45/45 integration tests in `test/integration/customer-erasure.test.ts` pass cleanly (including in-transaction authority recheck, TOCTOU defense, direct service_role rejection, error field scrub, transaction rollback on injected failure, and C3C external identifier gate invariant). All 7 targeted suites pass. Full-suite baseline attribution verified.
+- **MR-7C.3C — CUSTOMER ERASURE DELIVERY SURFACE (ACTIVE NEXT)**:
+  - Authorized owner-only delivery interface and audit verification. Gated until owner review and acceptance of MR-7C.3B and explicit resolution of the external identifier policy.
 
 ---
 
@@ -165,15 +184,19 @@
 | `pnpm typecheck` | **PASS** | TypeScript cleanly passes with zero errors |
 | `pnpm vitest run test/integration/customer-privacy-export-delivery.test.ts` | **PASS** | 17 tests passed: OWNER/ADMIN download, OPERATOR/VIEWER denial, anon denial, forged/foreign org denial, foreign customer non-disclosure, nonexistent customer identical denial, malformed org/customer UUID rejection, valid JSON, application/json, attachment Content-Disposition, PII-free filename, Cache-Control: no-store, C2A schema 1.0 contract parity, zero payload on DENIED/UNAVAILABLE, mandatory privacy.customer_export audit, zero mutation outside audit, and verification that handler delegates purely to C2A without secondary authorization queries |
 | `pnpm vitest run test/integration/customer-privacy-export.test.ts` | **PASS** | 7 tests passed: OWNER/ADMIN authorization, OPERATOR/VIEWER denial, cross-tenant denial, field allowlisting/secret exclusion, mandatory audit, fail-closed reads, authorization recheck, and no mutation outside audit |
+| `pnpm vitest run test/integration/customer-erasure.test.ts` | **PASS** | 45 tests passed (all C3B engine foundation cases: OWNER-only authority in-transaction, TOCTOU race condition defense, ADMIN/OPERATOR/VIEWER/anon denial, foreign/nonexistent customer non-disclosure, service_role non-OWNER denial, legacy precondition gate, in-place customer retention with deterministic tombstone, last_name/email/phone erasure, completion contact redaction, historical error text scrub for review_requests.error_message and message_events.sanitized_error, suppression/recipient evidence/review requests/events/authority survival, unsubscribe GET/POST post-erasure, audit persistence without PII/hashes, idempotency, plpgsql rollback on exception/injected scrub failure, RPC and table privilege lock-down, trigger preventing PII restoration, non-erased customer update preservation, future send/reminder blocking, re-import protection, no cascade delete, privacy export compatibility, C3C external identifier gate representation) |
+| `pnpm vitest run test/integration/mr7c3a-erasure-safe-unsubscribe.test.ts` | **PASS** | 16 tests passed (C3A recipient evidence decoupling, immutability trigger, append-only service_role access, zero RPC helper leakage) |
 | `pnpm vitest run test/integration/real-rls.test.ts` | **PASS** | 16 tests passed (enforces customer delete denial for OWNER, ADMIN, OPERATOR, VIEWER, anon, cross-tenant; verifies service_role deletion and tenant mutation preservation) |
 | `pnpm vitest run test/integration/unsubscribe.test.ts` | **PASS** | 16 tests passed (unsubscribe flow and suppression invariants fully preserved) |
 | `pnpm vitest run test/integration/mr7b1-authority-send-invariant.test.ts` | **PASS** | 5 tests passed (B1 regression clean) |
 | `pnpm vitest run test/integration/mr7b2-sender-identity.test.ts` | **PASS** | 9 tests passed (B2 sender identity regression clean) |
 | `pnpm vitest run test/domain/mr7b3-payload-minimization.test.ts` | **PASS** | 6 tests passed (B3 payload minimization domain regression clean) |
 | `pnpm vitest run test/integration/mr7b3-payload-minimization.test.ts` | **PASS** | 3 tests passed (B3 payload minimization integration regression clean) |
-| `pnpm dlx supabase@2.117.0 db lint --local` | **PASS** | Local Supabase schema clean (0 errors) |
+| `pnpm dlx supabase@2.117.0 db reset` | **PASS** | Local Supabase cleanly resets and applies all 22 migrations from clean state |
+| `pnpm dlx supabase@2.117.0 db lint --local` | **PASS** | Local Supabase schema clean (0 errors across extensions and public) |
 | `pnpm build` | **PASS** | Production build succeeded; all routes compiled |
-| Local PostgreSQL privilege check | **PASS** | `has_table_privilege('authenticated', 'public.customers', 'DELETE') = false`<br>`has_table_privilege('anon', 'public.customers', 'DELETE') = false`<br>`has_table_privilege('service_role', 'public.customers', 'DELETE') = true` |
+| `git diff --check` | **PASS** | Clean diff with zero whitespace / syntax errors |
+| Local PostgreSQL privilege check | **PASS** | `has_table_privilege('authenticated', 'public.customers', 'DELETE') = false`<br>`has_table_privilege('service_role', 'public.customer_erasure_records', 'SELECT') = true`<br>`has_table_privilege('service_role', 'public.customer_erasure_records', 'INSERT') = true`<br>`has_table_privilege('service_role', 'public.customer_erasure_records', 'UPDATE') = false`<br>`has_table_privilege('service_role', 'public.customer_erasure_records', 'DELETE') = false`<br>`has_function_privilege('service_role', 'public.execute_customer_erasure(uuid, uuid, uuid, text)', 'EXECUTE') = true`<br>`has_function_privilege('authenticated', 'public.execute_customer_erasure(uuid, uuid, uuid, text)', 'EXECUTE') = false` |
 
 ---
 
@@ -182,8 +205,9 @@
 1. **MR-7C.1**: Privacy Lifecycle Contract + Direct Delete Safety *(OWNER ACCEPTED / HOSTED VERIFIED)*
 2. **MR-7C.2**: Customer Privacy Export *(OWNER ACCEPTED / COMPLETE)*
 3. **MR-7C.3**: Controlled Customer Erasure / Anonymization
-   - **MR-7C.3A**: Erasure-Safe Unsubscribe Decoupling *(COMPLETED / READY FOR OWNER REVIEW)*
-   - **MR-7C.3B**: Controlled Customer Erasure Engine *(ACTIVE NEXT)*
+   - **MR-7C.3A**: Erasure-Safe Unsubscribe Decoupling *(OWNER ACCEPTED)*
+   - **MR-7C.3B**: Controlled Customer Erasure Engine Foundation *(COMPLETED / READY FOR OWNER REVIEW)*
+   - **MR-7C.3C**: Customer Erasure Delivery Surface *(ACTIVE NEXT)*
 4. **MR-7C.4**: Retention + Automatic Aging/Purge Controls
 5. **MR-7C.5**: Processor Deletion/Retention Reconciliation
 
@@ -191,19 +215,21 @@
 
 ## 6. Rollback Implications
 
-If rollback of MR-7C.3A is required:
-1. Drop trigger `protect_recipient_evidence_immutability` and function `protect_recipient_evidence_immutability()` on `public.review_request_recipient_evidence`.
-2. Drop table `public.review_request_recipient_evidence`.
-3. Application code fails closed on legacy requests without recipient evidence.
-4. No data is lost; existing review requests, tokens, and suppressions remain completely intact.
+If rollback of MR-7C.3B is required:
+1. Drop trigger `trg_protect_erased_customer_immutability` and function `public.protect_erased_customer_immutability()` on `public.customers`.
+2. Drop function `public.execute_customer_erasure(uuid, uuid, uuid, text)`.
+3. Drop table `public.customer_erasure_records`.
+4. Revert `src/domain/privacy/customer-erasure.ts`.
+5. No historical operational data is lost; existing review requests, tokens, and suppressions remain completely intact.
 
 ---
 
 ## 7. Owner Gate
 
-- **Milestone Status**: MR-7 is ACTIVE; MR-7B.1, MR-7B.2, MR-7B.3, MR-7C.1, MR-7C.2A, and MR-7C.2B (MR-7C.2 Complete) are **OWNER ACCEPTED**; MR-7C.3A is **COMPLETED / READY FOR OWNER REVIEW**.
+- **Milestone Status**: MR-7 is ACTIVE; MR-7B.1, MR-7B.2, MR-7B.3, MR-7C.1, MR-7C.2, and MR-7C.3A are **OWNER ACCEPTED**; MR-7C.3B is **COMPLETED / READY FOR OWNER REVIEW**.
+- **Customer Erasure Authority**: Frozen by Owner Decision to **OWNER ONLY**.
 - **Live messaging remains disabled** (`ENABLE_LIVE_EMAIL=false`).
 - **Live billing remains paused** under `MPG-DEC-049`.
 - **Controlled Pilot (MR-8) remains strictly GATED**.
-- Feature branch `chatgpt/mr7c3a-erasure-safe-unsubscribe` contains the finalized MR-7C.3A privacy hardening implementation stacked on accepted C2B HEAD (`e7c8f6b`).
-- Local database migration `20261009000000_mr7c3a_erasure_safe_unsubscribe.sql` is tested and verified locally; **hosted application is NOT authorized**. Customer erasure, live messaging activation, and billing activation remain unauthorized.
+- Feature branch `chatgpt/mr7c3b-controlled-erasure` contains the finalized MR-7C.3B engine foundation stacked on accepted C3A HEAD (`5bef1ae68309767b645415fb80e09f70da576e0d`).
+- Local database migration `20261009120000_mr7c3b_customer_erasure.sql` is tested and verified locally; **hosted application is NOT authorized**. Delivery UI surface, live messaging activation, and billing activation remain unauthorized.

@@ -197,6 +197,36 @@ export interface Database {
         }
         Relationships: []
       }
+      customer_erasure_records: {
+        Row: {
+          id: string
+          organization_id: string
+          customer_id: string
+          erased_at: string
+          actor_type: string
+          actor_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          customer_id: string
+          erased_at?: string
+          actor_type?: string
+          actor_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          customer_id?: string
+          erased_at?: string
+          actor_type?: string
+          actor_id?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       completion_api_credentials: {
         Row: {
           id: string
@@ -1296,6 +1326,15 @@ export interface Database {
           p_idempotency_key: string
           p_source_event_id?: string | null
           p_metadata?: Json
+        }
+        Returns: Json
+      }
+      execute_customer_erasure: {
+        Args: {
+          p_org_id: string
+          p_customer_id: string
+          p_actor_id: string
+          p_actor_type?: string
         }
         Returns: Json
       }

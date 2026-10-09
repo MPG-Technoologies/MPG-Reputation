@@ -166,7 +166,7 @@
     4) Ingestion deduplication keys (`customer_completion_events.source_event_id`), enabling re-import replay.
     5) Operational delivery history (`review_requests`, `message_events`).
     *Conclusion*: Hard deletes of customer rows are strictly forbidden for retention aging; data aging must utilize in-place anonymization/redaction tombstones.
-  - **Zero Invented Retention Periods**: Strict enforcement that zero arbitrary statutory retention periods (e.g. 30/90 days, 1/7 years) are invented or hardcoded. All unconfirmed periods are explicitly marked `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`.
+  - **Zero Invented Retention Periods**: Strict enforcement that zero arbitrary statutory retention periods are invented or hardcoded. All unconfirmed periods are explicitly marked `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`.
   - **External Processors Audited**: Analyzed Resend, Inngest, Supabase Auth, Vercel logs, and application logs. Confirmed MPG does not control third-party retention; formal reconciliation is scheduled for MR-7C.5.
   - **12 Explicit Owner Decisions Documented**: Comprehensive list of unresolved policy questions required from the Owner and Legal Counsel prior to engineering purge code.
   - **Zero Code Implementation**: Zero cron jobs, pg_cron routines, scheduled functions, purge RPCs, destructive migrations, or retention configuration columns were introduced in this slice.

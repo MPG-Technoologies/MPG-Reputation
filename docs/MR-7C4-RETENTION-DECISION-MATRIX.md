@@ -78,7 +78,13 @@ Customer data aging must follow the in-place anonymization/redaction pattern est
 
 - `public.review_request_recipient_evidence` stores `suppression_contact_hash` linked directly to `(review_request_id, organization_id)`.
 - It is append-only for `service_role` (UPDATE, DELETE, TRUNCATE revoked; trigger prevents alteration).
-- **Finding**: As long as the `review_requests` record remains present in the database, unsubscribe links remain functional regardless of customer PII erasure. Any eventual purge of historical `review_requests` must respect the statutory lifespan of active unsubscribe links.
+- **Finding**: As long as the `review_requests` record remains present in the database, unsubscribe links remain functional regardless of customer PII erasure. Any eventual purge of historical `review_requests` must respect the statutory lifespan of active unsubscribe mechanisms.
+- **Unsubscribe Mechanism Validity Standards**:
+  - CAN-SPAM unsubscribe mechanism minimum validity: 30 days after send.
+  - CASL unsubscribe mechanism minimum validity: 60 days after send.
+  - MPG cross-US/Canada engineering floor: at least 60 days.
+  - Longer or indefinite unsubscribe capability remains allowed (the 60-day engineering floor does not mean the link must expire at day 60).
+  - Suppression registry retention remains completely independent from link validity.
 
 ### 2.4 Existing Documented Operational Windows vs. Statutory Retention
 
@@ -100,13 +106,13 @@ The following matrix covers all 25 PostgreSQL tables in MPG Reputation, evaluati
 | **1. Customers** (`customers`) | PostgreSQL `public.customers` | DIRECT PII (prior to erasure); PSEUDONYMOUS TOMBSTONE (post-erasure) | Stores customer profile (`first_name`, `last_name`, `email`, `phone`) and operational permission state for review request dispatch. | Cascaded from `locations`. Cascades to `customer_completion_events`, `review_requests`, `customer_erasure_records`, `messaging_authority_evidence`. Hard delete destroys all child evidence. | **ANONYMIZE / REDACT** (in-place tombstoning: `[Deleted Customer]`, `last_name/email/phone = NULL`). Hard delete forbidden while child records exist. | NONE | `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED` (Retention duration for active customer PII; aging timeline for uncontacted vs. messaged customers). |
 | **2. Customer Completion Events** (`customer_completion_events`) | PostgreSQL `public.customer_completion_events` | DIRECT PII (in `contact` JSON prior to erasure); INDIRECT IDENTIFIER / OPERATIONAL HISTORY (post-erasure) | Immutable log of business transaction completions. Provides source event deduplication (`source_event_id`). | FK to `customers`, `locations`. Referenced by `review_requests`, `messaging_authority_evidence`, `completion_ingestion_requests`. Deduplication key: `(organization_id, source, source_event_id)`. | **REDACT** (intake contact payload: `{"redacted": true}`; external IDs erased to NULL in C3C). Hard delete breaks re-import deduplication. | NONE | `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED` (Duration of raw intake contact retention; deduplication key retention window). |
 | **3. Review Requests** (`review_requests`) | PostgreSQL `public.review_requests` | OPERATIONAL HISTORY / PSEUDONYMOUS (tokens, timestamps, sanitized error text) | Tracks review request delivery lifecycle, token routing (`/r/[token]`), reminder delays, and dispatch status. | FK to `organizations`, `locations`, `customers`, `customer_completion_events`, `review_destinations`. Cascades to `review_request_events`, `message_events`, `review_request_recipient_evidence`. | **REDACT / AGE**. Scrub `error_message` on erasure. Hard delete safe ONLY after unsubscribe link token expiration. | NONE (Only operational dispatch/reminder intervals: `scheduled_for`) | `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED` (Review link token validity window; delivery history archive duration). |
-| **4. Recipient Evidence** (`review_request_recipient_evidence`) | PostgreSQL `public.review_request_recipient_evidence` | PSEUDONYMOUS / HASHED CONTACT / COMPLIANCE EVIDENCE | Decouples unsubscribe processing from customer PII (MR-7C.3A). Resolves unsubscribe requests post-erasure. | FK to `organizations`, `review_requests` [ON DELETE CASCADE]. Append-only service_role access; trigger prevents modification. | **RETAIN** while parent review request exists. Safe to purge ONLY if parent `review_requests` row is purged after statutory unsubscribe token expiration. | NONE | `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED` (Statutory unsubscribe token validity period). |
+| **4. Recipient Evidence** (`review_request_recipient_evidence`) | PostgreSQL `public.review_request_recipient_evidence` | PSEUDONYMOUS / HASHED CONTACT / COMPLIANCE EVIDENCE | Decouples unsubscribe processing from customer PII (MR-7C.3A). Resolves unsubscribe requests post-erasure. | FK to `organizations`, `review_requests` [ON DELETE CASCADE]. Append-only service_role access; trigger prevents modification. | **RETAIN** while parent review request exists. Safe to purge ONLY if parent `review_requests` row is purged after applicable unsubscribe validity period (CAN-SPAM min: 30 days; CASL min: 60 days; MPG engineering floor: at least 60 days; longer/indefinite allowed). | Minimum statutory validity: CAN-SPAM 30 days, CASL 60 days (MPG engineering floor: ≥60 days). Database retention duration: NONE | `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED` (Retention beyond statutory 60-day engineering floor; indefinite capability allowed). |
 | **5. Review Request Events** (`review_request_events`) | PostgreSQL `public.review_request_events` | OPERATIONAL HISTORY / SYSTEM DIAGNOSTIC DATA | Detailed interaction logs (`first_click`, state transitions). Privacy-minimized (zero raw IPs). | FK to `organizations`, `review_requests` [ON DELETE CASCADE]. | **AGE / PURGE** after operational reporting window closes. | NONE | `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED` (Interaction log retention window). |
 | **6. Message Events** (`message_events`) | PostgreSQL `public.message_events` | OPERATIONAL HISTORY / SYSTEM DIAGNOSTIC / INDIRECT IDENTIFIER | Outbound delivery attempts and inbound provider webhook events (sent, delivered, bounced, complained). Webhook deduplication. | FK to `organizations`, `review_requests` [ON DELETE CASCADE]. Resend webhook correlation depends on `provider_message_id`. Error scrubbed on erasure. | **AGE / PURGE** after webhook delivery attribution and bounce processing window closes. | NONE | `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED` (Delivery log and webhook event retention duration). |
-| **7. Messaging Authority Evidence** (`messaging_authority_evidence`) | PostgreSQL `public.messaging_authority_evidence` | SECURITY / AUTHORITY EVIDENCE / COMPLIANCE EVIDENCE | Cryptographic/transactional evidence of lawful permission to message (CAN-SPAM, CASL, TCPA). Auto-recorded on completion insert. | FK to `organizations`, `customers` [ON DELETE CASCADE], `customer_completion_events` [ON DELETE CASCADE]. Contains zero direct PII. | **RETAIN** (must outlive customer PII erasure to defend against regulatory enforcement actions). Hard delete of customer cascades here! | NONE | `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED` (Statutory limitation period: CASL 3 years, TCPA 4 years, CAN-SPAM). |
+| **7. Messaging Authority Evidence** (`messaging_authority_evidence`) | PostgreSQL `public.messaging_authority_evidence` | SECURITY / AUTHORITY EVIDENCE / COMPLIANCE EVIDENCE | Cryptographic/transactional evidence of lawful permission to message (CAN-SPAM, CASL, TCPA). Auto-recorded on completion insert. | FK to `organizations`, `customers` [ON DELETE CASCADE], `customer_completion_events` [ON DELETE CASCADE]. Contains zero direct PII. | **RETAIN** (must outlive customer PII erasure to defend against regulatory enforcement actions). Hard delete of customer cascades here! | NONE (Legal limitation periods do not automatically establish database-deletion dates) | `MESSAGING AUTHORITY EVIDENCE RETENTION — OWNER/LEGAL DECISION REQUIRED` |
 | **8. Suppressions** (`suppressions`) | PostgreSQL `public.suppressions` | PSEUDONYMOUS / HASHED CONTACT / COMPLIANCE EVIDENCE | Permanent cross-channel exclusion registry preventing messaging to opted-out, bounced, or complained contacts. | FK to `organizations` only. Independent of `customers`. Keyed by `(organization_id, channel, contact_hash)`. | **RETAIN INDEFINITELY** (or under explicit statutory policy). Purging suppressions risks illegal spam violations upon CRM re-ingestion. | NONE | `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED` (Whether suppressions are permanent per tenant or have statutory expiry). |
 | **9. Customer Erasure Records** (`customer_erasure_records`) | PostgreSQL `public.customer_erasure_records` | COMPLIANCE EVIDENCE / SECURITY / AUDIT EVIDENCE | Immutable certificate of customer erasure execution. Protects tombstone immutability via database trigger. | FK to `organizations`, `customers` [ON DELETE CASCADE]. Append-only service_role access. | **RETAIN**. Purging disables the database immutability trigger protecting the erased customer. | NONE | `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED` (Privacy compliance certificate retention window). |
-| **10. Audit Events** (`audit_events`) | PostgreSQL `public.audit_events` | SECURITY / AUDIT EVIDENCE / OPERATIONAL HISTORY | System and security audit trail (privacy export, privacy erasure, support session access, configuration changes). | FK to `organizations`. No FK to entity_id. Minimization enforced: zero raw PII in metadata. | **AGE / ARCHIVE THEN PURGE** or **RETAIN**. Essential for security forensics and regulatory auditability. | NONE | `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED` (Enterprise audit log retention period, e.g. 1, 3, or 7 years). |
+| **10. Audit Events** (`audit_events`) | PostgreSQL `public.audit_events` | SECURITY / AUDIT EVIDENCE / OPERATIONAL HISTORY | System and security audit trail (privacy export, privacy erasure, support session access, configuration changes). | FK to `organizations`. No FK to entity_id. Minimization enforced: zero raw PII in metadata. | **AGE / ARCHIVE THEN PURGE** or **RETAIN**. Essential for security forensics and regulatory auditability. | NONE | `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED` |
 | **11. Organization Usage** (`organization_usage`) | PostgreSQL `public.organization_usage` | FINANCIAL / ECONOMIC RECORD / OPERATIONAL HISTORY | Monthly aggregated metric rollups (`completed_customers`, `requests_sent`, `link_clicks`). | FK to `organizations`. No customer PII. Minimal storage footprint. | **RETAIN** (compact aggregate accounting records). | NONE | `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED` (Usage aggregate accounting retention). |
 | **12. Usage Ledger** (`usage_ledger`) | PostgreSQL `public.usage_ledger` | FINANCIAL / ECONOMIC RECORD | Append-only atomic usage events for billing, allowances, and economic cost tracking. | FK to `organizations`. Referenced by `cost_ledger`. Unique `idempotency_key`. | **AGGREGATE THEN PURGE** or **RETAIN**. Must not be purged before billing dispute window closes. | NONE | `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED` (Itemized financial ledger retention). |
 | **13. Cost Ledger** (`cost_ledger`) | PostgreSQL `public.cost_ledger` | FINANCIAL / ECONOMIC RECORD | Internal accounting of COGS per tenant (email transport, hosting, compute allocations). | FK to `organizations`, `usage_ledger` [ON DELETE SET NULL]. | **RETAIN** (corporate tax and financial audit records). | NONE | `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED` (COGS accounting retention duration). |
@@ -140,7 +146,7 @@ Data processed by MPG Reputation flows into external third-party infrastructure.
 - **Identifiers / PII Retained by Resend**:
   - Recipient email address, full message HTML content, delivery logs, open/click telemetry, bounce records, and complaint events.
 - **MPG Deletion Capabilities**:
-  - Resend does **not** provide a per-message or per-recipient programmatic deletion endpoint via standard REST API.
+  - `SENT EMAIL / DELIVERY LOG DELETION CAPABILITY — UNVERIFIED; MR-7C.5 PROVIDER RECONCILIATION REQUIRED`. (Do not claim absence of deletion capability unless fully proven).
 - **Provider Retention Configuration**:
   - Resend platform retains message logs according to account tier policies (typically 30 days for message body content; event telemetry may persist longer).
 - **Reconciliation Status**:
@@ -155,7 +161,12 @@ Data processed by MPG Reputation flows into external third-party infrastructure.
 - **MPG Deletion Capabilities**:
   - Inngest SDK does not provide an API to purge individual completed workflow run histories.
 - **Provider Retention Configuration**:
-  - Inngest Cloud enforces log retention by subscription tier (7 to 30 days).
+  - Documented plan-dependent trace/log history:
+    - Free: 24 hours
+    - Pro: 7 days
+    - Business: 14 days
+    - Enterprise: up to 365 days
+  - `EXACT MPG ACCOUNT RETENTION — VERIFY IN MR-7C.5` (do not assume MPG's plan).
 - **Reconciliation Status**:
   - `EXTERNAL PROCESSOR RECONCILIATION REQUIRED` (Scheduled for MR-7C.5).
 
@@ -176,7 +187,12 @@ Data processed by MPG Reputation flows into external third-party infrastructure.
 - **PII Controls**:
   - Codebase enforces strict error sanitization (`src/domain/review-request/sanitizer.ts`), stripping email addresses, phone numbers, and tokens before logging.
 - **Provider Retention Configuration**:
-  - Retained according to Vercel account log drain and retention settings (1 hour to 30 days depending on plan).
+  - Documented runtime-log retention:
+    - Hobby: 1 hour
+    - Pro: 1 day
+    - Enterprise: 3 days
+    - Observability Plus: up to 30 days
+  - `EXACT MPG PROJECT RETENTION — VERIFY CURRENT PLAN / SETTINGS IN MR-7C.5`.
 - **MPG Deletion Capabilities**:
   - Zero programmatic deletion via application code.
 
@@ -187,8 +203,8 @@ Data processed by MPG Reputation flows into external third-party infrastructure.
 | Invariant | Retention Hazard | Architectural Requirement | Status |
 |---|---|---|---|
 | **1. Suppression Continuity** | Hard-deleting suppressions would allow re-imported CRM records to send prohibited spam. | `public.suppressions` stores pseudonymous `contact_hash` only. It must survive customer erasure and general customer data aging. | **PRESERVED** |
-| **2. Unsubscribe Continuity** | Hard-deleting `review_requests` cascades to destroy `review_request_recipient_evidence`, breaking unsubscribe links for sent emails. | Historical `review_requests` and `review_request_recipient_evidence` must be retained for at least the statutory lifespan of active unsubscribe links. | **PRESERVED** |
-| **3. Lawful Authority Evidence** | Hard-deleting `customers` cascades to destroy `messaging_authority_evidence`, eliminating legal defense against regulatory fines. | `messaging_authority_evidence` contains zero direct PII and must outlive customer PII erasure. `customers` must not be hard deleted while authority evidence is required. | **PRESERVED** |
+| **2. Unsubscribe Continuity** | Hard-deleting `review_requests` cascades to destroy `review_request_recipient_evidence`, breaking unsubscribe links for sent emails. | Historical `review_requests` and `review_request_recipient_evidence` must be retained for at least the statutory lifespan of active unsubscribe mechanisms (CAN-SPAM min: 30 days; CASL min: 60 days; MPG engineering floor: at least 60 days; longer or indefinite allowed). | **PRESERVED** |
+| **3. Lawful Authority Evidence** | Hard-deleting `customers` cascades to destroy `messaging_authority_evidence`, eliminating legal defense against regulatory fines. | `messaging_authority_evidence` contains zero direct PII and must outlive customer PII erasure. Legal limitation periods do not automatically establish database-deletion dates. `customers` must not be hard deleted while authority evidence is required. | **PRESERVED** |
 | **4. Non-PII Auditability** | Raw PII in audit logs would violate data minimization and privacy erasure requirements. | `audit_events` metadata enforces strict schema validation and strips PII, hashes, and raw errors. Retains non-PII compliance certificates. | **PRESERVED** |
 | **5. Tenant Isolation** | Data aging queries lacking strict tenant scoping could cross organization boundaries. | All future aging routines must include `organization_id` in `WHERE` clauses and maintain strict RLS isolation. | **PRESERVED** |
 | **6. Idempotency & Deduplication** | Purging completion records removes `source_event_id`, allowing duplicate transaction processing. | Ingestion completion tombstones (`source_event_id`) must be retained to prevent re-ingestion replay. | **PRESERVED** |
@@ -222,13 +238,20 @@ Before any executable data aging or purge code (MR-7C.4B / MR-7C.4C) can be engi
 - **Question**: What is the active expiration lifetime of the review request redirect token (`/r/[token]`)?
 - **Status**: `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`
 
-### Decision 5: Statutory Unsubscribe Link Token Lifespan
-- **Question**: How long must an unsubscribe link in an outbound email remain functional? (Determines minimum retention for `review_requests` and `review_request_recipient_evidence`).
+### Decision 5: Unsubscribe Mechanism Validity & Recipient Evidence Retention
+- **Statutory Standards & Engineering Floor**:
+  - CAN-SPAM unsubscribe mechanism minimum validity: 30 days after send.
+  - CASL unsubscribe mechanism minimum validity: 60 days after send.
+  - MPG cross-US/Canada engineering floor: at least 60 days.
+  - Longer or indefinite unsubscribe capability remains allowed (the 60-day engineering floor does not mean the link must expire at day 60).
+  - Suppression registry retention remains completely independent from link validity.
+- **Question**: Beyond the statutory 60-day engineering floor, should historical `review_requests` and `review_request_recipient_evidence` be retained indefinitely or aged/purged under a bounded policy?
 - **Status**: `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`
 
-### Decision 6: Statutory Consent & Authority Evidence Retention Window
-- **Question**: How long must `messaging_authority_evidence` be retained to defend against regulatory claims under applicable regimes (e.g. CASL 3-year statutory limit; TCPA 4-year statute of limitations)?
-- **Status**: `RETENTION PERIOD — OWNER/LEGAL DECISION REQUIRED`
+### Decision 6: Messaging Authority Evidence Retention
+- **Context**: `messaging_authority_evidence` contains zero direct PII and provides legal defense regarding lawful consent/authority to message under applicable regimes. Legal limitation periods do not automatically establish database-deletion dates.
+- **Question**: What is the authoritative database retention policy for `messaging_authority_evidence` (e.g., indefinite retention vs. bounded retention)?
+- **Status**: `MESSAGING AUTHORITY EVIDENCE RETENTION — OWNER/LEGAL DECISION REQUIRED`
 
 ### Decision 7: Suppression Registry Lifespan
 - **Question**: Are `public.suppressions` records permanent per organization, or subject to statutory expiration?

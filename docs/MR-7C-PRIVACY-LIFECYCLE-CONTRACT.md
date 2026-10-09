@@ -309,7 +309,7 @@ graph LR
      - **Dispatched Outbox Aging**: `purgeDispatchedDomainOutbox` purges `domain_event_outbox` records where `status = 'DISPATCHED'` and `dispatched_at` is older than 30 days in bounded batches; strictly guards `PENDING` and failed records from deletion; records aggregate audit event.
      - **Permanent-Retention Guards**: Runtime assertion `assertProtectedClassImmunity` and test suite verify all 9 permanent retention classes (`suppressions`, `review_request_recipient_evidence`, `messaging_authority_evidence`, `customer_erasure_records`, `audit_events`, `usage_ledger`, `cost_ledger`, `organization_usage`, `customer_completion_events.source_event_id`) are strictly protected from purge routines.
      - **Test Verification**: 25 domain tests in `test/domain/retention-controls.test.ts` and 15 PostgreSQL integration tests in `test/integration/retention-controls.test.ts`. Zero production scheduler activation.
-   - **MR-7C.4B2: Bounded Multi-Tenant Retention Maintenance Workflow (ENGINEERING COMPLETE / CORRECTIONS APPLIED / READY FOR OWNER REVIEW)**:
+   - **MR-7C.4B2: Bounded Multi-Tenant Retention Maintenance Workflow (OWNER ACCEPTED at `17ff5bc331b225eb589694607754ac58f30e2473`)**:
      - Implemented server-side bounded coordinator in `src/domain/privacy/retention-maintenance.ts` (`executeMultiTenantRetentionMaintenance`).
      - Scheduled Inngest function in `src/inngest/functions/retention-maintenance.ts` (`retentionMaintenanceWorkflow`) registered via `getInngestFunctions()` in `src/app/api/inngest/route.ts`.
      - **Defense-in-Depth Inngest Registration Boundary**: When `ENABLE_RETENTION_MAINTENANCE !== 'true'`, `retentionMaintenanceWorkflow` is completely omitted from the functions exposed/registered through `/api/inngest`. No retention cron metadata is synchronized or scheduled.
@@ -324,4 +324,19 @@ graph LR
      - Preserves soft-deactivation (evaluates ACTIVE, INACTIVE, and SUSPENDED tenants without deleting any organization).
      - Verified across 18 domain unit tests (`test/domain/retention-maintenance.test.ts`) and 5 PostgreSQL integration tests (`test/integration/retention-maintenance.test.ts`).
 5. **MR-7C.5 — External Processor Reconciliation**:
-   - Reconcile external processor copies (Resend, Inngest, backups) in accordance with verified provider APIs and policies.
+   - **MR-7C.5A: External Processor Data Map & Retention / Deletion Contract (ENGINEERING COMPLETE / READY FOR OWNER REVIEW)**:
+     - Authoritative specification: [`docs/MR-7C5-EXTERNAL-PROCESSOR-RETENTION-MAP.md`](./MR-7C5-EXTERNAL-PROCESSOR-RETENTION-MAP.md).
+     - Comprehensive processor audit across all 5 integrated services: Resend, Inngest, Supabase (AWS us-east-1), Vercel, and Stripe (billing paused). Confirmed zero external processors for Google (destination links only), Twilio (gated), CRM push, or analytics/APM.
+     - Complete 4-tier data classification: Direct PII, Pseudonymous/Linkable IDs, Operational Data, Secrets.
+     - **Resend Audit**: Direct PII in email envelope/body/subject; correlation tags strictly minimized to `review_request_id`; official retention is 30 days (Free/Pro/Scale) and 7-day backups; no per-message deletion API exists (Category C — Natural Expiry Only); manual early deletion requires Resend Support escalation.
+     - **Inngest Audit & Finding**: Trigger event minimized to 5 IDs in MR-7B.3; **critical finding**: function step return values in `review-request.ts` leak `customerName`, `customerEmail`, and `SendEmailResult` (`renderedSubject`, `renderedBody`) into Inngest Cloud run history; official retention is 24h (Free), 7d (Pro), 14d (Business), up to 365d (Enterprise); no run trace deletion API exists (Category C — Natural Expiry Only); remediated action scheduled for MR-7C.5B to strip PII from step outputs.
+     - **Supabase Audit & Restoration Hazard**: Host database in AWS us-east-1 with 7–30 day automated backups and continuous WAL PITR; per-record deletion in backups is impossible (Category D — Backup / Disaster-Recovery Copy); identified critical resurrection hazard where restoring a pre-erasure backup would restore erased customer PII.
+     - **Post-Restore Privacy Reconciliation Requirement**: Defined mandatory operational invariant: *"A backup restore must not silently resurrect customer PII that was previously erased."* Mandates isolated maintenance mode, replaying authoritative erasure certificates (`public.execute_customer_erasure()`), reinserting post-backup suppression hashes, and running automated verification queries prior to returning any restored database to live service.
+     - **Vercel Audit**: Runtime logs retain data for 1h (Hobby), 1d (Pro), or 3d (Enterprise); no per-log deletion API exists (Category C — Natural Expiry Only); code audit confirms production routes log zero raw PII, but recommended C5B hardening to ensure `ConsoleEmailProvider` cannot execute in production and error strings are sanitized.
+     - **Stripe Audit**: Live billing paused under `MPG-DEC-049`; processes B2B organization payer data only; zero consumer review recipient data.
+     - Documented Master Erasure Reconciliation Matrix, Account Evidence Gaps, and non-actions.
+   - **MR-7C.5B: External Processor Privacy Hardening & Verification (FUTURE)**:
+     - Strip Direct PII from Inngest workflow step return values.
+     - Sanitize error logging strings in review request workflows.
+     - Add production environment guard on `ConsoleEmailProvider`.
+     - Formulate unit tests verifying zero PII in external payloads and serialized step returns.

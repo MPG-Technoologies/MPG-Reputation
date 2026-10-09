@@ -1,0 +1,523 @@
+# MR-7C.5A — External Processor Data Map & Retention / Deletion Contract
+
+| Metadata | Value |
+|---|---|
+| Document | External Processor Data Map, Retention Windows & Deletion Architecture Contract |
+| Milestone | MR-7 (Trust / Security / Compliance) — Slice MR-7C.5A |
+| Status | ENGINEERING COMPLETE / READY FOR OWNER REVIEW |
+| Authoritative Product Repository | `MPG-Technoologies/MPG-Reputation` |
+| Authoritative Branch | `chatgpt/mr7c5a-processor-retention-map` |
+| Baseline Checkpoint | `17ff5bc331b225eb589694607754ac58f30e2473` (MR-7C.4B2 OWNER ACCEPTED) |
+| Company OS Authority | `E:\MPG` (`techwithmpg/mpg-company-os` at `7df63fb75cc184197b11fcbdeca1b1d333a8e81a`) |
+| Governance Scope | `MPG-DEC-038` through `MPG-DEC-049` |
+| Public Safe | Yes (Synthetic Fixtures & Architectural Schemas Only) |
+
+---
+
+## 1. Scope & Purpose
+
+This document establishes the authoritative data-flow map, operational retention windows, deletion capabilities, and erasure reconciliation contracts for every external third-party processor that interacts with **MPG Reputation** (`PROD-REP-001`).
+
+Under `MPG-DEC-046` and `MPG-DEC-047`, MPG Reputation is executing a comprehensive market-ready build program (MR-0 through MR-11). Milestones MR-7B (Security Hardening), MR-7C.1 (Privacy Contract & Delete Safety), MR-7C.2 (Customer Privacy Export), MR-7C.3 (Controlled Customer Erasure), and MR-7C.4 (Retention & Automatic Aging / Purge Controls) established strict primary-database privacy boundaries.
+
+Slice **MR-7C.5A** investigates and maps the external processor boundary:
+1. Identifying all third-party services that receive, process, store, log, queue, or back up data.
+2. Determining what data leaves the MPG primary database and whether it constitutes Direct PII, Pseudonymous/Linkable Data, Operational Telemetry, or Credentials.
+3. Documenting verified vendor retention schedules and backup lifecycles.
+4. Auditing vendor deletion capabilities (API, SDK, dashboard, support-assisted, or natural expiry).
+5. Defining post-restore privacy reconciliation invariants to prevent disaster-recovery backups from resurrecting erased personal data.
+6. Identifying privacy leakages requiring code remediation in **MR-7C.5B**.
+
+> [!IMPORTANT]
+> **Engineering Contract & Architecture Notice**:
+> This document specifies technical architectures, provider capabilities, data flows, and engineering controls. It does **not** constitute legal advice, statutory certification, or final commercial terms of service. Statutory compliance mandates (e.g., GDPR, CCPA/CPRA, CAN-SPAM, CASL, TCPA, HIPAA) and contractual retention floors are governed in Company OS (`E:\MPG`). Provider retention periods documented herein represent vendor operational behaviors, not statutory retention requirements.
+
+---
+
+## 2. Accepted Privacy Invariants & Governance Baseline
+
+All processor mapping and lifecycle reconciliation in this specification adhere strictly to previously established, owner-accepted engineering invariants:
+
+1. **Company OS Governance Supremacy**: Business intent, commercial authorization, and regulatory policies reside in `E:\MPG`. The product repository contains technical implementation code.
+2. **Review Integrity Rules (Strictly Enforced)**:
+   - Prohibit review gating, positive-only solicitation, fake reviews, paid reviewers, rating prediction filters, or sentiment-conditional incentives.
+   - Review requests must remain strictly neutral: *"If you'd like to share your experience, we'd appreciate your honest feedback."*
+   - Eligibility never evaluates customer happiness, complaints, or predicted star ratings.
+3. **Database Tenant Isolation & RLS**:
+   - Every exposed database table has Row Level Security (RLS) enabled.
+   - Database tenant isolation is mandatory: users access only rows for organizations where they hold active authorized membership in `organization_users`.
+   - Never use editable user metadata for authorization.
+4. **Idempotency & Concurrency Invariant**:
+   - Ingestion of completion events is strictly idempotent on `(organization_id, source, source_event_id)`.
+   - Double-clicks, network retries, and workflow re-executions must never generate duplicate customer requests or duplicate emails.
+5. **Open Redirect Prevention**:
+   - The tracked link route `/r/[token]` resolves destinations strictly from verified database records. Arbitrary external URLs are rejected.
+6. **Frozen C3C External Identifier Erasure Policy (`8796b5e6fb89cea49a96c85917e4808ad5891fa6`)**:
+   - Upon customer erasure:
+     - `customer_completion_events.source_customer_id` MUST be set to `NULL`.
+     - `customer_completion_events.source_transaction_id` MUST be set to `NULL`.
+     - Neither field may be hashed or pseudonymized (hashing is not an approved substitute).
+     - `customer_completion_events.source_event_id` MUST be **RETAINED** permanently as the deduplication key.
+7. **Frozen C4 Launch Retention Policy (`924a7f009d18bfeadd0944f5bca082548eac9e54`)**:
+   - Active customer PII: Retained until explicit Owner erasure (no automatic customer PII aging).
+   - Completion contact payload: Redacted to `'{}'::jsonb` after 30 days.
+   - Ingestion deduplication key (`source_event_id`): Retained permanently.
+   - Review request routing links: Expire after 90 days (fails closed, HTTP 410 HTML, unsubscribe remains operational).
+   - Unsubscribe capability & recipient evidence: Retained indefinitely.
+   - Messaging authority evidence: Retained indefinitely.
+   - Suppression registry (`suppressions`): Retained permanently per organization.
+   - Erasure certificates (`customer_erasure_records`): Retained permanently.
+   - Audit events (`audit_events`): Retained indefinitely in initial product stage.
+   - Financial & usage ledgers: Retained indefinitely while MR-5 billing is paused.
+   - Inactive tenants: Soft deactivation only (no hard tenant delete).
+   - Outbox (`domain_event_outbox`): `PENDING` never purged; `DISPATCHED` eligible after 30 days.
+8. **Operational Gating**:
+   - Live customer messaging remains strictly **DISABLED** (`ENABLE_LIVE_EMAIL=false`).
+   - SMS channel remains strictly **GATED** (no Twilio client, schema-gated only).
+   - Billing remains **PAUSED** under `MPG-DEC-049` (`ENABLE_STRIPE_LIVE_BILLING=false`).
+
+---
+
+## 3. Authoritative External Processor Inventory
+
+An exhaustive audit of `package.json`, environment variable specifications, provider abstractions, API routes, webhooks, and background workflows confirms the following five external processors interact with MPG Reputation data:
+
+| Processor Name | Vendor / Entity | SDK / Dependency | Functional Role in MPG Reputation | Customer Data Classification | Active Operational Status |
+|---|---|---|---|---|---|
+| **Resend** | Resend, Inc. | `resend@6.28.1` | Transactional email delivery, bounce/complaint webhooks, delivery monitoring | Direct PII (Recipient email, first name, message body), Pseudonymous IDs | Configured behind `ENABLE_LIVE_EMAIL=false` gate; active in synthetic test mode |
+| **Inngest** | Inngest Inc. | `inngest@4.20.0` | Durable serverless execution, delay queues, event orchestration, retention maintenance | Pseudonymous IDs (Event trigger), Direct PII (Workflow step return values — *Leakage identified*) | Active local & cloud orchestration; retention cron gated behind `ENABLE_RETENTION_MAINTENANCE=false` |
+| **Supabase** | Supabase, Inc. (AWS us-east-1) | `@supabase/supabase-js@2.116.0`, `@supabase/ssr@0.12.7` | Primary PostgreSQL database, Auth, RLS, automated daily backups, PITR | Full Database (Direct PII, Pseudonymous, Operational, Compliance, Audit) | Active primary persistent datastore |
+| **Vercel** | Vercel Inc. | `next@16.3.5` | Application hosting, edge compute, serverless route execution, runtime logs | Transient request context, Pseudonymous IDs, Potential logged error text | Active hosting platform |
+| **Stripe** | Stripe, Inc. | `stripe@22.6.2` | Subscription billing, checkout sessions, invoice webhooks | Organization billing contact, payment method tokens (Zero end-consumer review data) | Paused under `MPG-DEC-049`; live billing disabled (`ENABLE_STRIPE_LIVE_BILLING=false`) |
+
+### Non-Processor Verification (Audited & Excluded)
+- **Google**: MPG Reputation generates destination review links directing customers to Google Business Profiles (via `/r/[token]`). There are **no Google OAuth scopes, no Google API clients, no Google SDKs, and zero customer data transmissions to Google**. Google is a link destination, not a data processor.
+- **Twilio**: SMS capabilities are schema-gated. No Twilio package or API client is installed in `package.json`. No data is transmitted to Twilio.
+- **CRM / POS Connectors**: Ingestion routes (`/api/v1/completions`) receive inbound webhooks from external systems. MPG Reputation does not push data out to external CRMs (no outbound processor relationship).
+- **APM / Error Trackers (Sentry, Datadog, PostHog)**: Audited `package.json`. No external client telemetry, crash reporting, or analytics SDKs are installed.
+
+---
+
+## 4. Data Flow & Classification Map
+
+Data exchanged with external processors is classified into four security tiers:
+1. **DIRECT PII**: Unencrypted personal data directly identifying an individual natural person (customer first name, last name, email address, phone number, rendered email body/subject containing personal data).
+2. **PSEUDONYMOUS / LINKABLE DATA**: Opaque identifiers that do not reveal identity in isolation but allow record linkage across internal or external datasets (customer UUID, organization UUID, review request UUID, tracking token/hash, recipient evidence contact hash, provider message ID, `source_event_id`).
+3. **NON-PII OPERATIONAL DATA**: Generic telemetry, HTTP status codes, error categorizations, event counts, processing timestamps, and aggregate counters.
+4. **SECRETS / CREDENTIALS**: API keys, signing secrets, bearer tokens, service role keys, and database connection strings. *Invariant: Secrets must never enter logs, webhook payloads, or event step traces.*
+
+### Data Flow Diagram
+
+```mermaid
+flowchart TD
+    subgraph Client/Ingestion
+        POS[External POS / CRM / Quick Complete]
+    end
+
+    subgraph MPG Reputation Primary [Supabase us-east-1]
+        DB[(PostgreSQL Primary)]
+        CUST[customers: Direct PII]
+        CCE[customer_completion_events: Redacted at 30d]
+        RR[review_requests: Pseudonymous]
+        SUPP[suppressions: SHA-256 Hash]
+        ERASE[customer_erasure_records: Tombstones]
+        BAK[(Automated Backups / PITR)]
+    end
+
+    subgraph Orchestration [Inngest Cloud]
+        ING_EV[Event: Minimized 5 IDs]
+        ING_STEP[Step Traces: Contains Step Outputs]
+    end
+
+    subgraph Messaging [Resend]
+        RES_SEND[Send API: Email, Name, Body]
+        RES_LOG[Resend Logs: 30d Retention]
+        RES_HOOK[Webhook: Delivery/Bounce/Complaint]
+    end
+
+    subgraph Hosting [Vercel]
+        V_RUN[Next.js Serverless Execution]
+        V_LOG[Runtime Logs: 1h - 3d Natural Expiry]
+    end
+
+    subgraph Billing [Stripe - PAUSED]
+        STR_CUST[Org Payer Data Only]
+    end
+
+    POS -->|HTTPS Ingestion| V_RUN
+    V_RUN -->|SQL with RLS| DB
+    DB --> BAK
+    V_RUN -->|Emit 5 IDs| ING_EV
+    ING_EV --> ING_STEP
+    ING_STEP -->|Execute Workflow| V_RUN
+    V_RUN -->|Dispatch Email| RES_SEND
+    RES_SEND --> RES_LOG
+    RES_HOOK -->|Webhook HMAC| V_RUN
+    V_RUN --> V_LOG
+```
+
+---
+
+## 5. Resend Analysis (Transactional Email)
+
+### 5.1 What MPG Sends to Resend
+When `ResendEmailProvider.send(input)` executes ([`src/providers/email/resend.ts`](file:///E:/MPG-Reputation/src/providers/email/resend.ts)):
+- **Envelope / From**: Configured sender address with business display name (e.g., `"Northstar Dental via MPG Reputation" <reviews@configured-mpg-domain>`).
+- **To**: Recipient email address (**Direct PII**).
+- **Subject**: Neutral review request subject line, including customer first name and business name (**Direct PII**).
+- **Text & HTML Body**: Rendered neutral review request email body, containing customer first name, business name, review tracking link (`/r/[token]`), and unsubscribe link (`/r/unsubscribe/[token]`) (**Direct PII**).
+- **Headers / Reply-To**: Configured tenant reply-to address.
+- **Tags**: Strictly minimized internal correlation metadata:
+  ```json
+  [{ "name": "review_request_id", "value": "<uuid>" }]
+  ```
+  *Verified Invariant*: No customer name, email, tracking URL, review destination, or organization name is attached to tags.
+- **Idempotency Key**: Bounded dispatch idempotency key (`idempotencyKey`).
+
+### 5.2 What Resend Sends to MPG (Webhooks)
+Webhook events received at [`/api/webhooks/resend`](file:///E:/MPG-Reputation/src/app/api/webhooks/resend/route.ts):
+- `type`: Event type (`email.sent`, `email.delivered`, `email.bounced`, `email.complained`, `email.opened`, `email.clicked`).
+- `data.email_id`: Provider message ID (**Pseudonymous**).
+- `data.to`: Array of recipient email addresses (**Direct PII** on the wire, verified via HMAC, used to calculate SHA-256 suppression hash, then discarded; not stored in `message_events`).
+- `data.tags`: Tag array containing `review_request_id`.
+- `data.created_at`: Provider event timestamp.
+
+### 5.3 Resend Operational Retention & Backups
+*Official Evidence*: Grounded via Resend API Documentation, Privacy Notice, and Data Processing Addendum (resend.com/docs):
+- **Email Body & Delivery Logs Retention**:
+  - **Free, Pro, Scale Plans**: **30 days**. All sent email content, recipient metadata, and event logs are permanently deleted 30 days after dispatch.
+  - **Enterprise Plan**: Configurable/flexible retention window upon request.
+  - **Content Storage Opt-Out**: Resend offers an optional feature ($50/month add-on) to **"Disable email content storage"**, which prevents Resend from storing email bodies entirely, retaining only metadata and delivery status for 30 days.
+- **Backup Retention**: Resend system backups retain data for **7 days**.
+- **Post-Account Termination**: If the MPG Resend account is terminated, all remaining customer data is deleted within **90 days**.
+
+### 5.4 Individual Deletion Capability
+- **Public REST API**: **NOT AVAILABLE**. Resend provides no endpoint to delete individual messages, logs, or recipient records via REST API or SDK.
+- **Dashboard**: **NOT AVAILABLE**. The Resend dashboard does not provide an individual email deletion button.
+- **Support-Assisted**: Available upon escalated privacy request to Resend Support (`privacy@resend.com` / `support@resend.com`).
+- **Classification**: **Category C — NATURAL EXPIRY ONLY** (30-day operational retention window controls data removal).
+
+### 5.5 Customer Erasure Relationship
+When MPG erases a customer row (`execute_customer_erasure`):
+- Resend is **not** immediately invoked via API because no deletion endpoint exists.
+- The external identifier stored in `message_events` is `provider_message_id`.
+- The email and message body stored at Resend will naturally expire and be purged by Resend's 30-day lifecycle.
+- *Frozen C3C Policy Alignment*: Resend message deletion does not require `source_customer_id` or `source_transaction_id` (both are NULLed in MPG upon erasure). If early manual deletion were escalated to Resend Support, only `provider_message_id` and recipient email address would be required.
+
+---
+
+## 6. Inngest Analysis (Background Orchestration)
+
+### 6.1 What MPG Sends to Inngest (Event Triggers)
+In MR-7B.3, the event payload for `customer.completed` was minimized to strictly five opaque identifiers ([`src/inngest/events.ts`](file:///E:/MPG-Reputation/src/inngest/events.ts)):
+```json
+{
+  "name": "customer.completed",
+  "data": {
+    "eventId": "<uuid>",
+    "organizationId": "<uuid>",
+    "locationId": "<uuid>",
+    "customerId": "<uuid>",
+    "sourceEventId": "<string>"
+  }
+}
+```
+*Verified Invariant*: The trigger event payload contains zero customer names, email addresses, phone numbers, or contact payloads.
+
+### 6.2 Critical Repository Finding: Step Return Value PII Leakage
+A detailed source code audit of [`src/inngest/functions/review-request.ts`](file:///E:/MPG-Reputation/src/inngest/functions/review-request.ts) revealed that **Inngest Cloud step execution outputs still capture Direct PII**:
+
+1. **Step `evaluate-initial-eligibility`** (lines 207–210):
+   ```typescript
+   return {
+     eligible: true,
+     customerName: eligibility.customer.firstName,  // <-- DIRECT PII
+     customerEmail: eligibility.customer.email,      // <-- DIRECT PII
+     deliveryChannel: eligibility.deliveryChannel,
+   }
+   ```
+2. **Step `evaluate-post-delay-eligibility`** (lines 405–408):
+   ```typescript
+   return {
+     eligible: true,
+     customerName: eligibility.customer.firstName,  // <-- DIRECT PII
+     customerEmail: eligibility.customer.email,      // <-- DIRECT PII
+     deliveryChannel: eligibility.deliveryChannel,
+   }
+   ```
+3. **Step `dispatch-review-email`** (lines 1061 & 1111):
+   `dispatch-review-email` returns the complete `SendEmailResult` object returned by `EmailProvider.send()`, which explicitly includes:
+   ```typescript
+   {
+     success: true,
+     provider: 'resend',
+     messageId: response.data?.id,
+     renderedSubject: finalSubject,  // <-- DIRECT PII (Contains customer first name)
+     renderedBody: textBody          // <-- DIRECT PII (Contains customer first name, email text)
+   }
+   ```
+4. **Step `dispatch-review-reminder`** (line 1542):
+   Returns the reminder `SendEmailResult` including `renderedSubject` and `renderedBody` (**Direct PII**).
+
+Because Inngest's execution architecture serializes every `step.run()` return value and stores it in the Inngest Cloud run history, **customer names, email addresses, and rendered message content are currently stored in Inngest Cloud run traces**.
+
+> [!WARNING]
+> **PRIVACY CORRECTION REQUIRED (MR-7C.5B Remediated Action)**:
+> Inngest step return values must be stripped of PII. Steps must return opaque operational confirmations (`{ eligible: true, deliveryChannel: 'email' }` and `{ success: true, provider: 'resend', messageId: '...' }`). Direct PII must remain ephemeral inside the step closure or be resolved at the immediate point of dispatch.
+
+### 6.3 Inngest Operational Retention & Limits
+*Official Evidence*: Grounded via Inngest Documentation (inngest.com/docs/platform/limits):
+- **Event & Run Trace History Retention**:
+  - **Free Plan**: **24 hours**.
+  - **Pro Plan**: **7 days**.
+  - **Business Plan**: **14 days**.
+  - **Enterprise Plan**: Up to **365 days** (configurable contractual retention).
+- **Event Idempotency Key TTL**: **24 hours**.
+- **Run Cancellation**: In-flight runs can be cancelled via API (`inngest.runs.cancel`) or Dashboard, but cancellation halts execution—it does not delete historical run logs.
+- **Individual Run/Trace Deletion**: **NOT AVAILABLE**. Inngest provides no API endpoint, SDK method, or dashboard control to delete individual historical runs, events, or step outputs.
+- **Classification**: **Category C — NATURAL EXPIRY ONLY**. Data disappears upon expiration of the plan-specific trace retention window.
+- **Account Verification Status**: **PLAN / EFFECTIVE CONFIGURATION VERIFICATION REQUIRED**. The exact retention window (24h, 7d, 14d, or 365d) depends on MPG's active Inngest subscription tier.
+
+### 6.4 Customer Erasure Relationship
+- Customer erasure in MPG cannot trigger an individual Inngest run deletion.
+- Inngest run data naturally expires according to the plan retention window.
+- In MR-7C.5B, eliminating PII from step return values ensures that Inngest Cloud retains only opaque UUIDs (`customerId`, `reviewRequestId`), rendering Inngest run history completely pseudonymous and non-sensitive during its natural expiry window.
+
+---
+
+## 7. Supabase Analysis (Database, Backups & PITR)
+
+### 7.1 Primary Database & Storage
+- **Region**: AWS `us-east-1` (North Virginia).
+- **Engine**: PostgreSQL 15.x / 16.x managed by Supabase.
+- **Data Stored**: Full MPG Reputation dataset, including `customers`, `customer_completion_events`, `review_requests`, `suppressions`, `customer_erasure_records`, and audit ledgers.
+- **Storage Buckets**: Audited schema and application code. MPG Reputation does **not** use Supabase Storage buckets (no customer files, documents, or media stored).
+
+### 7.2 Supabase Backup Architecture & Retention
+*Official Evidence*: Grounded via Supabase Documentation (supabase.com/docs/guides/platform/backups):
+- **Automated Daily Backups (Logical/Physical Snapshots)**:
+  - **Free Plan**: None or limited to 1–2 days.
+  - **Pro Plan**: **7 days**.
+  - **Team Plan**: **14 days**.
+  - **Enterprise Plan**: Up to **30 days**.
+- **Point-in-Time Recovery (PITR)**:
+  - Optional physical backup add-on using continuous WAL (Write-Ahead Logging) archiving.
+  - Allows restoring the database to any specific second within the retention window (typically 7, 14, or 28 days).
+  - When PITR is enabled, standard daily logical backups are replaced by continuous physical WAL archiving.
+- **Account Verification Status**: **ACCOUNT CONFIGURATION VERIFICATION REQUIRED**. Verification is required to determine whether MPG's hosted project is on Pro (7d), Team (14d), or Enterprise (30d), and whether PITR is enabled.
+
+### 7.3 Individual Record Deletion in Backups
+- **Technical Reality**: Database backups are monolithic, immutable snapshots of the entire relational cluster at a given point in time.
+- **Individual Deletion**: **IMPOSSIBLE**. Neither Supabase nor standard relational database technology supports surgically modifying or deleting an individual customer row within an existing historical backup without invalidating cryptographic checksums and WAL continuity.
+- **Classification**: **Category D — BACKUP / DISASTER-RECOVERY COPY**.
+- **Natural Expiry**: Backup copies naturally cycle out and are overwritten at the end of the backup retention window (7 to 30 days).
+
+### 7.4 The Backup Resurrection Hazard & Post-Restore Reconciliation
+A critical privacy invariant must be enforced:
+> [!CAUTION]
+> **CRITICAL PRIVACY INVARIANT**:
+> **A backup restoration must NEVER silently resurrect customer PII that was previously erased.**
+
+If MPG restores a database backup created prior to a customer erasure:
+1. The restored database will contain the pre-erasure customer row with original PII (`first_name`, `email`, `phone`).
+2. The restored database will lack the `customer_erasure_records` tombstone entry created after the backup timestamp.
+3. If the application is brought online without reconciliation, erased customers could be contacted, exported, or processed in violation of privacy commitments.
+
+### 7.5 Authoritative Post-Restore Privacy Reconciliation Procedure
+To prevent resurrection of erased data, the following operational procedure is mandated prior to returning any restored database to live service:
+
+```mermaid
+sequenceDiagram
+    participant Ops as Operations Engineer
+    participant SafeDB as Restored DB (Offline Mode)
+    participant Offsite as Offsite Erasure Registry
+    participant App as MPG Reputation App
+
+    Ops->>SafeDB: 1. Restore Database into Isolated Maintenance Mode
+    Note over SafeDB: App offline; networking restricted to admin VPC
+    Ops->>Offsite: 2. Extract All Post-Backup Erasure Records & Suppressions
+    Offsite-->>Ops: Return historical erasure certificates & suppression hashes
+    Ops->>SafeDB: 3. Re-execute execute_customer_erasure RPC for all post-backup erasures
+    SafeDB-->>SafeDB: Reapply tombstones, NULL contact payloads, scrub error text
+    Ops->>SafeDB: 4. Reinsert any missing SHA-256 suppression hashes into suppressions table
+    Ops->>SafeDB: 5. Execute Privacy Verification Audit (Verify no un-tombstoned erased rows)
+    SafeDB-->>Ops: Verification passed: Zero resurrected PII
+    Ops->>App: 6. Re-enable public routing and background workers
+```
+
+**Post-Restore Reconciliation Rules**:
+1. **Isolated Maintenance State**: Any restored database instance must be placed in maintenance mode (`APP_OFFLINE=true`, zero public traffic, background workers stopped).
+2. **Reapply Erasures**: All erasure certificates from the authoritative audit log or secondary append-only log must be replayed using `public.execute_customer_erasure()`.
+3. **Reapply Suppressions**: All suppression records added after the backup timestamp must be merged into `public.suppressions`.
+4. **Verification Gate**: Automated verification queries must confirm that every customer referenced in `customer_erasure_records` has `first_name = '[Deleted Customer]'`, `email IS NULL`, and `phone IS NULL`.
+5. **Authoritative Return to Service**: The system may only transition to active service after privacy reconciliation passes.
+
+---
+
+## 8. Vercel Analysis (Hosting & Runtime Logging)
+
+### 8.1 Hosting & Runtime Logs
+- **Platform**: Vercel Serverless / Edge Runtime.
+- **Data Transiting**: Next.js route handlers (`/api/v1/completions`, `/api/webhooks/*`, `/r/[token]`, Server Actions).
+- **Runtime Log Retention Schedules** (*Official Evidence via vercel.com/docs*):
+  - **Hobby Plan**: **1 hour**.
+  - **Pro Plan**: **1 day** (or **30 days** if Observability Plus is enabled).
+  - **Enterprise Plan**: **3 days** (or **30 days** if Observability Plus is enabled).
+  - **Log Drains**: If configured, real-time logs can be drained to external endpoints (Datadog, S3, Axiom). *Verified*: No Log Drains are configured in the MPG repository.
+- **Account Verification Status**: **ACCOUNT CONFIGURATION VERIFICATION REQUIRED** (confirm whether MPG is Pro, Pro + Observability Plus, or Enterprise).
+
+### 8.2 Repository Logging Audit
+An exhaustive search for `console.log`, `console.error`, and `console.warn` across `src/` yielded the following findings:
+1. **`ConsoleEmailProvider`** ([`src/providers/email/console.ts`](file:///E:/MPG-Reputation/src/providers/email/console.ts)):
+   - Logs `To: ${input.to}`, `Subject: ${finalSubject}`, and `Body: ${body}` directly to console.
+   - *Assessment*: This provider is designed strictly for local offline development. In staging or preview environments on Vercel, if `ConsoleEmailProvider` were selected, raw customer PII would be written to Vercel runtime logs.
+   - *C5B Hardening Recommendation*: Add an environment assertion ensuring `ConsoleEmailProvider` immediately throws an exception if `NODE_ENV === 'production'`.
+2. **Production API & Webhook Routes**:
+   - [`/api/webhooks/resend`](file:///E:/MPG-Reputation/src/app/api/webhooks/resend/route.ts): Logs status codes, event types, and error strings (`dedupErr.message`, `casResult.error`). Does not log raw request bodies or customer contact fields.
+   - [`/api/webhooks/stripe`](file:///E:/MPG-Reputation/src/app/api/webhooks/stripe/route.ts): Logs operational status and payload conflict events without personal data.
+   - [`/r/[token]`](file:///E:/MPG-Reputation/src/app/r/[token]/route.ts): Logs generic error messages without query parameters or customer tokens.
+   - [`/domain/completion/api-handler.ts`](file:///E:/MPG-Reputation/src/domain/completion/api-handler.ts): Logs operational stage failures with error codes. Raw contact payloads are not logged.
+3. **Inngest Review Request Functions** ([`src/inngest/functions/review-request.ts`](file:///E:/MPG-Reputation/src/inngest/functions/review-request.ts)):
+   - Line 1064: `console.error('Email dispatch error; marking review request FAILED for retry:', errorMsg)`.
+   - *Risk Assessment*: If Resend returns an error string echoing the recipient's email address (e.g., `"Invalid email address: customer@example.com"`), `errorMsg` could carry customer PII into Vercel runtime logs.
+   - *C5B Hardening Recommendation*: Pass `errorMsg` through a sanitization helper that strips email patterns before logging.
+
+### 8.3 Individual Deletion in Vercel Logs
+- **Public API / CLI / Dashboard**: **NOT AVAILABLE**. Vercel does not support deleting individual log lines from runtime logs.
+- **Classification**: **Category C — NATURAL EXPIRY ONLY** (expires within 1 hour to 3 days depending on plan).
+
+---
+
+## 9. Stripe Analysis (Billing & Payments — PAUSED)
+
+### 9.1 Role & Status in MPG Reputation
+- **Milestone Status**: Milestone MR-5 (Commercial Infrastructure / Billing) is **PAUSED** under `MPG-DEC-049`.
+- **Operational Gate**: Live billing is disabled in code:
+  `ENABLE_STRIPE_LIVE_BILLING !== 'true'`
+  Webhook handler rejects live events with HTTP 503 (`Live billing is disabled`).
+- **Data Scope**: Stripe processes **organization billing entities** (B2B tenant subscription contacts, corporate credit cards, billing addresses). **Stripe never receives, processes, or stores end-consumer review recipients (`customers` table)**.
+
+### 9.2 Retention & Deletion Capabilities
+*Official Evidence via stripe.com/docs/privacy/deletion-requests*:
+- **Individual Deletion API**: Available via `stripe.customers.del(customerId)`.
+- **Dashboard Redaction Jobs**: Stripe provides an administrative redaction framework to permanently redact customer PII.
+- **Statutory Financial Retention**: Stripe is legally required under anti-money laundering (AML), tax, and financial regulations to retain transaction ledgers, invoices, and payment dispute histories for statutory periods (typically 5 to 7 years).
+- **Classification**: **Category A — IMMEDIATE PROGRAMMATIC DELETE AVAILABLE** (for organization billing contacts), with underlying statutory financial retention.
+- **Customer Erasure Impact**: End-consumer customer erasure in MPG Reputation has **zero relationship with Stripe**, because consumer review recipients never enter Stripe.
+
+---
+
+## 10. Master External Processor Erasure & Retention Matrix
+
+The table below synthesizes the complete retention and deletion architecture across all external processors:
+
+| Processor | Data Sent | PII Level | Primary Retention Window | Backup Retention Window | Individual Deletion Available? | Deletion Mode | Erasure Action Required? | Evidence Level | Remaining Risk / Note |
+|---|---|---|---|---|---|---|---|---|---|
+| **Resend** | Recipient email, first name, rendered review email body & subject, tags (`review_request_id`) | **DIRECT PII** | 30 days (Free/Pro/Scale); Configurable (Enterprise) | 7 days | **NO** (No REST API or SDK delete) | **Category C** (Natural Expiry Only) | **None** (Expires naturally at 30 days) | **VERIFIED — OFFICIAL DOC** | Body content storage can be disabled via $50/mo add-on. Manual early deletion requires Resend Support. |
+| **Inngest** | Event trigger (5 opaque IDs); Step outputs (`customerName`, `customerEmail`, `renderedSubject`, `renderedBody`) | **DIRECT PII** (*In Step Outputs*) | 24h (Free), 7d (Pro), 14d (Business), up to 365d (Enterprise) | N/A (Cloud state) | **NO** (Cancellation only; no run trace deletion API) | **Category C** (Natural Expiry Only) | **Remediate in MR-7C.5B** (Strip PII from step return values) | **VERIFIED — REPOSITORY & OFFICIAL DOC** | PII leakage in step returns must be fixed in C5B so Inngest retains only opaque IDs. |
+| **Supabase** | Full relational database (customers, completions, requests, suppressions, evidence, ledgers) | **DIRECT PII** (Primary Store) | Retained until explicit erasure or lifecycle aging | 7d (Pro), 14d (Team), 30d (Enterprise); PITR continuous WAL | **YES (Primary DB)**; **NO (Backups)** | **Category A (Primary)**; **Category D (Backups)** | **Primary DB**: `execute_customer_erasure` RPC. **Backups**: Post-Restore Reconciliation. | **VERIFIED — REPOSITORY & OFFICIAL DOC** | Restoring an old backup could resurrect erased PII unless Post-Restore Reconciliation is executed. |
+| **Vercel** | Request bodies, query strings, headers, console log output, error traces | **TRANSIENT / POTENTIAL PII** | 1h (Hobby), 1d (Pro), 3d (Enterprise); 30d (Observability Plus) | N/A | **NO** (No per-record log deletion) | **Category C** (Natural Expiry Only) | **None** (Logs expire naturally; harden error logging in C5B) | **VERIFIED — OFFICIAL DOC** | Ensure `ConsoleEmailProvider` cannot run in production; sanitize error logs. |
+| **Stripe** | Tenant billing contacts, payment tokens, invoices (Zero review customer data) | **B2B PII / FINANCIAL** | Retained per active subscription + statutory tax/AML retention | Per Stripe infrastructure | **YES** (`stripe.customers.del()`, Dashboard Redaction) | **Category A** (Programmatic API Delete) | **None** (End-consumer reviews never enter Stripe; billing paused) | **VERIFIED — OFFICIAL DOC** | Paused under `MPG-DEC-049`. No end-consumer review data processed. |
+
+---
+
+## 11. Deletion Mode Classification & Architectural Policies
+
+Every copy of data outside the primary database table row is classified into one of five standard deletion modes:
+
+### Mode A — Immediate Programmatic Delete Available
+- **Definition**: The provider exposes an official, supported REST API or SDK method allowing MPG to programmatically delete an individual record upon demand.
+- **Processors**: Supabase primary database (`DELETE` / RPC update), Stripe (`stripe.customers.del()` for billing entities).
+
+### Mode B — Manual / Support-Assisted Delete
+- **Definition**: Programmatic per-record deletion is not exposed via API, but individual record erasure can be performed via administrative dashboard or by submitting an authenticated request to vendor data protection/support teams.
+- **Processors**: Resend (escalated requests to `privacy@resend.com`), Stripe (Dashboard Redaction jobs).
+
+### Mode C — Natural Expiry Only
+- **Definition**: The provider provides no per-record deletion mechanism whatsoever. All data persisted by the provider disappears automatically upon expiration of the provider's fixed operational retention window.
+- **Processors**: Resend (30-day email & log lifecycle), Inngest (24h to 14d run trace history), Vercel (1h to 3d runtime logs).
+- **MPG Policy**: MPG relies on natural provider expiration for transient delivery and orchestration traces, provided the underlying payload is minimized and no long-term profiling occurs.
+
+### Mode D — Backup / Disaster-Recovery Copy
+- **Definition**: Monolithic, immutable backup copies that cannot be modified on an individual record basis. Data expires as backup cycles roll over (7 to 30 days).
+- **Processors**: Supabase automated daily backups and PITR WAL archives, Resend system backups (7 days).
+- **MPG Policy**: Immutable backups are protected by the **Post-Restore Privacy Reconciliation Procedure** (Section 7.5). Backups are never altered directly; instead, restored environments are reconciled before entering service.
+
+### Mode E — Must Not Contain PII
+- **Definition**: Architectural boundary where personal data is strictly prohibited from entering.
+- **Processors**: Inngest event triggers (enforced in MR-7B.3), Vercel production logs, Resend correlation tags.
+- **MPG Policy**: Any personal data identified in a Mode E component represents an architectural defect requiring remediation.
+
+---
+
+## 12. Provider Account Evidence Gaps & Owner Verification Requirements
+
+Where vendor retention periods depend on specific plan configurations or account settings that cannot be safely inspected from local source code, they are recorded as **ACCOUNT CONFIGURATION VERIFICATION REQUIRED**:
+
+| Provider | Configuration Item to Verify | Impact on Data Retention | Action Required by Owner Prior to Launch |
+|---|---|---|---|
+| **Resend** | Active Subscription Tier (Free, Pro, Scale, or Enterprise) | Determines whether email/log retention is strictly 30 days or custom | Verify in Resend Dashboard -> Billing. |
+| **Resend** | "Disable email content storage" Add-on ($50/mo) | When active, prevents Resend from storing email body content entirely | Owner commercial decision whether to purchase prior to live messaging. |
+| **Inngest** | Active Plan Tier (Free, Pro, Business, or Enterprise) | Determines run trace retention (24h vs 7d vs 14d vs 365d) | Verify in Inngest Cloud Dashboard -> Organization Settings. |
+| **Supabase** | Active Plan Tier (Pro, Team, or Enterprise) & PITR Status | Determines backup retention (7d vs 14d vs 30d) and point-in-time recovery | Verify in Supabase Dashboard -> Database -> Backups. |
+| **Vercel** | Active Plan Tier (Pro vs Enterprise) & Observability Plus | Determines runtime log retention (1d vs 3d vs 30d) | Verify in Vercel Dashboard -> Project Settings -> Observability. |
+| **Stripe** | Account Eligibility & Verification (MR-5 dependency) | Prerequisites for unpausing commercial billing under `MPG-DEC-049` | Remains paused; resolve independently before MR-8. |
+
+---
+
+## 13. Required MR-7C.5B Engineering Actions (Hardening Plan)
+
+Based on the evidence discovered in MR-7C.5A, the following bounded engineering tasks are recommended for implementation in **MR-7C.5B**:
+
+1. **Inngest Step Return Value Minimization**:
+   - Refactor `evaluate-initial-eligibility` and `evaluate-post-delay-eligibility` in [`src/inngest/functions/review-request.ts`](file:///E:/MPG-Reputation/src/inngest/functions/review-request.ts) to return strictly:
+     ```typescript
+     { eligible: true, deliveryChannel: eligibility.deliveryChannel }
+     ```
+     Omit `customerName` and `customerEmail`.
+   - Refactor `dispatch-review-email` and `dispatch-review-reminder` to return an opaque operational result:
+     ```typescript
+     { success: true, provider: result.provider, messageId: result.messageId }
+     ```
+     Strip `renderedSubject` and `renderedBody` so that email content is not recorded in Inngest Cloud run history.
+2. **Error Logging Sanitization**:
+   - In [`src/inngest/functions/review-request.ts`](file:///E:/MPG-Reputation/src/inngest/functions/review-request.ts), wrap error strings logged via `console.error` in a sanitization helper that redacts email patterns and customer names.
+3. **Environment Guard on `ConsoleEmailProvider`**:
+   - In [`src/providers/email/console.ts`](file:///E:/MPG-Reputation/src/providers/email/console.ts), assert that `process.env.NODE_ENV !== 'production'`, preventing accidental local-provider selection in hosted Vercel environments.
+4. **Verification Test Suite for External Minimization**:
+   - Add unit tests verifying that serialized Inngest step outputs and event payloads contain zero email addresses, phone numbers, or personal names.
+
+---
+
+## 14. Manual & Provider-Support Actions
+
+If an individual data subject exercises an out-of-cycle right to immediate erasure that cannot await natural 30-day provider expiration:
+1. **Primary Database**: Execute standard OWNER-authenticated customer erasure via Next.js Server Action (`executeCustomerErasureAction`).
+2. **Resend Escalation**: If the customer specifically demands erasure of email logs prior to the 30-day window:
+   - Locate the relevant `provider_message_id` values from `public.message_events` associated with the customer's historical review requests.
+   - Submit an authenticated request to `privacy@resend.com` citing the Message IDs and requesting immediate purge of email logs.
+3. **Account Termination Protocol**:
+   - In the event of MPG Reputation decommissioning, submit account termination requests to Resend (triggers 90-day complete purge), Inngest, and Supabase.
+
+---
+
+## 15. Deferred Legal & Commercial Decisions
+
+The following items are outside the technical scope of MR-7C.5A and are deferred to Owner and Company OS governance:
+1. **Resend Content Storage Add-on Purchase**: Deciding whether to spend $50/month to disable email body storage on Resend.
+2. **Statutory Retention Policies**: Determining statutory compliance durations under GDPR Article 17, CCPA § 1798.105, CAN-SPAM Act, and CASL (governed in `E:\MPG`).
+3. **Inngest Enterprise Retention Term**: Selecting the contractual retention term if an Inngest Enterprise agreement is negotiated.
+4. **Resumption of MR-5 Billing**: Billing provider account eligibility and KYC verification remain paused under `MPG-DEC-049`.
+
+---
+
+## 16. Explicit Non-Actions in MR-7C.5A
+
+To maintain strict boundary integrity and preserve production safety, the following actions were **NOT** performed in MR-7C.5A:
+- **Zero Live Deletions**: No Resend emails or logs were deleted. No Inngest runs or events were deleted. No Supabase records or backups were deleted. No Vercel logs were altered.
+- **Zero Provider Setting Changes**: No settings, retention windows, or webhook URLs were modified in Resend, Inngest, Supabase, Vercel, or Stripe.
+- **Zero Plan Upgrades/Downgrades**: No provider subscriptions or billing plans were changed.
+- **Zero Credential Changes**: No API keys, signing secrets, or database credentials were added, rotated, or exposed.
+- **Zero Production Environment Variable Changes**: No hosted environment variables were modified.
+- **Zero Hosted Migrations or Deployments**: No database migrations were executed against hosted Supabase; no code was deployed to Vercel.
+- **Zero Invariant Weakening**: All C3B/C3C erasure invariants and C4 retention policies remain 100% intact.

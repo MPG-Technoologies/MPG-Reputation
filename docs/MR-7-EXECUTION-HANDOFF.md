@@ -291,23 +291,25 @@
    - **MR-7C.3C (Delivery)**: Customer Erasure Delivery Surface *(OWNER ACCEPTED — `50e1bcf0fa833d9be16471c3b748a464e9ea5b76`)*
 4. **MR-7C.4**: Retention + Automatic Aging/Purge Controls
    - **MR-7C.4A**: Retention Requirements + Data-Class Decision Matrix *(OWNER ACCEPTED / FROZEN — `924a7f009d18bfeadd0944f5bca082548eac9e54`)*
-   - **MR-7C.4B1**: Frozen Retention Controls Foundation *(ENGINEERING COMPLETE / READY FOR OWNER REVIEW)*
-   - **MR-7C.4B2**: Multi-Tenant Maintenance Workflows & Bounded Scheduling *(FUTURE)*
-5. **MR-7C.5**: Processor Deletion/Retention Reconciliation *(FUTURE)*
+   - **MR-7C.4B1**: Frozen Retention Controls Foundation *(OWNER ACCEPTED — `dd9af1a7630da5c802b10b9c2345b8b525542d63`)*
+   - **MR-7C.4B2**: Multi-Tenant Maintenance Workflows & Bounded Scheduling *(OWNER ACCEPTED — `17ff5bc331b225eb589694607754ac58f30e2473`)*
+5. **MR-7C.5**: Processor Deletion/Retention Reconciliation
+   - **MR-7C.5A**: External Processor Data Map + Retention / Deletion Contract *(ENGINEERING COMPLETE / READY FOR OWNER REVIEW)*
+   - **MR-7C.5B**: External Processor Privacy Hardening & Verification *(FUTURE)*
 
 ---
 
 ## 6. Rollback Implications
 
-If rollback of MR-7C.4B1 is required:
-1. Revert `src/domain/privacy/retention-controls.ts`, `src/app/r/[token]/route.ts`, and `test/domain/retention-controls.test.ts`.
-2. As MR-7C.4B1 introduced zero database migrations, zero schema changes, and zero scheduled cron jobs, rollback requires zero database rollback scripts or data repairs.
+If rollback of MR-7C.5A is required:
+1. Revert `docs/MR-7C5-EXTERNAL-PROCESSOR-RETENTION-MAP.md`, `docs/MR-7C-PRIVACY-LIFECYCLE-CONTRACT.md`, and `docs/MR-7-EXECUTION-HANDOFF.md`.
+2. As MR-7C.5A is an architecture, evidence, and documentation slice, rollback introduces zero code breaks, zero database rollback scripts, and zero migration repairs.
 
 ---
 
 ## 7. Owner Gate
 
-- **Milestone Status**: MR-7 is ACTIVE; MR-7B.1, MR-7B.2, MR-7B.3, MR-7C.1, MR-7C.2, MR-7C.3A, MR-7C.3B, MR-7C.3C External Identifier Erasure, MR-7C.3C Customer Erasure Delivery Surface, MR-7C.4A Retention Requirements + Data-Class Decision Matrix, and MR-7C.4B1 Initial Retention Controls Foundation (`dd9af1a7630da5c802b10b9c2345b8b525542d63`) are **OWNER ACCEPTED**; MR-7C.4B2 Bounded Retention Maintenance Workflow is **ENGINEERING COMPLETE / READY FOR OWNER REVIEW**.
+- **Milestone Status**: MR-7 is ACTIVE; MR-7B.1, MR-7B.2, MR-7B.3, MR-7C.1, MR-7C.2, MR-7C.3A, MR-7C.3B, MR-7C.3C External Identifier Erasure, MR-7C.3C Customer Erasure Delivery Surface, MR-7C.4A Retention Requirements + Data-Class Decision Matrix, MR-7C.4B1 Initial Retention Controls Foundation (`dd9af1a7630da5c802b10b9c2345b8b525542d63`), and MR-7C.4B2 Bounded Retention Maintenance Workflow (`17ff5bc331b225eb589694607754ac58f30e2473`) are **OWNER ACCEPTED**; MR-7C.5A External Processor Retention Map is **ENGINEERING COMPLETE / READY FOR OWNER REVIEW**.
 - **Customer Erasure Authority**: Frozen by Owner Decision to **OWNER ONLY**.
 - **External Identifier Erasure Policy**: Resolved by Owner Decision (`source_customer_id = NULL`, `source_transaction_id = NULL`, `source_event_id = RETAIN`).
 - **Frozen Retention Policy**:
@@ -327,5 +329,5 @@ If rollback of MR-7C.4B1 is required:
 - **Live messaging remains disabled** (`ENABLE_LIVE_EMAIL=false`).
 - **Live billing remains paused** under `MPG-DEC-049`.
 - **Controlled Pilot (MR-8) remains strictly GATED**.
-- Feature branch `chatgpt/mr7c4b2-retention-maintenance` contains the MR-7C.4B2 bounded retention maintenance workflow branched from accepted C4B1 (`dd9af1a7630da5c802b10b9c2345b8b525542d63`).
+- Feature branch `chatgpt/mr7c5a-processor-retention-map` contains the MR-7C.5A external processor retention map branched from accepted C4B2 (`17ff5bc331b225eb589694607754ac58f30e2473`).
 - **Hosted application or migration is NOT authorized**. Live messaging activation, billing activation, automated purging, and deployment remain strictly unauthorized.

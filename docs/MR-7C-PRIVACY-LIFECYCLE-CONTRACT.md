@@ -302,13 +302,24 @@ graph LR
        - Financial and usage ledgers retained indefinitely while MR-5 billing is paused.
        - Inactive tenants soft-deactivated only (no hard tenant deletes).
        - Domain event outbox: PENDING never purged; DISPATCHED eligible for purge after 30 days.
-   - **MR-7C.4B1: Frozen Retention Controls Foundation (ENGINEERING COMPLETE / READY FOR OWNER REVIEW)**:
+   - **MR-7C.4B1: Frozen Retention Controls Foundation (OWNER ACCEPTED at `dd9af1a7630da5c802b10b9c2345b8b525542d63`)**:
      - Implemented initial executable retention controls foundation in `src/domain/privacy/retention-controls.ts`.
      - **Completion Contact Redaction**: `redactAgedCompletionContacts` safely sets `contact = '{}'::jsonb` on completions older than 30 days; preserves `source_event_id`, timestamps, and operational records; records aggregate audit event with zero raw PII.
      - **Review Link Expiration**: `isReviewRequestLinkExpired` in `src/app/r/[token]/route.ts` enforces 90-day validity window from authoritative request timestamp (`sent_at ?? created_at`), rendering a safe, accessible HTTP 410 Gone page with zero internal IDs.
      - **Dispatched Outbox Aging**: `purgeDispatchedDomainOutbox` purges `domain_event_outbox` records where `status = 'DISPATCHED'` and `dispatched_at` is older than 30 days in bounded batches; strictly guards `PENDING` and failed records from deletion; records aggregate audit event.
      - **Permanent-Retention Guards**: Runtime assertion `assertProtectedClassImmunity` and test suite verify all 9 permanent retention classes (`suppressions`, `review_request_recipient_evidence`, `messaging_authority_evidence`, `customer_erasure_records`, `audit_events`, `usage_ledger`, `cost_ledger`, `organization_usage`, `customer_completion_events.source_event_id`) are strictly protected from purge routines.
-     - **Test Verification**: 25 comprehensive domain tests in `test/domain/retention-controls.test.ts`. Zero production scheduler activation.
-   - **MR-7C.4B2 (Future Engineering Slice)**: Parameterized multi-tenant maintenance workflows and bounded scheduling activation.
+     - **Test Verification**: 25 domain tests in `test/domain/retention-controls.test.ts` and 15 PostgreSQL integration tests in `test/integration/retention-controls.test.ts`. Zero production scheduler activation.
+   - **MR-7C.4B2: Bounded Multi-Tenant Retention Maintenance Workflow (ENGINEERING COMPLETE / READY FOR OWNER REVIEW)**:
+     - Implemented server-side bounded coordinator in `src/domain/privacy/retention-maintenance.ts` (`executeMultiTenantRetentionMaintenance`).
+     - Scheduled Inngest function in `src/inngest/functions/retention-maintenance.ts` (`retentionMaintenanceWorkflow`) registered in `src/app/api/inngest/route.ts`.
+     - Bounded batch limits: default organization page size 50 (max 200), contact redaction batch 100 (max 500), outbox purge batch 100 (max 500). Deterministic cursor pagination with `id > lastSeenOrgId`.
+     - Tenant & failure isolation: executes per tenant, catches and sanitizes per-tenant errors without aborting or rolling back other tenants.
+     - Zero PII aggregate response: returns safe aggregate operational counters only with zero customer PII, secrets, or internal stack traces.
+     - Overlap safety: Inngest `concurrency: 1` prevents overlapping maintenance runs.
+     - Feature flag guard: **STRICTLY DISABLED BY DEFAULT** via `ENABLE_RETENTION_MAINTENANCE === 'true'`. Handler and coordinator no-op / return `SKIPPED_DISABLED` when disabled.
+     - Daily cadence: `'0 3 * * *'` (03:00 UTC) defined as an implementation default. Schedule cadence does not modify frozen retention cutoffs (30-day contacts, 90-day review links, 30-day dispatched outbox).
+     - Zero client/browser exposure; system/server boundary only.
+     - Preserves soft-deactivation (evaluates ACTIVE, INACTIVE, and SUSPENDED tenants without deleting any organization).
+     - Verified across 13 domain unit tests (`test/domain/retention-maintenance.test.ts`) and 5 PostgreSQL integration tests (`test/integration/retention-maintenance.test.ts`).
 5. **MR-7C.5 — External Processor Reconciliation**:
    - Reconcile external processor copies (Resend, Inngest, backups) in accordance with verified provider APIs and policies.

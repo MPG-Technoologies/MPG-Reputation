@@ -313,9 +313,52 @@ Under `MPG-DEC-050` and the Authoritative Owner Review of MR-7C.4A (`924a7f009d1
 
 ---
 
-## 8. Implementation Verification (MR-7C.4B1)
+## 8. Implementation Verification (MR-7C.4B1 — OWNER ACCEPTED)
 
-The frozen launch retention controls foundation is implemented in:
+The frozen launch retention controls foundation is **OWNER ACCEPTED** at commit:
+`dd9af1a7630da5c802b10b9c2345b8b525542d63`
+
+Implementation components:
 - Module: `src/domain/privacy/retention-controls.ts`
 - Routing: `src/app/r/[token]/route.ts` (90-day expiration check and user-friendly HTTP 410 response)
-- Test Suite: `test/domain/retention-controls.test.ts` (25 tests covering all redaction, expiration, outbox purge, and permanent-retention immunity guards)
+- Test Suite: `test/domain/retention-controls.test.ts` (25 domain tests)
+- Integration Suite: `test/integration/retention-controls.test.ts` (15 real PostgreSQL integration tests)
+
+---
+
+## 9. Multi-Tenant Maintenance Workflow (MR-7C.4B2 — ENGINEERING COMPLETE / READY FOR OWNER REVIEW)
+
+The server-side bounded multi-tenant retention maintenance workflow coordinates the accepted C4B1 retention operations across organizations without rewriting C4B1 logic or modifying retention policy:
+
+### 1. Architecture & Security Boundary
+- Coordinator: `src/domain/privacy/retention-maintenance.ts` (`executeMultiTenantRetentionMaintenance`).
+- Scheduled Inngest Function: `src/inngest/functions/retention-maintenance.ts` (`retentionMaintenanceWorkflow`).
+- Registered in Inngest handler router: `src/app/api/inngest/route.ts`.
+- Server/system only: zero browser or client invocation surface, zero public endpoints, zero service-role credential leakage. Normal organization users cannot invoke global multi-tenant maintenance.
+
+### 2. Bounded Execution & Cursor Pagination
+- Bounded batch limits prevent database and memory exhaustion:
+  - Default organization batch size: `50` (configurable, capped at 200).
+  - Default per-organization contact batch size: `100` (capped at 500).
+  - Default per-organization outbox batch size: `100` (capped at 500).
+- Deterministic cursor pagination: batches ordered by `id ASC` with `id > lastSeenOrgId` cursor filtering.
+- Organization status eligibility: `['ACTIVE', 'INACTIVE', 'SUSPENDED']`. Evaluates retained data across inactive organizations subject to policy without deleting any organization (preserving Decision 11 soft-deactivation).
+
+### 3. Tenant Isolation & Failure Isolation
+- Processing is executed separately per organization.
+- Try/catch per organization isolates failures: an error in one tenant is captured in a sanitized error log and does not abort, roll back, or corrupt maintenance for other tenants.
+- Aggregate safe operational reporting: returns strictly `{ status, organizationsEvaluated, organizationsSucceeded, organizationsFailed, totalContactsRedacted, totalOutboxRowsPurged, batchesProcessed, durationMs, errors }`. Strictly zero customer emails, names, phone numbers, tokens, hashes, payloads, or socket errors.
+
+### 4. Idempotency & Overlap Safety
+- Fully idempotent: repeated executions produce zero additional mutations and leave already-redacted contacts and already-purged outbox rows intact.
+- Inngest concurrency policy: configured with `concurrency: 1` to strictly prevent overlapping maintenance runs.
+
+### 5. Scheduling Guard (Disabled by Default)
+- **STRICTLY DISABLED BY DEFAULT**: Checked via `isRetentionMaintenanceEnabled()` evaluating `ENABLE_RETENTION_MAINTENANCE === 'true'`.
+- Handler and coordinator fail-safe / no-op immediately returning `SKIPPED_DISABLED` when disabled.
+- Schedule cadence: `'0 3 * * *'` (daily at 03:00 UTC) defined as an implementation default. Cadence changes do not alter frozen 30-day contact / 30-day outbox / 90-day review-link retention durations.
+- Zero production environment changes; zero hosted scheduler activation.
+
+### 6. Verification
+- Domain Suite: `test/domain/retention-maintenance.test.ts` (13 tests covering feature flag guard, bounded cursor pagination, failure isolation, sanitized aggregate reporting, Inngest definition, and permanent retention protections).
+- Real PostgreSQL Integration Suite: `test/integration/retention-maintenance.test.ts` (5 tests covering disabled guard, multi-tenant pagination across ACTIVE/INACTIVE/SUSPENDED tenants, repeated idempotency, zero-PII audit logging, and permanent retention classes in PostgreSQL).

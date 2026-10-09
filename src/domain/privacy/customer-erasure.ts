@@ -11,21 +11,29 @@ const UUID =
 export const CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME = '[Deleted Customer]' as const
 
 /**
- * MR-7C.3C External Identifier Gate Invariant:
+ * MR-7C.3C External Identifier Erasure Policy (RESOLVED BY OWNER DECISION):
  *
- * `source_customer_id` and `source_transaction_id` remain UNRESOLVED / OWNER-LEGAL DECISION.
- * For B1, these fields remain unchanged on `customer_completion_events` only because no tenant-facing
- * erasure surface exists yet.
+ * The owner has explicitly resolved the external identifier erasure policy:
+ * - `source_customer_id` MUST be erased to NULL during customer erasure.
+ * - `source_transaction_id` MUST be erased to NULL during customer erasure.
+ * - `source_event_id` MUST be retained as the event/idempotency/deduplication key.
  *
- * Invariant: MR-7C.3C MUST NOT expose customer erasure until the external identifier policy
- * for source_customer_id and source_transaction_id is explicitly resolved.
+ * Rationale:
+ * `source_customer_id` and `source_transaction_id` maintain external person/transaction linkability
+ * and have no approved post-erasure purpose; hashing is not an approved substitute.
+ * `source_event_id` is retained to prevent duplicate ingestion of completed events.
  */
-export const C3C_EXTERNAL_IDENTIFIER_GATE = {
-  sourceCustomerId: 'UNRESOLVED / OWNER-LEGAL DECISION',
-  sourceTransactionId: 'UNRESOLVED / OWNER-LEGAL DECISION',
-  invariant:
-    'MR-7C.3C MUST NOT expose customer erasure until the external identifier policy for source_customer_id and source_transaction_id is explicitly resolved.',
+export const C3C_EXTERNAL_IDENTIFIER_POLICY = {
+  status: 'RESOLVED',
+  sourceCustomerId: 'NULL',
+  sourceTransactionId: 'NULL',
+  sourceEventId: 'RETAIN',
+  rationale:
+    'source_customer_id and source_transaction_id maintain external person/transaction linkability and have no approved post-erasure purpose; hashing is not an approved substitute. source_event_id is retained as the event/idempotency/deduplication key.',
 } as const
+
+// Backwards-compatible alias referencing the resolved policy
+export const C3C_EXTERNAL_IDENTIFIER_GATE = C3C_EXTERNAL_IDENTIFIER_POLICY
 
 export type CustomerErasureAuthority =
   | 'AUTHORIZED'
@@ -103,7 +111,7 @@ export async function checkErasureAuthority(
  * 2. Invokes the atomic PostgreSQL RPC `execute_customer_erasure` inside a single transaction.
  * 3. Never hard-deletes the customer row.
  * 4. Preserves all compliance and operational records (review requests, message events, recipient evidence, suppressions, audit).
- * 5. Redacts direct contact PII on customer completion events to '{}'.
+ * 5. Redacts direct contact PII on customer completion events to '{}' and erases external identifiers (source_customer_id, source_transaction_id) to NULL, while retaining source_event_id.
  * 6. Scrubs historical error text on review_requests and message_events to NULL.
  * 7. Sets customer first_name to deterministic tombstone '[Deleted Customer]', nulls last_name, email, phone.
  * 8. Enforces transactional OWNER role check inside the database transaction (immune to TOCTOU races).

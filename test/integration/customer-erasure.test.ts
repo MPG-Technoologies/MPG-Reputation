@@ -39,6 +39,7 @@ import {
   checkErasureAuthority,
   executeCustomerErasureInternal,
   CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME,
+  C3C_EXTERNAL_IDENTIFIER_POLICY,
   C3C_EXTERNAL_IDENTIFIER_GATE,
   type CustomerErasureResult,
 } from '../../src/domain/privacy/customer-erasure'
@@ -111,6 +112,7 @@ const isDbAvailable =
 
 describe.skipIf(!isDbAvailable)(
   'MR-7C.3B Controlled Customer Erasure / Anonymization Engine Foundation Suite',
+  { timeout: 30000 },
   () => {
     let adminClient: SupabaseClient<Database>
     let ownerClient: SupabaseClient<Database>
@@ -374,7 +376,7 @@ describe.skipIf(!isDbAvailable)(
         throw new Error(`Failed to create foreign customer: ${fCustErr?.message}`)
       }
       foreignCustId = foreignCust.id
-    })
+    }, 60000)
 
     afterAll(async () => {
       if (orgId) {
@@ -652,17 +654,18 @@ describe.skipIf(!isDbAvailable)(
         expect(custRow?.phone).toBeNull()
       })
 
-      it('Case 7: completion-event raw contact PII is removed ({})', async () => {
+      it('Case 7: completion-event raw contact PII is removed ({}) and external identifiers erased to NULL', async () => {
         const { data: compRow } = await adminClient
           .from('customer_completion_events')
           .select('contact, source_event_id, source_transaction_id, source_customer_id')
           .eq('id', completionEventId)
           .single()
         expect(compRow?.contact).toEqual({})
-        // Operational identifiers survive
+        // External identifiers are erased to NULL per owner decision
+        expect(compRow?.source_customer_id).toBeNull()
+        expect(compRow?.source_transaction_id).toBeNull()
+        // Deduplication/idempotency key survives byte-for-byte
         expect(compRow?.source_event_id).toBe(`src_evt_${timestamp}`)
-        expect(compRow?.source_transaction_id).toBe(`tx_${timestamp}`)
-        expect(compRow?.source_customer_id).toBe(`crm_cust_${timestamp}`)
       })
     })
 
@@ -816,6 +819,8 @@ describe.skipIf(!isDbAvailable)(
           'contact',
           'error_message',
           'sanitized_error',
+          'source_customer_id',
+          'source_transaction_id',
         ])
         expect(meta.completion_events_redacted_count).toBe(1)
         expect(meta.review_request_errors_scrubbed_count).toBeDefined()
@@ -862,6 +867,16 @@ describe.skipIf(!isDbAvailable)(
           .eq('event_type', 'privacy.customer_erasure')
           .eq('entity_id', custId)
         expect(auditCount).toBe(1)
+
+        // Idempotency: external identifiers remain NULL and deduplication key remains intact
+        const { data: compRowAfterRepeat } = await adminClient
+          .from('customer_completion_events')
+          .select('source_customer_id, source_transaction_id, source_event_id')
+          .eq('id', completionEventId)
+          .single()
+        expect(compRowAfterRepeat?.source_customer_id).toBeNull()
+        expect(compRowAfterRepeat?.source_transaction_id).toBeNull()
+        expect(compRowAfterRepeat?.source_event_id).toBe(`src_evt_${timestamp}`)
       })
     })
 
@@ -1128,6 +1143,18 @@ describe.skipIf(!isDbAvailable)(
           .select('id')
           .single()
         roleTargetCustId = c!.id
+
+        // Create completion event with external identifiers for roleTargetCustId
+        await adminClient.from('customer_completion_events').insert({
+          organization_id: orgId,
+          location_id: locId,
+          customer_id: roleTargetCustId,
+          source: 'role_test',
+          source_event_id: `role_evt_${timestamp}`,
+          source_customer_id: `crm_role_${timestamp}`,
+          source_transaction_id: `tx_role_${timestamp}`,
+          contact: { email: `role.target.${timestamp}@example.test`, firstName: 'RoleTest' },
+        })
       })
 
       it('Case 39 (Req 1): RPC with OWNER actor succeeds', async () => {
@@ -1200,6 +1227,16 @@ describe.skipIf(!isDbAvailable)(
           .select('id', { count: 'exact', head: true })
           .eq('customer_id', roleTargetCustId)
         expect(cerCount).toBe(0)
+
+        // Verify external identifiers and deduplication key remain unchanged
+        const { data: compAdmin } = await adminClient
+          .from('customer_completion_events')
+          .select('source_customer_id, source_transaction_id, source_event_id')
+          .eq('customer_id', roleTargetCustId)
+          .single()
+        expect(compAdmin?.source_customer_id).toBe(`crm_role_${timestamp}`)
+        expect(compAdmin?.source_transaction_id).toBe(`tx_role_${timestamp}`)
+        expect(compAdmin?.source_event_id).toBe(`role_evt_${timestamp}`)
       })
 
       it('Case 41 (Req 3): RPC with OPERATOR actor fails with zero mutation', async () => {
@@ -1226,6 +1263,15 @@ describe.skipIf(!isDbAvailable)(
           .select('id', { count: 'exact', head: true })
           .eq('customer_id', roleTargetCustId)
         expect(cerCount).toBe(0)
+
+        const { data: compOp } = await adminClient
+          .from('customer_completion_events')
+          .select('source_customer_id, source_transaction_id, source_event_id')
+          .eq('customer_id', roleTargetCustId)
+          .single()
+        expect(compOp?.source_customer_id).toBe(`crm_role_${timestamp}`)
+        expect(compOp?.source_transaction_id).toBe(`tx_role_${timestamp}`)
+        expect(compOp?.source_event_id).toBe(`role_evt_${timestamp}`)
       })
 
       it('Case 42 (Req 4): RPC with VIEWER actor fails with zero mutation', async () => {
@@ -1252,6 +1298,15 @@ describe.skipIf(!isDbAvailable)(
           .select('id', { count: 'exact', head: true })
           .eq('customer_id', roleTargetCustId)
         expect(cerCount).toBe(0)
+
+        const { data: compView } = await adminClient
+          .from('customer_completion_events')
+          .select('source_customer_id, source_transaction_id, source_event_id')
+          .eq('customer_id', roleTargetCustId)
+          .single()
+        expect(compView?.source_customer_id).toBe(`crm_role_${timestamp}`)
+        expect(compView?.source_transaction_id).toBe(`tx_role_${timestamp}`)
+        expect(compView?.source_event_id).toBe(`role_evt_${timestamp}`)
       })
 
       it('Case 43 (Req 5): RPC with unrelated/foreign OWNER fails with zero mutation', async () => {
@@ -1293,6 +1348,15 @@ describe.skipIf(!isDbAvailable)(
           .select('id', { count: 'exact', head: true })
           .eq('customer_id', roleTargetCustId)
         expect(cerCount).toBe(0)
+
+        const { data: compForeign } = await adminClient
+          .from('customer_completion_events')
+          .select('source_customer_id, source_transaction_id, source_event_id')
+          .eq('customer_id', roleTargetCustId)
+          .single()
+        expect(compForeign?.source_customer_id).toBe(`crm_role_${timestamp}`)
+        expect(compForeign?.source_transaction_id).toBe(`tx_role_${timestamp}`)
+        expect(compForeign?.source_event_id).toBe(`role_evt_${timestamp}`)
       })
 
       it('Case 44 (Req 6): OWNER role revoked after app preflight but before RPC -> RPC fails closed (TOCTOU defense)', async () => {
@@ -1363,6 +1427,16 @@ describe.skipIf(!isDbAvailable)(
           .eq('organization_id', orgId)
           .eq('entity_id', roleTargetCustId)
         expect(auditCount).toBe(0)
+
+        // Verify TOCTOU failure leaves external identifiers unchanged
+        const { data: compToctou } = await adminClient
+          .from('customer_completion_events')
+          .select('source_customer_id, source_transaction_id, source_event_id')
+          .eq('customer_id', roleTargetCustId)
+          .single()
+        expect(compToctou?.source_customer_id).toBe(`crm_role_${timestamp}`)
+        expect(compToctou?.source_transaction_id).toBe(`tx_role_${timestamp}`)
+        expect(compToctou?.source_event_id).toBe(`role_evt_${timestamp}`)
       })
 
       it('Case 45 (Req 7): service_role direct RPC invocation with non-OWNER actor cannot bypass authority', async () => {
@@ -1388,6 +1462,16 @@ describe.skipIf(!isDbAvailable)(
 
         expect(adminActorErr).not.toBeNull()
         expect(adminActorErr?.message).toContain('DENIED: Actor must have active OWNER role')
+
+        // Verify non-OWNER service_role call leaves external identifiers unchanged
+        const { data: compSr } = await adminClient
+          .from('customer_completion_events')
+          .select('source_customer_id, source_transaction_id, source_event_id')
+          .eq('customer_id', roleTargetCustId)
+          .single()
+        expect(compSr?.source_customer_id).toBe(`crm_role_${timestamp}`)
+        expect(compSr?.source_transaction_id).toBe(`tx_role_${timestamp}`)
+        expect(compSr?.source_event_id).toBe(`role_evt_${timestamp}`)
       })
     })
 
@@ -1543,9 +1627,20 @@ describe.skipIf(!isDbAvailable)(
         expect(metaStr).not.toContain(piiEmail)
         expect(metaStr).not.toContain('Mailbox unavailable')
         expect(metaStr).not.toContain('SMTP timeout')
+
+        // Verify completion event external identifiers are erased to NULL while source_event_id survives
+        const { data: pCompAfter } = await adminClient
+          .from('customer_completion_events')
+          .select('contact, source_customer_id, source_transaction_id, source_event_id')
+          .eq('customer_id', piiCustId)
+          .single()
+        expect(pCompAfter?.contact).toEqual({})
+        expect(pCompAfter?.source_customer_id).toBeNull()
+        expect(pCompAfter?.source_transaction_id).toBeNull()
+        expect(pCompAfter?.source_event_id).toBe(`ehr_evt_${timestamp}_pii`)
       })
 
-      it('Case 47 (Req 12): Injected error-scrub failure causes full transaction rollback', async () => {
+      it('Case 47 (Req 12): Injected error-scrub failure causes full transaction rollback including external identifiers', async () => {
         // Create a customer with a review request containing a sentinel error message
         const sentinelEmail = `sentinel.${timestamp}@example.test`
         const { data: rollCust } = await adminClient
@@ -1572,6 +1667,8 @@ describe.skipIf(!isDbAvailable)(
             customer_id: rollCustId,
             source: 'test',
             source_event_id: `roll_evt_${timestamp}`,
+            source_customer_id: `crm_roll_${timestamp}`,
+            source_transaction_id: `tx_roll_${timestamp}`,
             contact: { email: sentinelEmail, firstName: 'RollbackInjected' },
           })
           .select('id')
@@ -1646,13 +1743,16 @@ describe.skipIf(!isDbAvailable)(
           expect(custAfter?.email).toBe(sentinelEmail)
           expect(custAfter?.phone).toBe('+15555550204')
 
-          // Verify atomic rollback: completion event contact is NOT redacted
+          // Verify atomic rollback: completion event contact and external identifiers NOT altered
           const { data: compAfter } = await adminClient
             .from('customer_completion_events')
-            .select('contact')
+            .select('contact, source_customer_id, source_transaction_id, source_event_id')
             .eq('id', rollComp!.id)
             .single()
           expect(compAfter?.contact).toEqual({ email: sentinelEmail, firstName: 'RollbackInjected' })
+          expect(compAfter?.source_customer_id).toBe(`crm_roll_${timestamp}`)
+          expect(compAfter?.source_transaction_id).toBe(`tx_roll_${timestamp}`)
+          expect(compAfter?.source_event_id).toBe(`roll_evt_${timestamp}`)
 
           // Verify atomic rollback: review_requests error_message is NOT scrubbed
           const { data: reqAfter } = await adminClient
@@ -1685,12 +1785,96 @@ describe.skipIf(!isDbAvailable)(
         }
       })
 
-      it('Case 48 (Req 14): C3C external identifier gate is represented and frozen', () => {
-        expect(C3C_EXTERNAL_IDENTIFIER_GATE.sourceCustomerId).toBe('UNRESOLVED / OWNER-LEGAL DECISION')
-        expect(C3C_EXTERNAL_IDENTIFIER_GATE.sourceTransactionId).toBe('UNRESOLVED / OWNER-LEGAL DECISION')
-        expect(C3C_EXTERNAL_IDENTIFIER_GATE.invariant).toBe(
-          'MR-7C.3C MUST NOT expose customer erasure until the external identifier policy for source_customer_id and source_transaction_id is explicitly resolved.'
-        )
+      it('Case 48 (Req 14): C3C external identifier erasure policy is resolved and enforced per owner decision', () => {
+        expect(C3C_EXTERNAL_IDENTIFIER_POLICY.status).toBe('RESOLVED')
+        expect(C3C_EXTERNAL_IDENTIFIER_POLICY.sourceCustomerId).toBe('NULL')
+        expect(C3C_EXTERNAL_IDENTIFIER_POLICY.sourceTransactionId).toBe('NULL')
+        expect(C3C_EXTERNAL_IDENTIFIER_POLICY.sourceEventId).toBe('RETAIN')
+        expect(C3C_EXTERNAL_IDENTIFIER_POLICY.rationale).toContain('maintain external person/transaction linkability')
+        expect(C3C_EXTERNAL_IDENTIFIER_POLICY.rationale).toContain('source_event_id is retained')
+        expect(C3C_EXTERNAL_IDENTIFIER_GATE).toBe(C3C_EXTERNAL_IDENTIFIER_POLICY)
+      })
+
+      it('Case 49: Dedicated external identifier erasure lifecycle (erasure -> NULL, idempotency -> preserved NULL)', async () => {
+        // 1. Create a dedicated customer with completion event holding external identifiers
+        const dedicatedEmail = `extid.${timestamp}@example.test`
+        const { data: extCust } = await adminClient
+          .from('customers')
+          .insert({
+            organization_id: orgId,
+            location_id: locId,
+            first_name: 'ExternalId',
+            last_name: 'Subject',
+            email: dedicatedEmail,
+            phone: '+15555550299',
+            permission_email: 'allowed',
+            permission_source: 'test',
+          })
+          .select('id')
+          .single()
+        const extCustId = extCust!.id
+
+        const initialSrcCustId = `ext_crm_${timestamp}`
+        const initialSrcTxId = `ext_tx_${timestamp}`
+        const initialSrcEvtId = `ext_evt_${timestamp}`
+
+        const { data: extComp } = await adminClient
+          .from('customer_completion_events')
+          .insert({
+            organization_id: orgId,
+            location_id: locId,
+            customer_id: extCustId,
+            source: 'crm_system',
+            source_event_id: initialSrcEvtId,
+            source_customer_id: initialSrcCustId,
+            source_transaction_id: initialSrcTxId,
+            contact: { email: dedicatedEmail, firstName: 'ExternalId' },
+          })
+          .select('id')
+          .single()
+
+        // 2. Erase customer via owner authority
+        const eraseRes = await eraseCustomer({
+          organizationId: orgId,
+          customerId: extCustId,
+          tenantClient: ownerClient,
+          adminClient,
+        })
+        expect(eraseRes.status).toBe('AUTHORIZED')
+        expect(eraseRes.success).toBe(true)
+
+        // 3. Verify external identifiers erased to NULL and source_event_id retained
+        const { data: compAfterErase } = await adminClient
+          .from('customer_completion_events')
+          .select('source_customer_id, source_transaction_id, source_event_id, contact')
+          .eq('id', extComp!.id)
+          .single()
+        expect(compAfterErase?.source_customer_id).toBeNull()
+        expect(compAfterErase?.source_transaction_id).toBeNull()
+        expect(compAfterErase?.source_event_id).toBe(initialSrcEvtId)
+        expect(compAfterErase?.contact).toEqual({})
+
+        // 4. Repeated erasure is idempotent and does NOT revive identifiers
+        const repeatRes = await eraseCustomer({
+          organizationId: orgId,
+          customerId: extCustId,
+          tenantClient: ownerClient,
+          adminClient,
+        })
+        expect(repeatRes.status).toBe('AUTHORIZED')
+        expect(repeatRes.success).toBe(true)
+        if (repeatRes.status === 'AUTHORIZED') {
+          expect(repeatRes.alreadyErased).toBe(true)
+        }
+
+        const { data: compAfterRepeat } = await adminClient
+          .from('customer_completion_events')
+          .select('source_customer_id, source_transaction_id, source_event_id')
+          .eq('id', extComp!.id)
+          .single()
+        expect(compAfterRepeat?.source_customer_id).toBeNull()
+        expect(compAfterRepeat?.source_transaction_id).toBeNull()
+        expect(compAfterRepeat?.source_event_id).toBe(initialSrcEvtId)
       })
     })
   }

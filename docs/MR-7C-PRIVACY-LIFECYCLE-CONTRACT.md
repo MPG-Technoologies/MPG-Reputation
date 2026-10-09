@@ -257,10 +257,11 @@ graph LR
        - Atomically executes in-transaction OWNER authority verification, row locking (`FOR UPDATE`), idempotency verification, legacy recipient evidence gate, erasure record creation, customer PII anonymization, completion event contact redaction, historical error text scrubbing (`review_requests.error_message = NULL` and `message_events.sanitized_error = NULL`), and mandatory zero-PII audit event emission (`privacy.customer_erasure`). Any exception triggers full rollback.
      - **Precondition Legacy Gate**:
        - `checkCustomerErasureEligibility` blocks erasure (`BLOCKED_BY_UNRESOLVED_LEGACY_REQUESTS`) if any review request lacks recipient evidence in provider-ambiguous or delivered states.
-   - **MR-7C.3C: External Identifier Erasure Enforcement (Completed / Ready for Owner Review)**:
+   - **MR-7C.3C: External Identifier Erasure Enforcement (Owner Accepted)**:
      - **Authoritative Owner Decision**:
        - MR-7C.3B is **OWNER ACCEPTED**.
-       - The external identifier policy is **RESOLVED**:
+       - MR-7C.3C External Identifier Erasure Enforcement is **OWNER ACCEPTED** (Accepted C3C commit: `8796b5e6fb89cea49a96c85917e4808ad5891fa6`).
+       - The external identifier policy is **FROZEN & AUTHORITATIVE**:
          - `customer_completion_events.source_customer_id` MUST be erased to `NULL`.
          - `customer_completion_events.source_transaction_id` MUST be erased to `NULL`.
          - `customer_completion_events.source_event_id` MUST be **RETAINED** as the event/idempotency/deduplication key.
@@ -272,10 +273,15 @@ graph LR
        - Zero non-atomic application-side cleanups; single transactional RPC execution.
        - Schema constraints verified: `source_customer_id` and `source_transaction_id` are nullable (`TEXT NULL`).
        - Preserves all C3B controls: OWNER-only authority, in-transaction role recheck, row locking, idempotency, atomic rollback, suppression and recipient evidence preservation, zero hard deletes.
-     - **Delivery Surface Boundary**:
-       - Engine/policy enforcement slice only. Customer-facing erasure UI or API delivery surface is NOT yet added and remains active next.
-   - **MR-7C.3C (Delivery): Customer Erasure Delivery Surface (Active Next)**:
-     - Authorized owner-only delivery interface and audit verification. Gated until owner review and acceptance of MR-7C.3C external identifier engine enforcement.
+   - **MR-7C.3C (Delivery): Customer Erasure Delivery Surface (Completed / Ready for Owner Review)**:
+     - Exposes the accepted controlled erasure engine (`8796b5e6fb89cea49a96c85917e4808ad5891fa6`) through the authenticated product application.
+     - **Strict OWNER Authority**: Only authenticated organization members with role `'OWNER'` can perform preflight checks or execute customer erasure. `ADMIN`, `OPERATOR`, `VIEWER`, and anonymous requests are denied with safe 403 responses.
+     - **Single-Customer Boundary**: Strictly one customer per request; zero bulk erasure, zero CSV-driven erasure, zero automated purge.
+     - **Preflight Verification**: Dedicated preflight endpoint and action (`handleCustomerErasurePreflight`) verify user authentication, tenant boundaries, customer existence, and legacy recipient evidence gate (`checkCustomerErasureEligibility`).
+     - **Explicit Typed Confirmation**: Execution (`handleCustomerErasureExecution`) requires explicit confirmation string `'ERASE'`; non-matching confirmations fail closed (400 Bad Request).
+     - **Safe Zero-PII Response Contract**: Returns minimal non-PII operational payload (`{ success: true, customerId, status: 'ERASED', erasedAt }`). Never leaks raw database errors, SQL statements, stack traces, contact hashes, or provider payloads.
+     - **UI Integration & Revalidation**: `CustomerErasureButton` in `src/app/app/customers/customer-actions.tsx` rendered conditionally for OWNERs only in `src/app/app/customers/page.tsx`. Revalidates Next.js path `/app/customers` upon execution to immediately display tombstone state (`[Deleted Customer]`, `—`, `Erased` badge).
+     - **Security Isolation**: Browser clients never invoke service-role RPCs directly; server boundaries maintain strict RLS and tenant scoping; database transaction performs final in-transaction authority re-verification.
 4. **MR-7C.4 — Retention & Automatic Aging / Purge Controls**:
    - Technical scheduling infrastructure for data aging and purge automation.
    - Parameterized retention policies awaiting owner authorization.

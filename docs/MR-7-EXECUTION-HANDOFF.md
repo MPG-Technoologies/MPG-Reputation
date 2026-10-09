@@ -5,10 +5,10 @@
 | Date | 2026-10-09 |
 | Authority | Owner direction (Company OS source of truth: techwithmpg/mpg-company-os; reconciliation outstanding) |
 | Milestone | MR-7 (Trust / Security / Compliance) — ACTIVE |
-| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.2B — OWNER ACCEPTED**<br>**MR-7C.2 — OWNER ACCEPTED / COMPLETE**<br>**MR-7C.3A — OWNER ACCEPTED** (`5bef1ae68309767b645415fb80e09f70da576e0d`)<br>**MR-7C.3B — OWNER ACCEPTED** (`856d7b8849b2576b92a4a7bf309cf7149a888c3a`)<br>**MR-7C.3C External Identifier Erasure Enforcement — COMPLETED / READY FOR OWNER REVIEW** (NOT `MR-7 — COMPLETE`) |
-| Current Bounded Slice | MR-7C.3C — External Identifier Erasure Enforcement — COMPLETED / READY FOR OWNER REVIEW |
+| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.2B — OWNER ACCEPTED**<br>**MR-7C.2 — OWNER ACCEPTED / COMPLETE**<br>**MR-7C.3A — OWNER ACCEPTED** (`5bef1ae68309767b645415fb80e09f70da576e0d`)<br>**MR-7C.3B — OWNER ACCEPTED** (`856d7b8849b2576b92a4a7bf309cf7149a888c3a`)<br>**MR-7C.3C External Identifier Erasure Enforcement — OWNER ACCEPTED** (`8796b5e6fb89cea49a96c85917e4808ad5891fa6`)<br>**MR-7C.3C Customer Erasure Delivery Surface — COMPLETED / READY FOR OWNER REVIEW** (NOT `MR-7 — COMPLETE`) |
+| Current Bounded Slice | MR-7C.3C — Customer Erasure Delivery Surface — COMPLETED / READY FOR OWNER REVIEW |
 | Inspected Product Baseline | `a2c3df3076b814dd74996d674dadfe400428c012` (on `main`) |
-| Feature Branch | `chatgpt/mr7c3c-external-id-erasure` (active; stacked on accepted C3B `856d7b8`) |
+| Feature Branch | `chatgpt/mr7c3c-erasure-delivery` (active; stacked on accepted C3C `8796b5e`) |
 | Public Safe | Yes; local synthetic fixtures only for verification; no real customer data used |
 
 ---
@@ -109,10 +109,11 @@
   - **Precondition Legacy Gate**:
     - `checkCustomerErasureEligibility` fails closed with `BLOCKED_BY_UNRESOLVED_LEGACY_REQUESTS` if any historical review request lacks immutable recipient evidence in provider-ambiguous or delivered states (`SENDING`, `FAILED`, `SENT`, `DELIVERED`, `CLICKED`, or `sent_at != null` or with `message_events`).
   - **Verification**: 45/45 integration tests in `test/integration/customer-erasure.test.ts` pass cleanly.
-- **MR-7C.3C — EXTERNAL IDENTIFIER ERASURE ENFORCEMENT (COMPLETED / READY FOR OWNER REVIEW)**:
+- **MR-7C.3C — EXTERNAL IDENTIFIER ERASURE ENFORCEMENT (OWNER ACCEPTED)**:
   - **Authoritative Owner Decision**:
     - MR-7C.3B is **OWNER ACCEPTED**.
-    - The external identifier policy is **RESOLVED**:
+    - MR-7C.3C External Identifier Erasure Enforcement is **OWNER ACCEPTED** (Accepted C3C commit: `8796b5e6fb89cea49a96c85917e4808ad5891fa6`).
+    - The external identifier policy is **FROZEN & AUTHORITATIVE**:
       - `customer_completion_events.source_customer_id` MUST be erased to `NULL`.
       - `customer_completion_events.source_transaction_id` MUST be erased to `NULL`.
       - `customer_completion_events.source_event_id` MUST be **RETAINED** as the event/idempotency/deduplication key.
@@ -124,14 +125,35 @@
     - Zero non-atomic application-side cleanups; single transactional RPC execution.
     - Schema constraints verified: `source_customer_id` and `source_transaction_id` are nullable (`TEXT NULL`).
     - Preserves all C3B controls: OWNER-only authority, in-transaction role recheck, row locking, idempotency, atomic rollback, suppression and recipient evidence preservation, zero hard deletes.
-  - **Delivery Surface Boundary**:
-    - Engine/policy enforcement slice only. Customer-facing erasure UI or API delivery surface is NOT yet added and remains active next.
-  - **Verification**: 46/46 customer erasure integration tests pass cleanly, including:
-    - Successful OWNER erasure: `source_customer_id = NULL`, `source_transaction_id = NULL`, `source_event_id` retained byte-for-byte.
-    - Authorization denial (ADMIN, OPERATOR, VIEWER, foreign OWNER, invalid service-role caller): zero identifier changes, zero mutations.
-    - In-transaction TOCTOU defense: external identifiers remain intact if role revoked before RPC.
-    - Transactional rollback: failure during error scrub rolls back `source_customer_id` and `source_transaction_id` to their original values.
-    - Idempotency: repeated erasure succeeds, leaves external identifiers `NULL`, and does not recreate identifying data.
+  - **Verification**: 46/46 customer erasure integration tests pass cleanly.
+- **MR-7C.3C — CUSTOMER ERASURE DELIVERY SURFACE (COMPLETED / READY FOR OWNER REVIEW)**:
+  - **Objective & Scope**:
+    - Exposes the accepted controlled erasure engine (`8796b5e6fb89cea49a96c85917e4808ad5891fa6`) to the authenticated product application.
+    - Strictly OWNER-only: `organization_users.role === 'OWNER'`. `ADMIN`, `OPERATOR`, `VIEWER`, and anonymous requests are denied (403, safe denied response).
+    - Single-customer erasure only: strictly one customer per explicit request. Zero bulk erasure, zero CSV-driven erasure, zero automated purging.
+  - **Delivery Architecture & Server Boundary**:
+    - Dedicated server delivery domain module: `src/domain/privacy/erasure-delivery.ts` provides `handleCustomerErasurePreflight` (GET) and `handleCustomerErasureExecution` (POST).
+    - HTTP API Route: `src/app/api/organizations/[organizationId]/customers/[customerId]/erase/route.ts` mapping GET to preflight and POST to execution.
+    - Server Actions: `src/actions/customer-erasure.ts` exporting `checkCustomerErasurePreflightAction` and `executeCustomerErasureAction`, wrapping Next.js `revalidatePath('/app/customers')` for automatic cache invalidation upon completion.
+  - **Preflight Eligibility Check**:
+    - Verifies user authentication, organization membership, and strict OWNER authority.
+    - Validates customer existence and tenant boundaries (foreign/nonexistent returns safe 403 without existence leakage).
+    - Invokes domain eligibility logic `checkCustomerErasureEligibility`: checks for already-erased state and fails closed (`BLOCKED_BY_UNRESOLVED_LEGACY_REQUESTS` / 409) if any historical review request lacks immutable recipient evidence in provider-ambiguous/delivered states.
+    - Returns safe non-PII preflight response (`eligible: boolean`, `status`, `reasons`).
+  - **Explicit Confirmation Contract**:
+    - Execution endpoint and action strictly enforce explicit typed confirmation: request body must provide `{ confirmation: 'ERASE' }` matching case-sensitive string.
+    - Empty or mismatched confirmation fails with safe 400 Bad Request (`CONFIRMATION_REQUIRED`).
+  - **Safe Error Contract & Zero Leakage**:
+    - Never leaks database exceptions, SQL text, plpgsql stack traces, service-role keys, contact hashes, provider payloads, or suppression internals.
+    - Safe error mapping: 401 for unauthenticated, 403 for unauthorized / cross-tenant / nonexistent, 409 for blocked legacy evidence / already erased, 500 for unexpected errors.
+  - **UI Integration & Tombstone Representation**:
+    - `CustomerErasureButton` in `src/app/app/customers/customer-actions.tsx`: accessible only to OWNERs, opens accessible modal dialog detailing irreversible anonymization, runs preflight check, displays non-PII status, requires typing `ERASE`, and executes via server action.
+    - `src/app/app/customers/page.tsx`: evaluates `isOwner = userRole === 'OWNER'` and conditionally renders `CustomerErasureButton` in desktop table and mobile card views for OWNER only.
+    - Post-erasure tombstone rendering: displays `[Deleted Customer]`, muted styling, `—` for email/phone, and `Erased` badge. Already-erased customers display disabled `Erased` button preventing duplicate execution.
+  - **Security & Privilege Separation**:
+    - Zero service-role credentials or raw RPC calls exposed to browser/client bundle.
+    - Database transaction performs final authoritative OWNER check inside `execute_customer_erasure` plpgsql function, closing TOCTOU race conditions.
+  - **Verification**: 21/21 integration tests in `test/integration/customer-erasure-delivery.test.ts` pass cleanly.
 
 ---
 
@@ -198,9 +220,10 @@
 |---|---|---|
 | `pnpm lint` | **PASS** | ESLint passes with zero warnings, zero errors |
 | `pnpm typecheck` | **PASS** | TypeScript cleanly passes with zero errors |
+| `pnpm vitest run test/integration/customer-erasure-delivery.test.ts` | **PASS** | 21 tests passed (MR-7C.3C delivery boundary: OWNER preflight & execution, ADMIN/OPERATOR/VIEWER/anon denial, foreign/nonexistent customer non-disclosure, legacy evidence preflight block and 409 rejection, typed 'ERASE' confirmation requirement, successful erasure state & audit, idempotency, server actions parity with cache revalidation, client code secret check, and UI role gating) |
 | `pnpm vitest run test/integration/customer-privacy-export-delivery.test.ts` | **PASS** | 17 tests passed: OWNER/ADMIN download, OPERATOR/VIEWER denial, anon denial, forged/foreign org denial, foreign customer non-disclosure, nonexistent customer identical denial, malformed org/customer UUID rejection, valid JSON, application/json, attachment Content-Disposition, PII-free filename, Cache-Control: no-store, C2A schema 1.0 contract parity, zero payload on DENIED/UNAVAILABLE, mandatory privacy.customer_export audit, zero mutation outside audit, and verification that handler delegates purely to C2A without secondary authorization queries |
 | `pnpm vitest run test/integration/customer-privacy-export.test.ts` | **PASS** | 7 tests passed: OWNER/ADMIN authorization, OPERATOR/VIEWER denial, cross-tenant denial, field allowlisting/secret exclusion, mandatory audit, fail-closed reads, authorization recheck, and no mutation outside audit |
-| `pnpm vitest run test/integration/customer-erasure.test.ts` | **PASS** | 45 tests passed (all C3B engine foundation cases: OWNER-only authority in-transaction, TOCTOU race condition defense, ADMIN/OPERATOR/VIEWER/anon denial, foreign/nonexistent customer non-disclosure, service_role non-OWNER denial, legacy precondition gate, in-place customer retention with deterministic tombstone, last_name/email/phone erasure, completion contact redaction, historical error text scrub for review_requests.error_message and message_events.sanitized_error, suppression/recipient evidence/review requests/events/authority survival, unsubscribe GET/POST post-erasure, audit persistence without PII/hashes, idempotency, plpgsql rollback on exception/injected scrub failure, RPC and table privilege lock-down, trigger preventing PII restoration, non-erased customer update preservation, future send/reminder blocking, re-import protection, no cascade delete, privacy export compatibility, C3C external identifier gate representation) |
+| `pnpm vitest run test/integration/customer-erasure.test.ts` | **PASS** | 46 tests passed (all C3B engine foundation and C3C external identifier cases: OWNER-only authority in-transaction, TOCTOU race condition defense, ADMIN/OPERATOR/VIEWER/anon denial, foreign/nonexistent customer non-disclosure, service_role non-OWNER denial, legacy precondition gate, in-place customer retention with deterministic tombstone, last_name/email/phone erasure, source_customer_id/source_transaction_id erased to NULL, source_event_id retained, completion contact redaction, historical error text scrub for review_requests.error_message and message_events.sanitized_error, suppression/recipient evidence/review requests/events/authority survival, unsubscribe GET/POST post-erasure, audit persistence without PII/hashes, idempotency, plpgsql rollback on exception/injected scrub failure, RPC and table privilege lock-down, trigger preventing PII restoration, non-erased customer update preservation, future send/reminder blocking, re-import protection, no cascade delete, privacy export compatibility) |
 | `pnpm vitest run test/integration/mr7c3a-erasure-safe-unsubscribe.test.ts` | **PASS** | 16 tests passed (C3A recipient evidence decoupling, immutability trigger, append-only service_role access, zero RPC helper leakage) |
 | `pnpm vitest run test/integration/real-rls.test.ts` | **PASS** | 16 tests passed (enforces customer delete denial for OWNER, ADMIN, OPERATOR, VIEWER, anon, cross-tenant; verifies service_role deletion and tenant mutation preservation) |
 | `pnpm vitest run test/integration/unsubscribe.test.ts` | **PASS** | 16 tests passed (unsubscribe flow and suppression invariants fully preserved) |
@@ -223,30 +246,30 @@
 3. **MR-7C.3**: Controlled Customer Erasure / Anonymization
    - **MR-7C.3A**: Erasure-Safe Unsubscribe Decoupling *(OWNER ACCEPTED)*
    - **MR-7C.3B**: Controlled Customer Erasure Engine Foundation *(OWNER ACCEPTED)*
-   - **MR-7C.3C**: External Identifier Erasure Enforcement *(COMPLETED / READY FOR OWNER REVIEW)*
-   - **MR-7C.3C (Delivery)**: Customer Erasure Delivery Surface *(ACTIVE NEXT)*
-4. **MR-7C.4**: Retention + Automatic Aging/Purge Controls
+   - **MR-7C.3C**: External Identifier Erasure Enforcement *(OWNER ACCEPTED)*
+   - **MR-7C.3C (Delivery)**: Customer Erasure Delivery Surface *(COMPLETED / READY FOR OWNER REVIEW)*
+4. **MR-7C.4**: Retention + Automatic Aging/Purge Controls *(ACTIVE NEXT)*
 5. **MR-7C.5**: Processor Deletion/Retention Reconciliation
 
 ---
 
 ## 6. Rollback Implications
 
-If rollback of MR-7C.3C is required:
-1. Re-apply migration replacing `public.execute_customer_erasure` with C3B implementation (`contact = '{}'::jsonb`, leaving external identifiers untouched).
-2. Drop migration `20261009140000_mr7c3c_external_id_erasure.sql`.
-3. Revert `src/domain/privacy/customer-erasure.ts`.
+If rollback of MR-7C.3C delivery is required:
+1. Revert UI changes in `src/app/app/customers/customer-actions.tsx` and `src/app/app/customers/page.tsx`.
+2. Remove route `src/app/api/organizations/[organizationId]/customers/[customerId]/erase/route.ts`, actions `src/actions/customer-erasure.ts`, and domain `src/domain/privacy/erasure-delivery.ts`.
+3. The underlying engine RPC and schema remain intact.
 4. No historical operational records or table schemas are lost.
 
 ---
 
 ## 7. Owner Gate
 
-- **Milestone Status**: MR-7 is ACTIVE; MR-7B.1, MR-7B.2, MR-7B.3, MR-7C.1, MR-7C.2, MR-7C.3A, and MR-7C.3B are **OWNER ACCEPTED**; MR-7C.3C External Identifier Erasure Enforcement is **COMPLETED / READY FOR OWNER REVIEW**.
+- **Milestone Status**: MR-7 is ACTIVE; MR-7B.1, MR-7B.2, MR-7B.3, MR-7C.1, MR-7C.2, MR-7C.3A, MR-7C.3B, and MR-7C.3C External Identifier Erasure Enforcement are **OWNER ACCEPTED**; MR-7C.3C Customer Erasure Delivery Surface is **COMPLETED / READY FOR OWNER REVIEW**.
 - **Customer Erasure Authority**: Frozen by Owner Decision to **OWNER ONLY**.
 - **External Identifier Erasure Policy**: Resolved by Owner Decision (`source_customer_id = NULL`, `source_transaction_id = NULL`, `source_event_id = RETAIN`).
 - **Live messaging remains disabled** (`ENABLE_LIVE_EMAIL=false`).
 - **Live billing remains paused** under `MPG-DEC-049`.
 - **Controlled Pilot (MR-8) remains strictly GATED**.
-- Feature branch `chatgpt/mr7c3c-external-id-erasure` contains the finalized MR-7C.3C external identifier engine enforcement stacked on accepted C3B (`856d7b8849b2576b92a4a7bf309cf7149a888c3a`).
-- Local database migration `20261009140000_mr7c3c_external_id_erasure.sql` is tested and verified locally; **hosted application is NOT authorized**. Delivery UI surface, live messaging activation, and billing activation remain unauthorized.
+- Feature branch `chatgpt/mr7c3c-erasure-delivery` contains the finalized MR-7C.3C customer erasure delivery surface stacked on accepted C3C (`8796b5e6fb89cea49a96c85917e4808ad5891fa6`).
+- **Hosted application or migration is NOT authorized**. Live messaging activation, billing activation, bulk erasure, and deployment remain strictly unauthorized.

@@ -5,7 +5,11 @@ import { createClient } from '@/lib/supabase/server'
 import { PageShell, PageHeader } from '@/components/layout/page-shell'
 import { TablePanel, EmptyState } from '@/components/layout/panels'
 import { UsersIcon, SearchIcon, MapPinIcon } from '@/components/ui/icons'
-import { RecordCompletionButton, CustomerPrivacyExportButton } from './customer-actions'
+import {
+  RecordCompletionButton,
+  CustomerPrivacyExportButton,
+  CustomerErasureButton,
+} from './customer-actions'
 
 interface CustomersPageProps {
   searchParams: Promise<{
@@ -39,6 +43,8 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
   const orgId = activeMembership?.organization_id
   const userRole = activeMembership?.role
   const canExport = ['OWNER', 'ADMIN'].includes(userRole ?? '')
+  const isOwner = userRole === 'OWNER'
+  const showActions = canExport || isOwner
 
   if (!orgId) {
     redirect('/onboarding')
@@ -160,15 +166,18 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
                   <th scope="col" className="px-4 py-3 font-medium">Location</th>
                   <th scope="col" className="px-3 py-3 font-medium">Consent</th>
                   <th scope="col" className="px-4 py-3 font-medium text-right">Created</th>
-                  {canExport && (
+                  {showActions && (
                     <th scope="col" className="px-4 py-3 font-medium text-right">Actions</th>
                   )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1C2846]/70">
                 {customers.map((c) => {
+                  const isErased = c.first_name === '[Deleted Customer]'
                   const locationName = locationMap.get(c.location_id) || 'Primary Location'
-                  const fullName = `${c.first_name} ${c.last_name || ''}`.trim()
+                  const fullName = isErased
+                    ? '[Deleted Customer]'
+                    : `${c.first_name} ${c.last_name || ''}`.trim()
                   const createdDate = new Date(c.created_at).toLocaleDateString('en-US', {
                     month: 'short',
                     day: 'numeric',
@@ -178,10 +187,22 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
                   return (
                     <tr key={c.id} className="hover:bg-[#131E38]/50 transition-colors">
                       <td className="px-5 py-3.5 whitespace-nowrap">
-                        <div className="font-semibold text-white text-xs">{fullName}</div>
+                        <div
+                          className={`text-xs ${
+                            isErased
+                              ? 'font-normal italic text-slate-500'
+                              : 'font-semibold text-white'
+                          }`}
+                        >
+                          {fullName}
+                        </div>
                       </td>
                       <td className="px-4 py-3.5 whitespace-nowrap text-slate-300 font-mono text-[11px]">
-                        {c.email || <span className="text-slate-600 font-sans">—</span>}
+                        {c.email && !isErased ? (
+                          c.email
+                        ) : (
+                          <span className="text-slate-600 font-sans">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3.5 whitespace-nowrap">
                         <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-300">
@@ -190,24 +211,42 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
                         </span>
                       </td>
                       <td className="px-3 py-3.5 whitespace-nowrap">
-                        <span
-                          className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded border ${
-                            c.permission_email === 'allowed'
-                              ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/80'
-                              : c.permission_email === 'denied'
-                              ? 'bg-rose-950/60 text-rose-300 border-rose-800/80'
-                              : 'bg-slate-800 text-slate-400 border-slate-700'
-                          }`}
-                        >
-                          {c.permission_email}
-                        </span>
+                        {isErased ? (
+                          <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded border bg-slate-900/80 text-slate-500 border-slate-700/80">
+                            Erased
+                          </span>
+                        ) : (
+                          <span
+                            className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded border ${
+                              c.permission_email === 'allowed'
+                                ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/80'
+                                : c.permission_email === 'denied'
+                                ? 'bg-rose-950/60 text-rose-300 border-rose-800/80'
+                                : 'bg-slate-800 text-slate-400 border-slate-700'
+                            }`}
+                          >
+                            {c.permission_email}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3.5 whitespace-nowrap text-slate-400 text-[11px] text-right font-mono">
                         {createdDate}
                       </td>
-                      {canExport && (
+                      {showActions && (
                         <td className="px-4 py-3.5 whitespace-nowrap text-right">
-                          <CustomerPrivacyExportButton organizationId={orgId} customerId={c.id} />
+                          <div className="flex items-center justify-end gap-1.5">
+                            {canExport && (
+                              <CustomerPrivacyExportButton organizationId={orgId} customerId={c.id} />
+                            )}
+                            {isOwner && (
+                              <CustomerErasureButton
+                                organizationId={orgId}
+                                customerId={c.id}
+                                customerName={isErased ? undefined : fullName}
+                                isErased={isErased}
+                              />
+                            )}
+                          </div>
                         </td>
                       )}
                     </tr>
@@ -222,33 +261,51 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
           {/* ========================================================== */}
           <div className="md:hidden divide-y divide-[#1C2846]">
             {customers.map((c) => {
+              const isErased = c.first_name === '[Deleted Customer]'
               const locationName = locationMap.get(c.location_id) || 'Primary Location'
-              const fullName = `${c.first_name} ${c.last_name || ''}`.trim()
+              const fullName = isErased
+                ? '[Deleted Customer]'
+                : `${c.first_name} ${c.last_name || ''}`.trim()
               const createdDate = new Date(c.created_at).toLocaleDateString('en-US', {
                 month: 'short',
                 day: 'numeric',
+                year: 'numeric',
               })
 
               return (
                 <div key={c.id} className="p-4 space-y-2">
                   <div className="flex items-start justify-between">
                     <div>
-                      <div className="font-semibold text-white text-sm">{fullName}</div>
+                      <div
+                        className={`text-sm ${
+                          isErased
+                            ? 'font-normal italic text-slate-500'
+                            : 'font-semibold text-white'
+                        }`}
+                      >
+                        {fullName}
+                      </div>
                       <div className="text-xs text-slate-400 mt-0.5 font-mono">
-                        {c.email || 'No email provided'}
+                        {c.email && !isErased ? c.email : 'No email provided'}
                       </div>
                     </div>
-                    <span
-                      className={`text-[9px] uppercase font-bold px-2 py-0.5 rounded border ${
-                        c.permission_email === 'allowed'
-                          ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/80'
-                          : c.permission_email === 'denied'
-                          ? 'bg-rose-950/60 text-rose-300 border-rose-800/80'
-                          : 'bg-slate-800 text-slate-400 border-slate-700'
-                      }`}
-                    >
-                      {c.permission_email}
-                    </span>
+                    {isErased ? (
+                      <span className="text-[9px] uppercase font-bold px-2 py-0.5 rounded border bg-slate-900/80 text-slate-500 border-slate-700/80">
+                        Erased
+                      </span>
+                    ) : (
+                      <span
+                        className={`text-[9px] uppercase font-bold px-2 py-0.5 rounded border ${
+                          c.permission_email === 'allowed'
+                            ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/80'
+                            : c.permission_email === 'denied'
+                            ? 'bg-rose-950/60 text-rose-300 border-rose-800/80'
+                            : 'bg-slate-800 text-slate-400 border-slate-700'
+                        }`}
+                      >
+                        {c.permission_email}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-between text-xs text-slate-400 pt-1 border-t border-[#1C2846]/60">
@@ -259,9 +316,19 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
                     <span className="font-mono text-[11px]">{createdDate}</span>
                   </div>
 
-                  {canExport && (
-                    <div className="pt-2 flex justify-end">
-                      <CustomerPrivacyExportButton organizationId={orgId} customerId={c.id} />
+                  {showActions && (
+                    <div className="pt-2 flex justify-end gap-1.5">
+                      {canExport && (
+                        <CustomerPrivacyExportButton organizationId={orgId} customerId={c.id} />
+                      )}
+                      {isOwner && (
+                        <CustomerErasureButton
+                          organizationId={orgId}
+                          customerId={c.id}
+                          customerName={isErased ? undefined : fullName}
+                          isErased={isErased}
+                        />
+                      )}
                     </div>
                   )}
                 </div>

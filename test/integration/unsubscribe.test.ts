@@ -117,6 +117,13 @@ describe.skipIf(!isDbAvailable)('Unsubscribe Route & Suppression Integration (MR
 
     if (reqErr || !reqRecord) throw new Error(`Failed to create test review request: ${reqErr?.message}`)
     reviewRequestId = reqRecord.id
+
+    await adminClient.from('review_request_recipient_evidence').insert({
+      organization_id: orgId,
+      review_request_id: reviewRequestId,
+      channel: 'email',
+      suppression_contact_hash: hashSuppressionContact('email', customerEmail),
+    })
   })
 
   afterAll(async () => {
@@ -307,6 +314,13 @@ describe.skipIf(!isDbAvailable)('Unsubscribe Route & Suppression Integration (MR
 
     expect(clickedReq).not.toBeNull()
 
+    await adminClient.from('review_request_recipient_evidence').insert({
+      organization_id: orgId,
+      review_request_id: clickedReq!.id,
+      channel: 'email',
+      suppression_contact_hash: hashSuppressionContact('email', customerEmail),
+    })
+
     // Process unsubscribe using this token
     const req = new NextRequest(`http://localhost:3000/unsubscribe/${unsub.token}`, {
       method: 'POST',
@@ -365,6 +379,13 @@ describe.skipIf(!isDbAvailable)('Unsubscribe Route & Suppression Integration (MR
       .single()
 
     expect(deliveredReq).not.toBeNull()
+
+    await adminClient.from('review_request_recipient_evidence').insert({
+      organization_id: orgId,
+      review_request_id: deliveredReq!.id,
+      channel: 'email',
+      suppression_contact_hash: hashSuppressionContact('email', customerEmail),
+    })
 
     const req = new NextRequest(`http://localhost:3000/unsubscribe/${unsub.token}`, {
       method: 'POST',
@@ -518,6 +539,13 @@ describe.skipIf(!isDbAvailable)('Unsubscribe Route & Suppression Integration (MR
       .select('id')
       .single()
 
+    await adminClient.from('review_request_recipient_evidence').insert({
+      organization_id: orgB!.id,
+      review_request_id: reqB!.id,
+      channel: 'email',
+      suppression_contact_hash: hashSuppressionContact('email', sharedEmail),
+    })
+
     // Create scheduled request in Org A
     const trackA = generateTrackingToken()
     const unsubA = generateUnsubscribeToken()
@@ -537,6 +565,13 @@ describe.skipIf(!isDbAvailable)('Unsubscribe Route & Suppression Integration (MR
       })
       .select('id')
       .single()
+
+    await adminClient.from('review_request_recipient_evidence').insert({
+      organization_id: orgId,
+      review_request_id: reqA!.id,
+      channel: 'email',
+      suppression_contact_hash: hashSuppressionContact('email', sharedEmail),
+    })
 
     // Execute unsubscribe using Org A's token
     const postReq = new NextRequest(`http://localhost:3000/unsubscribe/${unsubA.token}`, {
@@ -615,17 +650,28 @@ describe.skipIf(!isDbAvailable)('Unsubscribe Route & Suppression Integration (MR
 
     const track = generateTrackingToken()
     const unsub = generateUnsubscribeToken()
-    await adminClient.from('review_requests').insert({
+    const { data: reqRfc } = await adminClient
+      .from('review_requests')
+      .insert({
+        organization_id: orgId,
+        location_id: locId,
+        customer_id: custRfc!.id,
+        completion_event_id: compRfc!.id,
+        channel: 'email',
+        status: 'SCHEDULED',
+        token: track.token,
+        token_hash: track.tokenHash,
+        unsubscribe_token: unsub.token,
+        unsubscribe_token_hash: unsub.tokenHash,
+      })
+      .select('id')
+      .single()
+
+    await adminClient.from('review_request_recipient_evidence').insert({
       organization_id: orgId,
-      location_id: locId,
-      customer_id: custRfc!.id,
-      completion_event_id: compRfc!.id,
+      review_request_id: reqRfc!.id,
       channel: 'email',
-      status: 'SCHEDULED',
-      token: track.token,
-      token_hash: track.tokenHash,
-      unsubscribe_token: unsub.token,
-      unsubscribe_token_hash: unsub.tokenHash,
+      suppression_contact_hash: hashSuppressionContact('email', unsubEmail),
     })
 
     // Standard RFC 8058 MUA request:
@@ -701,6 +747,13 @@ describe.skipIf(!isDbAvailable)('Unsubscribe Route & Suppression Integration (MR
       })
       .select('id')
       .single()
+
+    await adminClient.from('review_request_recipient_evidence').insert({
+      organization_id: orgId,
+      review_request_id: reqGet!.id,
+      channel: 'email',
+      suppression_contact_hash: hashSuppressionContact('email', getEmail),
+    })
 
     // Send GET request to unsubscribe route
     const getReq = new NextRequest(`http://localhost:3000/unsubscribe/${unsub.token}`, {

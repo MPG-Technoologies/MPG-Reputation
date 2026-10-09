@@ -13,6 +13,7 @@ import { hashSuppressionContact } from '@/domain/suppression'
 import { getWorkflowTimingPolicy, isRequestEligibleForReminder } from '@/domain/reminder'
 import { ALLOW_REMINDERS_AFTER_EXPIRATION, deriveTrialLifecycle } from '@/domain/entitlement'
 import { createAdminClient } from '@/lib/supabase/admin'
+import type { Database } from '@/types/database'
 
 export interface ReviewRequestEventData {
   eventId: string
@@ -527,15 +528,17 @@ export async function executeReviewRequestHandler({
 
         if (existing) {
           let unsubToken = existing.unsubscribe_token
+          const updates: Database['public']['Tables']['review_requests']['Update'] = {}
           if (!unsubToken) {
             const generated = generateUnsubscribeToken()
             unsubToken = generated.token
+            updates.unsubscribe_token = generated.token
+            updates.unsubscribe_token_hash = generated.tokenHash
+          }
+          if (Object.keys(updates).length > 0) {
             await supabase
               .from('review_requests')
-              .update({
-                unsubscribe_token: generated.token,
-                unsubscribe_token_hash: generated.tokenHash,
-              })
+              .update(updates)
               .eq('id', existing.id)
           }
           return {
@@ -857,6 +860,105 @@ export async function executeReviewRequestHandler({
 
       const freshCustomerEmail = finalAuthority.customerEmail!
       const recipientName = finalAuthority.customerName || postDelayCheck.customerName || 'there'
+      const freshRecipientHash = hashSuppressionContact('email', freshCustomerEmail)
+
+      // MR-7C.3A: Freeze recipient BEFORE first provider invocation
+      // Query existing recipient evidence binding
+      const { data: existingEvidence, error: evidenceReadError } = await supabase
+        .from('review_request_recipient_evidence')
+        .select('suppression_contact_hash')
+        .eq('organization_id', organizationId)
+        .eq('review_request_id', reviewRequestId)
+        .eq('channel', 'email')
+        .maybeSingle()
+
+      if (evidenceReadError) {
+        throw new Error(`Failed to read recipient evidence: ${evidenceReadError.message}`)
+      }
+
+      if (existingEvidence?.suppression_contact_hash) {
+        // Binding already exists (e.g. retry after provider invocation or prior claim)
+        if (existingEvidence.suppression_contact_hash !== freshRecipientHash) {
+          // Recipient changed! Invariant: Once bound, recipient identity must NEVER change.
+          // DO NOT invoke provider. DO NOT overwrite stored binding.
+          await supabase.from('audit_events').insert({
+            organization_id: organizationId,
+            actor_type: 'system',
+            event_type: 'review_request.dispatch_blocked',
+            entity_type: 'review_request',
+            entity_id: reviewRequestId,
+            metadata: {
+              reviewRequestId,
+              stage: 'initial',
+              decision: 'RECIPIENT_CHANGED',
+            },
+          })
+
+          return {
+            success: false,
+            aborted: true,
+            provider: 'abort',
+            messageId: 'dispatch_blocked_recipient_changed',
+          }
+        }
+        // If existing binding equals freshRecipientHash: safe retry with same recipient!
+      } else {
+        // No binding yet: atomically bind BEFORE first provider invocation
+        const { error: insertEvidenceError } = await supabase
+          .from('review_request_recipient_evidence')
+          .insert({
+            organization_id: organizationId,
+            review_request_id: reviewRequestId,
+            channel: 'email',
+            suppression_contact_hash: freshRecipientHash,
+          })
+
+        if (insertEvidenceError) {
+          // In case of concurrent race or duplicate key, verify what was bound
+          const { data: raceEvidence } = await supabase
+            .from('review_request_recipient_evidence')
+            .select('suppression_contact_hash')
+            .eq('organization_id', organizationId)
+            .eq('review_request_id', reviewRequestId)
+            .eq('channel', 'email')
+            .maybeSingle()
+
+          if (!raceEvidence || raceEvidence.suppression_contact_hash !== freshRecipientHash) {
+            await supabase.from('audit_events').insert({
+              organization_id: organizationId,
+              actor_type: 'system',
+              event_type: 'review_request.dispatch_blocked',
+              entity_type: 'review_request',
+              entity_id: reviewRequestId,
+              metadata: {
+                reviewRequestId,
+                stage: 'initial',
+                decision: 'RECIPIENT_CHANGED',
+              },
+            })
+
+            return {
+              success: false,
+              aborted: true,
+              provider: 'abort',
+              messageId: 'dispatch_blocked_recipient_changed',
+            }
+          }
+        }
+      }
+
+      // Re-read / verify binding exists and strictly matches
+      const { data: verifiedBinding, error: verifyError } = await supabase
+        .from('review_request_recipient_evidence')
+        .select('suppression_contact_hash')
+        .eq('organization_id', organizationId)
+        .eq('review_request_id', reviewRequestId)
+        .eq('channel', 'email')
+        .single()
+
+      if (verifyError || !verifiedBinding || verifiedBinding.suppression_contact_hash !== freshRecipientHash) {
+        throw new Error('Recipient evidence verification failed before provider invocation')
+      }
 
       const effectiveBusinessName = finalSenderIdentity.businessName || postDelayCheck.businessName || 'our business'
       const effectiveReplyTo = finalSenderIdentity.reviewReplyToEmail !== undefined ? finalSenderIdentity.reviewReplyToEmail : postDelayCheck.reviewReplyToEmail
@@ -1008,6 +1110,7 @@ export async function executeReviewRequestHandler({
     if (!sendResult.success || isAborted) {
       return {
         processed: false,
+        emailSent: false,
         stage: 'initial_dispatch',
         reason: isAborted ? 'aborted_due_to_ineligibility' : 'initial_dispatch_failed',
         sendResult,
@@ -1205,6 +1308,40 @@ export async function executeReviewRequestHandler({
         }
       }
 
+      // MR-7C.3A: Reminder Recipient Drift Guard & Immutable Evidence Check
+      // Ensure the fresh reminder recipient matches the stored immutable initial delivery recipient.
+      const freshReminderEmail = finalAuthority.customerEmail!
+      const freshReminderHash = hashSuppressionContact('email', freshReminderEmail)
+
+      const { data: existingEvidence, error: evidenceErr } = await supabase
+        .from('review_request_recipient_evidence')
+        .select('suppression_contact_hash')
+        .eq('organization_id', organizationId)
+        .eq('review_request_id', reviewRequestId)
+        .eq('channel', 'email')
+        .maybeSingle()
+
+      if (evidenceErr || !existingEvidence?.suppression_contact_hash || existingEvidence.suppression_contact_hash !== freshReminderHash) {
+        await supabase.from('audit_events').insert({
+          organization_id: organizationId,
+          actor_type: 'system',
+          event_type: 'review_request.reminder_blocked',
+          entity_type: 'review_request',
+          entity_id: reviewRequestId,
+          metadata: {
+            reviewRequestId,
+            decision: 'RECIPIENT_CHANGED',
+          },
+        })
+
+        return {
+          success: false,
+          aborted: true,
+          provider: 'abort',
+          messageId: 'reminder_blocked_recipient_changed',
+        }
+      }
+
       // MR-7B.2: Final sender identity check for reminder
       // Re-read current organization and location directly from the database source of truth
       const finalSenderIdentity = await checkFinalEmailSenderIdentity({
@@ -1265,7 +1402,6 @@ export async function executeReviewRequestHandler({
         }
       }
 
-      const freshReminderEmail = finalAuthority.customerEmail!
       const reminderRecipientName = finalAuthority.customerName || preReminderCheck.customerName || 'there'
 
       const effectiveBusinessName = finalSenderIdentity.businessName || preReminderCheck.businessName || 'our business'

@@ -1,7 +1,6 @@
 import { randomBytes, createHash } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
-import { hashSuppressionContact } from '@/domain/suppression'
 
 export interface UnsubscribeToken {
   token: string
@@ -97,26 +96,34 @@ export async function processCustomerUnsubscribe({
     return { success: false, error: 'Business not found.' }
   }
 
-  // 3. Resolve customer details explicitly scoped to organization
-  const { data: cust } = await supabase
-    .from('customers')
-    .select('id, email')
-    .eq('id', request.customer_id)
+  // 3. Resolve erasure-safe suppression contact hash from system-owned recipient evidence
+  // CONSERVATIVE RECIPIENT EVIDENCE POLICY (OWNER-APPROVED):
+  // Historical recipient identity must NOT be fabricated or derived from current customers.email
+  // or completion snapshot. If an existing legacy request has no provable immutable recipient linkage,
+  // fail safely. Exact legacy recipient identity is unavailable from repository evidence.
+  const channel = (request.channel || 'email') as 'email' | 'sms'
+  const { data: evidence } = await supabase
+    .from('review_request_recipient_evidence')
+    .select('suppression_contact_hash')
     .eq('organization_id', request.organization_id)
-    .single()
+    .eq('review_request_id', request.id)
+    .eq('channel', channel)
+    .maybeSingle()
 
-  if (!cust || !cust.email) {
-    return { success: false, error: 'Customer contact not found.' }
+  const contactHash = evidence?.suppression_contact_hash
+
+  // Fail-closed invariant: if no immutable recipient linkage exists,
+  // do NOT silently treat as unsubscribed, fabricate a hash, or guess from mutable customer PII.
+  if (!contactHash) {
+    return { success: false, error: 'Invalid or expired unsubscribe link.' }
   }
 
   // 4. Create or verify existing suppression using standard hash
-  const contactHash = hashSuppressionContact('email', cust.email)
-
   const { data: existingSupp } = await supabase
     .from('suppressions')
     .select('id')
     .eq('organization_id', request.organization_id)
-    .eq('channel', 'email')
+    .eq('channel', channel)
     .eq('contact_hash', contactHash)
     .maybeSingle()
 
@@ -125,7 +132,7 @@ export async function processCustomerUnsubscribe({
       .from('suppressions')
       .insert({
         organization_id: request.organization_id,
-        channel: 'email',
+        channel,
         contact_hash: contactHash,
         reason: 'CUSTOMER_UNSUBSCRIBED',
       })
@@ -138,18 +145,40 @@ export async function processCustomerUnsubscribe({
     }
   }
 
-  // 5. Cancel any pending/scheduled review requests for this customer/org/email channel
+  // 5. Cancel any pending/scheduled review requests for this suppressed contact/channel
   // CRITICAL INVARIANT: DO NOT regress SENT, DELIVERED, or CLICKED!
-  await supabase
-    .from('review_requests')
-    .update({
-      status: 'SUPPRESSED',
-      updated_at: new Date().toISOString(),
-    })
+  const { data: matchingEvidence } = await supabase
+    .from('review_request_recipient_evidence')
+    .select('review_request_id')
     .eq('organization_id', request.organization_id)
-    .eq('customer_id', request.customer_id)
-    .eq('channel', 'email')
-    .eq('status', 'SCHEDULED')
+    .eq('channel', channel)
+    .eq('suppression_contact_hash', contactHash)
+
+  const matchingReqIds = (matchingEvidence || []).map((e: { review_request_id: string }) => e.review_request_id)
+  if (matchingReqIds.length > 0) {
+    await supabase
+      .from('review_requests')
+      .update({
+        status: 'SUPPRESSED',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('organization_id', request.organization_id)
+      .in('id', matchingReqIds)
+      .eq('status', 'SCHEDULED')
+  }
+
+  if (request.customer_id) {
+    await supabase
+      .from('review_requests')
+      .update({
+        status: 'SUPPRESSED',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('organization_id', request.organization_id)
+      .eq('customer_id', request.customer_id)
+      .eq('channel', channel)
+      .eq('status', 'SCHEDULED')
+  }
 
   return {
     success: true,

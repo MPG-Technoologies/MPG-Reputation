@@ -4,7 +4,6 @@ import {
   hashUnsubscribeToken,
   processCustomerUnsubscribe,
 } from '@/domain/unsubscribe'
-import { hashSuppressionContact } from '@/domain/suppression'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { escapeHtml } from '@/domain/email/template-html'
 
@@ -132,7 +131,7 @@ export async function GET(
   // 1. Resolve review_request by unsubscribe_token_hash
   const { data: reqRecord } = await supabase
     .from('review_requests')
-    .select('id, organization_id, customer_id')
+    .select('id, organization_id, customer_id, channel')
     .eq('unsubscribe_token_hash', tokenHash)
     .maybeSingle()
 
@@ -159,20 +158,42 @@ export async function GET(
 
   const businessName = escapeHtml(org?.name || 'this business')
 
-  // 3. Fetch customer email explicitly scoped to organization to check existing suppression state
-  const { data: cust } = await supabase
-    .from('customers')
-    .select('email')
-    .eq('id', reqRecord.customer_id)
+  // 3. Resolve erasure-safe suppression contact hash from system-owned recipient evidence
+  // CONSERVATIVE RECIPIENT EVIDENCE POLICY (OWNER-APPROVED):
+  // Historical recipient identity must NOT be fabricated or derived from current customers.email
+  // or completion snapshot. If an existing legacy request has no provable immutable recipient linkage,
+  // fail safely (404). Exact legacy recipient identity is unavailable from repository evidence.
+  const channel = (reqRecord.channel || 'email') as 'email' | 'sms'
+  const { data: evidence } = await supabase
+    .from('review_request_recipient_evidence')
+    .select('suppression_contact_hash')
     .eq('organization_id', reqRecord.organization_id)
-    .single()
+    .eq('review_request_id', reqRecord.id)
+    .eq('channel', channel)
+    .maybeSingle()
 
-  const contactHash = cust?.email ? hashSuppressionContact('email', cust.email) : ''
+  const contactHash = evidence?.suppression_contact_hash
+
+  // Fail closed if linkage evidence is missing
+  if (!contactHash) {
+    const html = renderPageHtml({
+      title: 'Invalid or Expired Link',
+      contentHtml: `
+        <h1>Invalid or expired link</h1>
+        <p>This unsubscribe link is invalid or has expired.</p>
+      `,
+    })
+    return new NextResponse(html, {
+      status: 404,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    })
+  }
+
   const { data: existingSupp } = await supabase
     .from('suppressions')
     .select('id')
     .eq('organization_id', reqRecord.organization_id)
-    .eq('channel', 'email')
+    .eq('channel', channel)
     .eq('contact_hash', contactHash)
     .maybeSingle()
 

@@ -221,9 +221,19 @@ graph LR
    - Design and build structured export (JSON) of customer records, completions, review requests, and consent logs for an authenticated tenant.
    - Zero-leak cross-tenant isolation and audit logging of export events.
 3. **MR-7C.3 — Controlled Customer Erasure & Anonymization**:
-   - Decouple unsubscribe flow from direct customer email dependency.
-   - Implement audited server-side erasure workflow (`service_role` only).
-   - Anonymize direct PII while preserving suppression records and operational delivery invariants.
+   - **MR-7C.3A: Erasure-Safe Unsubscribe Decoupling (Final Access Hardening & Append-Only Invariants)**:
+     - **Launch & Pre-Pilot Invariant**: C3A must be deployed to hosted production and verified BEFORE live customer messaging (`ENABLE_LIVE_EMAIL=true`) or any real-customer pilot (MR-8) can be enabled.
+     - **Pre-C3A Legacy State**: Pre-C3A review requests lacking immutable evidence in `review_request_recipient_evidence` are treated as synthetic/pre-production legacy state and remain permanently blocked from erasure. Unresolved legacy unsubscribe links are NOT claimed to be erasure-safe.
+     - **Strict Append-Only Privileges**: System-owned table `public.review_request_recipient_evidence` grants strictly SELECT and INSERT to `service_role`; UPDATE, DELETE, and TRUNCATE are explicitly revoked. Tenant roles (`OWNER`, `ADMIN`, `OPERATOR`, `VIEWER`, `anon`) have zero access (SELECT, INSERT, UPDATE, DELETE all fail with SQL 42501).
+     - **Pre-Invocation Recipient Freezing**: Recipient identity is frozen and bound to `review_request_recipient_evidence` **before the first provider invocation**, guaranteeing immutability across the external side-effect boundary.
+     - **Database-Level Defense in Depth**: Trigger `protect_recipient_evidence_immutability` strictly prevents `hash(A) -> hash(B)` overwrites even if table permissions are bypassed.
+     - **Initial Send Retries & Reminders**: Verifies stored binding against fresh recipient hash; mismatched recipients are blocked with zero-PII audit reason `RECIPIENT_CHANGED`.
+     - **Conservative Legacy Policy**: Zero historical recipient guessing or fallback to mutable `customers.email` or completion snapshots; requests without immutable evidence fail closed safely.
+     - **Expanded C3B Erasure Gate**: `checkCustomerErasureEligibility` treats any request without immutable evidence in provider-ambiguous states (`SENDING`, `FAILED`, `SENT`, `DELIVERED`, `CLICKED`, or with `sent_at != null` or `message_events`) as blocking customer erasure (`BLOCKED_BY_UNRESOLVED_LEGACY_REQUESTS`).
+   - **MR-7C.3B: Controlled Customer Erasure Engine (Active Next)**:
+     - Implement audited server-side erasure workflow (`service_role` only).
+     - Must enforce C3B legacy-erasure gate before removing customer PII.
+     - Anonymize direct PII while preserving suppression records and operational delivery invariants.
 4. **MR-7C.4 — Retention & Automatic Aging / Purge Controls**:
    - Technical scheduling infrastructure for data aging and purge automation.
    - Parameterized retention policies awaiting owner authorization.

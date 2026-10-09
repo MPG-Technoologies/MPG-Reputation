@@ -467,6 +467,48 @@ export interface Database {
         }
         Relationships: []
       }
+      review_request_recipient_evidence: {
+        Row: {
+          id: string
+          organization_id: string
+          review_request_id: string
+          channel: 'email' | 'sms'
+          suppression_contact_hash: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          review_request_id: string
+          channel?: 'email' | 'sms'
+          suppression_contact_hash?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          review_request_id?: string
+          channel?: 'email' | 'sms'
+          suppression_contact_hash?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_rrre_review_request"
+            columns: ["review_request_id", "organization_id"]
+            isOneToOne: false
+            referencedRelation: "review_requests"
+            referencedColumns: ["id", "organization_id"]
+          },
+          {
+            foreignKeyName: "review_request_recipient_evidence_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       review_request_events: {
         Row: {
           id: string

@@ -5,10 +5,10 @@
 | Date | 2026-10-09 |
 | Authority | Owner direction (Company OS source of truth: techwithmpg/mpg-company-os; reconciliation outstanding) |
 | Milestone | MR-7 (Trust / Security / Compliance) — ACTIVE |
-| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.2B — OWNER ACCEPTED**<br>**MR-7C.2 — OWNER ACCEPTED / COMPLETE**<br>**MR-7C.3A — IN PROGRESS** (NOT `MR-7 — COMPLETE`) |
-| Current Bounded Slice | MR-7C.3A — Erasure-Safe Unsubscribe Decoupling — IN PROGRESS |
+| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.2B — OWNER ACCEPTED**<br>**MR-7C.2 — OWNER ACCEPTED / COMPLETE**<br>**MR-7C.3A — COMPLETED / READY FOR OWNER REVIEW** (NOT `MR-7 — COMPLETE`) |
+| Current Bounded Slice | MR-7C.3A — Erasure-Safe Unsubscribe Decoupling — COMPLETED / READY FOR OWNER REVIEW |
 | Inspected Product Baseline | `a2c3df3076b814dd74996d674dadfe400428c012` (on `main`) |
-| Feature Branch | `chatgpt/mr7c2b-export-delivery` (accepted); `chatgpt/mr7c3a-erasure-safe-unsubscribe` (active next) |
+| Feature Branch | `chatgpt/mr7c3a-erasure-safe-unsubscribe` (active; stacked on accepted C2B HEAD `e7c8f6b`) |
 | Public Safe | Yes; local synthetic fixtures only for verification; no real customer data used |
 
 ---
@@ -69,9 +69,34 @@
   - No duplicate v1 endpoint; single internal product route with minimal attack surface.
   - No database migration required.
   - Verification & Attribution: Full repository suite has pre-existing canonical-main failures; no MR-7C.2B regression was found. (Known baseline issues outside C2B: `completion-source-platform` test 22; two `staging-readiness` `useRouter` mock failures; one parallel-only eligibility query concurrency flake.)
-- **MR-7C.3A — ERASURE-SAFE UNSUBSCRIBE DECOUPLING (ACTIVE NEXT)**:
-  - Establishes immutable, server-owned suppression-contact hash on review requests to decouple historical unsubscribe links from mutable/erasable `customers.email`.
-  - Preserves Invariant 4 before customer PII anonymization/erasure in subsequent MR-7C slices.
+- **MR-7C.3A — ERASURE-SAFE UNSUBSCRIBE DECOUPLING (COMPLETED / READY FOR OWNER REVIEW)**:
+  - Establishes immutable, server-owned suppression-contact hash (`suppression_contact_hash`) on `public.review_requests` to decouple historical unsubscribe links from mutable/erasable `customers.email`.
+  - Check constraint enforcing 64-char lowercase hex SHA-256 format (`ck_review_requests_supp_contact_hash`).
+  - Index `idx_review_requests_supp_contact_hash` on `(organization_id, suppression_contact_hash)`.
+  - **Owner-Approved Conservative Rule & Historical Recipient Evidence**:
+    - Prior to MR-7C.3A, review requests did not record an immutable recipient hash at send time.
+    - Neither intake completion snapshots nor mutable customer rows prove the recipient actually delivered for historical communications.
+    - To prevent fabricating recipient identities, historical delivered review requests created before C3A remain `suppression_contact_hash = NULL` rather than receiving guessed hashes. No broad or speculative backfill is claimed or performed.
+  - **New / Future Send Immutability**:
+    - New review requests obtain an immutable recipient suppression identity tied directly to fresh final authority immediately around provider dispatch and persisted upon confirmed delivery (`status = 'SENT'`).
+    - Once initial delivery succeeds, `suppression_contact_hash` is permanent and cannot drift or be replaced.
+    - Retry correctness before confirmed delivery is preserved (re-evaluates fresh authority and updates pending hash if recipient was corrected prior to delivery).
+  - **Reminder Recipient Invariant (Drift Guard)**:
+    - Re-reads fresh final dispatch authority immediately before reminder dispatch.
+    - Computes `freshReminderHash` via canonical `hashSuppressionContact('email', freshReminderEmail)` and compares against the stored immutable `suppression_contact_hash`.
+    - If recipient matches: reminder proceeds normally.
+    - If recipient changed or is unproven: reminder dispatch is strictly blocked, `suppression_contact_hash` is NOT overwritten, historical request status remains intact, `reminded_at` remains NULL, and a zero-PII audit event (`review_request.reminder_blocked` with `decision: 'RECIPIENT_CHANGED'`) is recorded without email or hash in metadata.
+  - **Legacy Null Linkage & C3B Erasure Gate**:
+    - Legacy requests with `suppression_contact_hash = NULL` temporarily resolve unsubscribe via current customer email only while direct PII exists, but fail closed (404) if customer PII has been removed.
+    - Explicit C3B Precondition: Customer erasure (MR-7C.3B) must fail closed and refuse erasure (`checkCustomerErasureEligibility` returns `BLOCKED_BY_UNRESOLVED_LEGACY_REQUESTS`) for any customer while an unresolved historical delivered review request still depends on customer PII for unsubscribe resolution.
+  - Domain engine `processCustomerUnsubscribe()` resolves suppression contact hash from `review_requests.suppression_contact_hash`, completely eliminating the read dependency on `customers.email` for all decoupled requests.
+  - Route handlers `GET /unsubscribe/[token]` and `POST /unsubscribe/[token]` operate without `customers.email`.
+  - Server-owned and tenant-isolated: authenticated tenant roles cannot mutate `review_requests.suppression_contact_hash` directly (system-write-only RLS). Zero customer PII or raw contact hashes exposed in URLs, audit metadata, or client UI.
+  - Verification: 29/29 integration tests in `test/integration/mr7c3a-erasure-safe-unsubscribe.test.ts` pass cleanly (including all 12 Owner Review correction cases). Full suite baseline attribution confirmed identical to canonical main.
+- **MR-7C.3B — CONTROLLED CUSTOMER ERASURE / ANONYMIZATION (ACTIVE NEXT)**:
+  - Authorized customer PII redaction engine operating under Invariants 1-8.
+  - Precondition: Must enforce `checkCustomerErasureEligibility` gate refusing erasure when unresolved legacy delivered requests exist.
+  - Gated until owner review and acceptance of MR-7C.3A.
 
 ---
 
@@ -120,7 +145,12 @@
 - **No Retention Cron / Purge**: Automated purging is scheduled for MR-7C.4.
 - **MR-7C.1 Production Activation**: Owner explicitly authorized the hosted migration, merge to main, and automatic Vercel deployment associated with the main merge. Hosted migration `20261008010000` was applied and verified before merge.
 - **MR-7C.2B Production Boundary**: OWNER ACCEPTED on branch `chatgpt/mr7c2b-export-delivery`. MR-7C.2 is OWNER ACCEPTED / COMPLETE. Requires no database migration. No production deployment, live messaging activation, or billing activation authorized.
-- **MR-7C.3A Boundary**: Erasure-Safe Unsubscribe Decoupling in progress on `chatgpt/mr7c3a-erasure-safe-unsubscribe`. Does not authorize customer erasure or anonymization.
+- **MR-7C.3A Boundary & Launch Invariant**:
+  - Erasure-Safe Unsubscribe Decoupling completed on `chatgpt/mr7c3a-erasure-safe-unsubscribe`.
+  - **Launch Invariant**: C3A must be deployed to hosted production and verified BEFORE live customer messaging (`ENABLE_LIVE_EMAIL=true`) or any real-customer pilot (MR-8) can be enabled.
+  - **Pre-C3A Legacy State**: Any pre-C3A review request lacking immutable recipient evidence in `review_request_recipient_evidence` is strictly treated as synthetic / pre-production legacy state and remains permanently blocked from customer erasure (`checkCustomerErasureEligibility` returns `BLOCKED_BY_UNRESOLVED_LEGACY_REQUESTS`).
+  - **No False Safety Claims**: Unresolved legacy unsubscribe links are explicitly NOT claimed to be erasure-safe, and repository evidence does not fabricate or guess historical recipient identities.
+  - **Append-Only Access Model**: `public.review_request_recipient_evidence` is strictly append-only for `service_role` (SELECT + INSERT only; UPDATE, DELETE, TRUNCATE revoked). Tenant roles (`OWNER`, `ADMIN`, `OPERATOR`, `VIEWER`) and `anon` have zero access.
 - **Live Messaging**: Remains completely OFF (`ENABLE_LIVE_EMAIL=false`).
 - **Billing**: Unchanged and paused under `MPG-DEC-049`.
 - **MR-6**: Admin/support route code is present, but hosted support-access database/authorization activation remains intentionally not enabled for production.
@@ -150,8 +180,10 @@
 ## 5. Frozen MR-7C Sequence
 
 1. **MR-7C.1**: Privacy Lifecycle Contract + Direct Delete Safety *(OWNER ACCEPTED / HOSTED VERIFIED)*
-2. **MR-7C.2**: Customer Privacy Export *(IN PROGRESS — MR-7C.2A OWNER ACCEPTED / PRODUCTION VERIFIED; MR-7C.2B READY FOR OWNER REVIEW)*
+2. **MR-7C.2**: Customer Privacy Export *(OWNER ACCEPTED / COMPLETE)*
 3. **MR-7C.3**: Controlled Customer Erasure / Anonymization
+   - **MR-7C.3A**: Erasure-Safe Unsubscribe Decoupling *(COMPLETED / READY FOR OWNER REVIEW)*
+   - **MR-7C.3B**: Controlled Customer Erasure Engine *(ACTIVE NEXT)*
 4. **MR-7C.4**: Retention + Automatic Aging/Purge Controls
 5. **MR-7C.5**: Processor Deletion/Retention Reconciliation
 
@@ -159,18 +191,19 @@
 
 ## 6. Rollback Implications
 
-If rollback of MR-7C.1 is required:
-1. Re-grant `DELETE` on `public.customers` to `authenticated`.
-2. Re-create policy `customers_delete` with `USING (user_has_role(organization_id, ARRAY['OWNER', 'ADMIN']))`.
-3. No application code depends on client-side customer deletion, so application code remains stable.
+If rollback of MR-7C.3A is required:
+1. Drop trigger `protect_recipient_evidence_immutability` and function `protect_recipient_evidence_immutability()` on `public.review_request_recipient_evidence`.
+2. Drop table `public.review_request_recipient_evidence`.
+3. Application code fails closed on legacy requests without recipient evidence.
+4. No data is lost; existing review requests, tokens, and suppressions remain completely intact.
 
 ---
 
 ## 7. Owner Gate
 
-- **Milestone Status**: MR-7 is ACTIVE; MR-7B.1, MR-7B.2, and MR-7B.3 are **OWNER ACCEPTED**; MR-7C.1 is **OWNER ACCEPTED / HOSTED VERIFIED**; MR-7C.2A is **OWNER ACCEPTED / PRODUCTION VERIFIED**; MR-7C.2B is **READY FOR OWNER REVIEW**.
+- **Milestone Status**: MR-7 is ACTIVE; MR-7B.1, MR-7B.2, MR-7B.3, MR-7C.1, MR-7C.2A, and MR-7C.2B (MR-7C.2 Complete) are **OWNER ACCEPTED**; MR-7C.3A is **COMPLETED / READY FOR OWNER REVIEW**.
 - **Live messaging remains disabled** (`ENABLE_LIVE_EMAIL=false`).
 - **Live billing remains paused** under `MPG-DEC-049`.
 - **Controlled Pilot (MR-8) remains strictly GATED**.
-- Feature branch `chatgpt/mr7c2b-export-delivery` contains the MR-7C.2B implementation.
-- MR-7C.2B requires no database migration. Customer erasure, hosted database mutation, live messaging activation, and billing activation remain unauthorized.
+- Feature branch `chatgpt/mr7c3a-erasure-safe-unsubscribe` contains the finalized MR-7C.3A privacy hardening implementation stacked on accepted C2B HEAD (`e7c8f6b`).
+- Local database migration `20261009000000_mr7c3a_erasure_safe_unsubscribe.sql` is tested and verified locally; **hosted application is NOT authorized**. Customer erasure, live messaging activation, and billing activation remain unauthorized.

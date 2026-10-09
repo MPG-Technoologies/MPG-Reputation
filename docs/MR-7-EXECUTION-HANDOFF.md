@@ -5,10 +5,10 @@
 | Date | 2026-10-09 |
 | Authority | Owner direction (Company OS source of truth: techwithmpg/mpg-company-os; reconciliation outstanding) |
 | Milestone | MR-7 (Trust / Security / Compliance) — ACTIVE |
-| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.2B — IN PROGRESS (READY FOR OWNER REVIEW)** (NOT `MR-7 — COMPLETE`) |
-| Current Bounded Slice | MR-7C.2B — Authorized Export Delivery Surface — IN PROGRESS (READY FOR OWNER REVIEW) |
+| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.2B — OWNER ACCEPTED**<br>**MR-7C.2 — OWNER ACCEPTED / COMPLETE**<br>**MR-7C.3A — IN PROGRESS** (NOT `MR-7 — COMPLETE`) |
+| Current Bounded Slice | MR-7C.3A — Erasure-Safe Unsubscribe Decoupling — IN PROGRESS |
 | Inspected Product Baseline | `a2c3df3076b814dd74996d674dadfe400428c012` (on `main`) |
-| Feature Branch | `chatgpt/mr7c2b-export-delivery` |
+| Feature Branch | `chatgpt/mr7c2b-export-delivery` (accepted); `chatgpt/mr7c3a-erasure-safe-unsubscribe` (active next) |
 | Public Safe | Yes; local synthetic fixtures only for verification; no real customer data used |
 
 ---
@@ -57,7 +57,7 @@
   - Successful exports write `privacy.customer_export` to `audit_events` with schema version and aggregate counts only; customer name, email, phone, raw PII, and export payloads are not copied into audit metadata.
   - Merged into `main` at commit `a2c3df3076b814dd74996d674dadfe400428c012` and production verified.
   - No schema migration was required by MR-7C.2A.
-- **MR-7C.2B — AUTHORIZED EXPORT DELIVERY SURFACE (READY FOR OWNER REVIEW)**:
+- **MR-7C.2B — OWNER ACCEPTED; MR-7C.2 — OWNER ACCEPTED / COMPLETE**:
   - Exposes the C2A per-customer privacy export foundation to authorized tenant users via single authenticated product route `GET /api/organizations/[organizationId]/customers/[customerId]/export`.
   - Target input is explicit `organizationId` and `customerId`. The browser-supplied input is target input only, not authority.
   - Gated by authoritative domain engine `getCustomerPrivacyExport(organizationId, customerId)`: tenant `OWNER` and `ADMIN` only. `OPERATOR` and `VIEWER` are denied (403, zero payload).
@@ -68,6 +68,10 @@
   - UI integration: Added `CustomerPrivacyExportButton` in `src/app/app/customers/customer-actions.tsx` requiring `organizationId` and `customerId`, integrated into `src/app/app/customers/page.tsx` for desktop table and mobile cards. UI visibility is role-gated, while backend route handler strictly enforces authorization via C2A.
   - No duplicate v1 endpoint; single internal product route with minimal attack surface.
   - No database migration required.
+  - Verification & Attribution: Full repository suite has pre-existing canonical-main failures; no MR-7C.2B regression was found. (Known baseline issues outside C2B: `completion-source-platform` test 22; two `staging-readiness` `useRouter` mock failures; one parallel-only eligibility query concurrency flake.)
+- **MR-7C.3A — ERASURE-SAFE UNSUBSCRIBE DECOUPLING (ACTIVE NEXT)**:
+  - Establishes immutable, server-owned suppression-contact hash on review requests to decouple historical unsubscribe links from mutable/erasable `customers.email`.
+  - Preserves Invariant 4 before customer PII anonymization/erasure in subsequent MR-7C slices.
 
 ---
 
@@ -115,8 +119,8 @@
 - **Privacy Export Boundary**: MR-7C.2A implements the server-side per-customer export foundation; MR-7C.2B adds the authorized delivery surface via GET `/api/organizations/[organizationId]/customers/[customerId]/export` and customer workspace UI. It does not add bulk tenant export, destructive erasure, or a public self-service export surface.
 - **No Retention Cron / Purge**: Automated purging is scheduled for MR-7C.4.
 - **MR-7C.1 Production Activation**: Owner explicitly authorized the hosted migration, merge to main, and automatic Vercel deployment associated with the main merge. Hosted migration `20261008010000` was applied and verified before merge.
-- **MR-7C.2A Production Activation**: Merged to `main` at `a2c3df3076b814dd74996d674dadfe400428c012` and production verified. This slice required no database migration.
-- **MR-7C.2B Production Boundary**: Engineering completed on branch `chatgpt/mr7c2b-export-delivery`. Awaiting owner review. Requires no database migration. No production deployment, live messaging activation, or billing activation authorized.
+- **MR-7C.2B Production Boundary**: OWNER ACCEPTED on branch `chatgpt/mr7c2b-export-delivery`. MR-7C.2 is OWNER ACCEPTED / COMPLETE. Requires no database migration. No production deployment, live messaging activation, or billing activation authorized.
+- **MR-7C.3A Boundary**: Erasure-Safe Unsubscribe Decoupling in progress on `chatgpt/mr7c3a-erasure-safe-unsubscribe`. Does not authorize customer erasure or anonymization.
 - **Live Messaging**: Remains completely OFF (`ENABLE_LIVE_EMAIL=false`).
 - **Billing**: Unchanged and paused under `MPG-DEC-049`.
 - **MR-6**: Admin/support route code is present, but hosted support-access database/authorization activation remains intentionally not enabled for production.

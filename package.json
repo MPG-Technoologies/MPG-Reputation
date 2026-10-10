@@ -9,7 +9,9 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "inngest:dev": "npx inngest-cli@latest dev -u http://127.0.0.1:3000/api/inngest"
+    "inngest:dev": "npx inngest-cli@latest dev -u http://127.0.0.1:3000/api/inngest",
+    "dev:bootstrap": "node scripts/bootstrap-local-dev.mjs",
+    "dev:reset": "pnpm dlx supabase@2.117.0 db reset && node scripts/bootstrap-local-dev.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

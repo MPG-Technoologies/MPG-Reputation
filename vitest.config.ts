@@ -9,6 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    fileParallelism: false,
     env: {
       NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54331',
       NEXT_PUBLIC_SUPABASE_ANON_KEY:

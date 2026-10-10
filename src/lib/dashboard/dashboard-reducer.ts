@@ -187,7 +187,9 @@ export function createInitialState(
 
     systemStatus: snapshot.systemStatus,
     statusDescription: snapshot.statusDescription,
-    attentionItems: snapshot.attentionItems.map((i) => ({ ...i })),
+    attentionItems: snapshot.attentionItems
+      .filter((i) => i.id !== 'ineligible-suppressed')
+      .map((i) => ({ ...i })),
     setupChecklist: (snapshot.setupChecklist ?? []).map((i) => ({ ...i })),
     locationsNeedingDestinationCount:
       snapshot.locationsNeedingDestinationCount,
@@ -285,7 +287,9 @@ export function dashboardReducer(
         liveActivity: mergedLiveActivity,
         systemStatus: action.snapshot.systemStatus,
         statusDescription: action.snapshot.statusDescription,
-        attentionItems: action.snapshot.attentionItems.map((i) => ({ ...i })),
+        attentionItems: action.snapshot.attentionItems
+          .filter((i) => i.id !== 'ineligible-suppressed')
+          .map((i) => ({ ...i })),
         setupChecklist: (action.snapshot.setupChecklist ?? []).map((i) => ({ ...i })),
         locationsNeedingDestinationCount:
           action.snapshot.locationsNeedingDestinationCount,
@@ -590,20 +594,12 @@ export function dashboardReducer(
           ineligibleCount: nextIneligibleCount,
         }
 
-        let nextAttentionItems: AttentionItem[] = [...state.attentionItems]
-        const ineligibleIdx = nextAttentionItems.findIndex((i) => i.id === 'ineligible-suppressed')
-        const ineligibleItem: AttentionItem = {
-          id: 'ineligible-suppressed',
-          severity: 'info',
-          title: 'Completions Bypassed by Policy',
-          description: `${nextIneligibleCount} customer completion(s) were safely bypassed due to missing customer consent, recent request cooldown, or suppression.`,
-        }
-
-        if (ineligibleIdx >= 0) {
-          nextAttentionItems[ineligibleIdx] = ineligibleItem
-        } else {
-          nextAttentionItems = [...nextAttentionItems, ineligibleItem]
-        }
+        // Policy bypasses are safe decisions by the eligibility engine,
+        // not system operational faults. They do NOT add to attentionItems
+        // or force NEEDS_ATTENTION. Filter out any legacy item if present.
+        const nextAttentionItems = state.attentionItems.filter(
+          (i) => i.id !== 'ineligible-suppressed'
+        )
 
         // Live Activity transitions to BYPASSED
         const formattedReason =

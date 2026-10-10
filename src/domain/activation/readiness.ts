@@ -144,14 +144,25 @@ export function deriveActivationReadiness(
   }
 }
 
+export const DASHBOARD_OPERATIONAL_WINDOW_HOURS = 24
+
+export function getOperationalWindowStartIso(
+  hours: number = DASHBOARD_OPERATIONAL_WINDOW_HOURS,
+  nowMs: number = Date.now()
+): string {
+  return new Date(nowMs - hours * 60 * 60 * 1000).toISOString()
+}
+
 export function deriveDashboardSystemStatus({
   readiness,
+  recentFailedRequestCount,
   failedCount,
   outboxFailedCount,
   sentCount,
 }: {
   readiness: ActivationReadiness
-  failedCount: number
+  recentFailedRequestCount?: number
+  failedCount?: number
   outboxFailedCount: number
   sentCount: number
 }): {
@@ -174,7 +185,12 @@ export function deriveDashboardSystemStatus({
     }
   }
 
-  if (failedCount > 0 || outboxFailedCount > 0) {
+  const effectiveRecentFailedCount =
+    recentFailedRequestCount !== undefined
+      ? recentFailedRequestCount
+      : (failedCount ?? 0)
+
+  if (effectiveRecentFailedCount > 0 || outboxFailedCount > 0) {
     return {
       systemStatus: 'NEEDS_ATTENTION',
       statusDescription:

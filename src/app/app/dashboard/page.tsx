@@ -1,6 +1,11 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
-import { deriveActivationReadiness, deriveDashboardSystemStatus } from '@/domain/activation'
+import {
+  deriveActivationReadiness,
+  deriveDashboardSystemStatus,
+  DASHBOARD_OPERATIONAL_WINDOW_HOURS,
+  getOperationalWindowStartIso,
+} from '@/domain/activation'
 import { deriveLiveActivity } from '@/lib/dashboard/live-activity-projection'
 import { LiveDashboard } from './live-dashboard'
 import { DataLoadError } from '@/components/ui/data-load-error'
@@ -44,6 +49,8 @@ export default async function DashboardPage() {
     (activeMembership?.organizations as unknown as { name?: string })?.name ||
     'Your Organization'
 
+  const operationalWindowStart = getOperationalWindowStartIso()
+
   // Performance Optimization: Parallelize all independent count, location, destination, and activity queries
   const [
     { count: completedCount },
@@ -52,6 +59,7 @@ export default async function DashboardPage() {
     { count: sentCount },
     { count: clickedCount },
     { count: failedCount },
+    { count: recentFailedCount },
     { count: outboxFailedCount },
     { count: ineligibleCount },
     { data: locations, error: locationsError },
@@ -88,6 +96,14 @@ export default async function DashboardPage() {
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId)
       .eq('status', 'FAILED'),
+    supabase
+      .from('review_requests')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId)
+      .eq('status', 'FAILED')
+      .or(
+        `failed_at.gte.${operationalWindowStart},and(failed_at.is.null,updated_at.gte.${operationalWindowStart})`
+      ),
     supabase
       .from('domain_event_outbox')
       .select('id', { count: 'exact', head: true })
@@ -144,10 +160,12 @@ export default async function DashboardPage() {
     (loc) => loc.status !== 'ACTIVE'
   )
 
+  const recentFailedRequestCount = recentFailedCount ?? 0
+
   const { systemStatus, statusDescription } =
     deriveDashboardSystemStatus({
       readiness,
-      failedCount: failedCount ?? 0,
+      recentFailedRequestCount,
       outboxFailedCount: outboxFailedCount ?? 0,
       sentCount: sentCount ?? 0,
     })
@@ -187,12 +205,12 @@ export default async function DashboardPage() {
     })
   }
 
-  if (failedCount && failedCount > 0) {
+  if (recentFailedRequestCount > 0) {
     attentionItems.push({
       id: 'failed-requests',
       severity: 'error',
       title: 'Workflow Dispatch Failed',
-      description: `${failedCount} review request dispatch(es) recorded delivery failures. Please check email provider logs.`,
+      description: `${recentFailedRequestCount} review request dispatch(es) recorded delivery failures in the last ${DASHBOARD_OPERATIONAL_WINDOW_HOURS} hours. Please check email provider logs.`,
     })
   }
 
@@ -202,15 +220,6 @@ export default async function DashboardPage() {
       severity: 'error',
       title: 'Background Events Awaiting Recovery',
       description: `${outboxFailedCount} background event(s) encountered errors and are awaiting automated recovery.`,
-    })
-  }
-
-  if (ineligibleCount && ineligibleCount > 0) {
-    attentionItems.push({
-      id: 'ineligible-suppressed',
-      severity: 'info',
-      title: 'Completions Bypassed by Policy',
-      description: `${ineligibleCount} customer completion(s) were safely bypassed due to missing customer consent, recent request cooldown, or suppression.`,
     })
   }
 
@@ -282,6 +291,7 @@ export default async function DashboardPage() {
       sentCount: sentCount ?? 0,
       clickedCount: clickedCount ?? 0,
       failedCount: failedCount ?? 0,
+      recentFailedRequestCount,
       outboxFailedCount: outboxFailedCount ?? 0,
       ineligibleCount: ineligibleCount ?? 0,
     },

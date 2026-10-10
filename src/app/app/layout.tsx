@@ -1,6 +1,9 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { deriveActivationReadiness } from '@/domain/activation'
+import {
+  deriveActivationReadiness,
+  getOperationalWindowStartIso,
+} from '@/domain/activation'
 import { AppShell } from '@/components/ui/app-shell'
 import { ModalProvider } from '@/components/ui/modal-system'
 import { NavigationProvider } from './nav-context'
@@ -34,14 +37,19 @@ export default async function AppLayout({
   const orgData = activeMembership.organizations as { id: string; name: string; slug: string } | null
   const orgName = orgData?.name || 'My Business'
 
+  const operationalWindowStart = getOperationalWindowStartIso()
+
   // Parallelize notifications badge count and Quick Complete readiness queries
-  const [{ count: failedRequestsCount }, { data: locations, error: locationsError }, { data: destinations, error: destinationsError }] =
+  const [{ count: recentFailedRequestsCount }, { data: locations, error: locationsError }, { data: destinations, error: destinationsError }] =
     await Promise.all([
       supabase
         .from('review_requests')
         .select('id', { count: 'exact', head: true })
         .eq('organization_id', orgId)
-        .eq('status', 'FAILED'),
+        .eq('status', 'FAILED')
+        .or(
+          `failed_at.gte.${operationalWindowStart},and(failed_at.is.null,updated_at.gte.${operationalWindowStart})`
+        ),
       supabase
         .from('locations')
         .select('id, name, status')
@@ -72,7 +80,7 @@ export default async function AppLayout({
           orgName={orgName}
           userRole={activeMembership.role}
           userEmail={user.email}
-          attentionCount={failedRequestsCount ?? 0}
+          attentionCount={recentFailedRequestsCount ?? 0}
         >
           {children}
         </AppShell>

@@ -86,7 +86,7 @@ An exhaustive audit of `package.json`, environment variable specifications, prov
 |---|---|---|---|---|---|
 | **Resend** | Resend, Inc. | `resend@6.28.1` | Transactional email delivery, bounce/complaint webhooks, delivery monitoring | Direct PII (Recipient email, first name, message body), Pseudonymous IDs | Configured behind `ENABLE_LIVE_EMAIL=false` gate; active in synthetic test mode |
 | **Inngest** | Inngest Inc. | `inngest@4.20.0` | Durable serverless execution, delay queues, event orchestration, retention maintenance | Pseudonymous IDs (Event trigger), Direct PII (Workflow step return values — *Leakage identified*) | Active local & cloud orchestration; retention cron gated behind `ENABLE_RETENTION_MAINTENANCE=false` |
-| **Supabase** | Supabase, Inc. (AWS us-east-1) | `@supabase/supabase-js@2.116.0`, `@supabase/ssr@0.12.7` | Primary PostgreSQL database, Auth, RLS, automated daily backups, PITR | Full Database (Direct PII, Pseudonymous, Operational, Compliance, Audit) | Active primary persistent datastore |
+| **Supabase** | Supabase, Inc. (AWS ap-south-1) | `@supabase/supabase-js@2.116.0`, `@supabase/ssr@0.12.7` | Primary PostgreSQL database, Auth, RLS (Free tier; manual/off-site backups evaluate restore obligations; PITR inactive) | Full Database (Direct PII, Pseudonymous, Operational, Compliance, Audit) | Active primary persistent datastore |
 | **Vercel** | Vercel Inc. | `next@16.3.5` | Application hosting, edge compute, serverless route execution, runtime logs | Transient request context, Pseudonymous IDs, Potential logged error text | Active hosting platform |
 | **Stripe** | Stripe, Inc. | `stripe@22.6.2` | Subscription billing, checkout sessions, invoice webhooks | Organization billing contact, payment method tokens (Zero end-consumer review data) | Paused under `MPG-DEC-049`; live billing disabled (`ENABLE_STRIPE_LIVE_BILLING=false`) |
 
@@ -289,23 +289,22 @@ Because Inngest's execution architecture serializes every `step.run()` return va
 ## 7. Supabase Analysis (Database, Backups & PITR)
 
 ### 7.1 Primary Database & Storage
-- **Region**: AWS `us-east-1` (North Virginia).
-- **Engine**: PostgreSQL 15.x / 16.x managed by Supabase.
+- **Project Ref / Name**: `awvqtwkzprygsoyfspuz` (`mpg-reputation`).
+- **Region**: AWS `ap-south-1` (Mumbai).
+- **Engine**: PostgreSQL 17.6.x managed by Supabase.
+- **Plan Tier**: **Free Plan**.
 - **Data Stored**: Full MPG Reputation dataset, including `customers`, `customer_completion_events`, `review_requests`, `suppressions`, `customer_erasure_records`, and audit ledgers.
 - **Storage Buckets**: Audited schema and application code. MPG Reputation does **not** use Supabase Storage buckets (no customer files, documents, or media stored).
 
 ### 7.2 Supabase Backup Architecture & Retention
-*Official Evidence*: Grounded via Supabase Documentation (supabase.com/docs/guides/platform/backups):
-- **Automated Daily Backups (Logical/Physical Snapshots)**:
-  - **Free Plan**: None or limited to 1–2 days.
-  - **Pro Plan**: **7 days**.
-  - **Team Plan**: **14 days**.
-  - **Enterprise Plan**: Up to **30 days**.
-- **Point-in-Time Recovery (PITR)**:
-  - Optional physical backup add-on using continuous WAL (Write-Ahead Logging) archiving.
-  - Allows restoring the database to any specific second within the retention window (typically 7, 14, or 28 days).
-  - When PITR is enabled, standard daily logical backups are replaced by continuous physical WAL archiving.
-- **Account Verification Status**: **ACCOUNT CONFIGURATION VERIFICATION REQUIRED**. Verification is required to determine whether MPG's hosted project is on Pro (7d), Team (14d), or Enterprise (30d), and whether PITR is enabled.
+*Official Evidence & Hosted Verification*:
+- **Current Hosted Plan Tier**: The current hosted MPG Reputation project (`mpg-reputation`, `ap-south-1`) is on the **Free** organization plan.
+- **Automated Backup & PITR Reality on Current Account**:
+  - The current Free-plan hosted project does **not** have the user-accessible 7/14/30-day automated daily backups available on Pro/Team/Enterprise plans.
+  - The current account does **not** have the paid Point-in-Time Recovery (PITR) capability active.
+  - Provider backup assumptions must be evaluated against the actual account tier.
+- **Manual / Off-Site Backups**: Manual exports (`pg_dump`) or off-site backups may later create equivalent restore/privacy reconciliation obligations.
+- **Future Tier Invariant**: If MPG upgrades to a tier with automated daily backups (Pro 7d, Team 14d, Enterprise 30d) or continuous WAL PITR, the previously identified restore-resurrection invariant becomes operationally applicable.
 
 ### 7.3 Individual Record Deletion in Backups
 - **Technical Reality**: Database backups are monolithic, immutable snapshots of the entire relational cluster at a given point in time.
@@ -439,7 +438,7 @@ The table below synthesizes the complete retention and deletion architecture acr
 |---|---|---|---|---|---|---|---|---|---|
 | **Resend** | Recipient email, first name, rendered review email body & subject, tags (`review_request_id`) | **DIRECT PII** | 30 days (Free/Pro/Scale); Configurable (Enterprise) | 7 days | **No public deletion API verified** (Support-assisted for specific early removal) | **Category C** (Natural Expiry Only) | **None** (Expires naturally at 30 days) | **VERIFIED — OFFICIAL DOC** | Content storage controls unverified without plan confirmation (UNVERIFIED / ACCOUNT OR PROVIDER CONFIRMATION REQUIRED). Manual early specific-message deletion requires Resend Support. |
 | **Inngest** | Event trigger (5 opaque IDs); Step outputs (`customerName`, `customerEmail`, `renderedSubject`, `renderedBody`) | **DIRECT PII** (*In Step Outputs*) | Free 24h, Pro 7d, Business 14d, Enterprise up to 365d per limits docs (ACCOUNT CONFIGURATION VERIFICATION REQUIRED) | N/A (Cloud state) | **No public deletion API verified** (Cancellation only; no run trace deletion API) | **Category C** (Natural Expiry Only) | **Remediate in MR-7C.5B** (Strip PII from step return values) | **VERIFIED — REPOSITORY & OFFICIAL DOC** | PII leakage in step returns must be fixed in C5B so Inngest retains only opaque IDs. ACCOUNT CONFIGURATION VERIFICATION REQUIRED for active plan. |
-| **Supabase** | Full relational database (customers, completions, requests, suppressions, evidence, ledgers) | **DIRECT PII** (Primary Store) | Retained until explicit erasure or lifecycle aging | 7d (Pro), 14d (Team), 30d (Enterprise); PITR continuous WAL | **YES (Primary DB)**; **NO (Backups)** | **Category A (Primary)**; **Category D (Backups)** | **Primary DB**: `execute_customer_erasure` RPC. **Backups**: Post-Restore Reconciliation. | **VERIFIED — REPOSITORY & OFFICIAL DOC** | Restoring an old backup could resurrect erased PII unless Post-Restore Reconciliation is executed. RESTORE PRIVACY GAP identified for Case B. |
+| **Supabase** | Full relational database (customers, completions, requests, suppressions, evidence, ledgers) | **DIRECT PII** (Primary Store) | Retained until explicit erasure or lifecycle aging | Free plan (no user-accessible 7/14/30d automated backups; PITR inactive; manual backups or future tier upgrades evaluate Category D) | **YES (Primary DB)**; **NO (Backups)** | **Category A (Primary)**; **Category D (Backups / Manual Dumps)** | **Primary DB**: `execute_customer_erasure` RPC. **Backups**: Post-Restore Reconciliation. | **VERIFIED — HOSTED EVIDENCE (Free / ap-south-1 / PG 17.6) & DOCS** | Restoring an old backup could resurrect erased PII unless Post-Restore Reconciliation is executed. RESTORE PRIVACY GAP identified for Case B. |
 | **Vercel** | Request URLs, path tokens (`/r/[token]`, `/unsubscribe/[token]`), headers, console log output, error traces | **PSEUDONYMOUS / LINKABLE DATA & ERROR LOGS** | 1h (Hobby), 1d (Pro), 3d (Enterprise); 30d (Observability Plus) | N/A | **No per-record log deletion API verified** | **Category C** (Natural Expiry Only) | **None** (Logs expire naturally; harden error logging in C5B) | **VERIFIED — OFFICIAL DOC** | URL paths log pseudonymous review/unsubscribe tokens. Ensure `ConsoleEmailProvider` cannot run in production; sanitize error logs. ACCOUNT CONFIGURATION VERIFICATION REQUIRED for plan/Observability Plus. |
 | **Stripe** | Tenant billing contacts, payment tokens, invoices (Zero review customer data) | **B2B PII / FINANCIAL** | Retained per active subscription + statutory tax/AML retention | Per Stripe infrastructure | **Object deletion available (`stripe.customers.del()`); Redaction jobs separate** | **Category A** (Programmatic API Delete) | **None** (End-consumer reviews never enter Stripe; billing paused) | **VERIFIED — OFFICIAL DOC** | `stripe.customers.del()` does not equal complete PII erasure; statutory tax/AML retention applies. Live billing paused under `MPG-DEC-049`. Re-evaluate if live billing resumes. |
 
@@ -464,7 +463,7 @@ Every copy of data outside the primary database table row is classified into one
 
 ### Mode D — Backup / Disaster-Recovery Copy
 - **Definition**: Monolithic, immutable backup copies that cannot be modified on an individual record basis. Data expires as backup cycles roll over (7 to 30 days).
-- **Processors**: Supabase automated daily backups and PITR WAL archives, Resend system backups (7 days).
+- **Processors**: Supabase manual/future automated backups or PITR archives (Free plan currently inactive for automated/PITR), Resend system backups (7 days).
 - **MPG Policy**: Immutable backups are protected by the **Post-Restore Privacy Reconciliation Procedure** (Section 7.5). Backups are never altered directly; instead, restored environments are reconciled before entering service.
 
 ### Mode E — Must Not Contain PII
@@ -483,7 +482,7 @@ Where vendor retention periods depend on specific plan configurations or account
 | **Resend** | Active Subscription Tier (Free, Pro, Scale, or Enterprise) | Determines whether email/log retention is strictly 30 days or custom | Verify in Resend Dashboard -> Billing. |
 | **Resend** | Message Content Storage Controls | When active, prevents Resend from storing email body content | UNVERIFIED / ACCOUNT OR PROVIDER CONFIRMATION REQUIRED (pricing and availability terms require account confirmation). |
 | **Inngest** | Active Plan Tier (Free, Pro, Business, or Enterprise) | Determines run trace retention (Free 24h, Pro 7d, Business 14d, Enterprise up to 365d) | Verify in Inngest Cloud Dashboard -> Organization Settings (ACCOUNT CONFIGURATION VERIFICATION REQUIRED). |
-| **Supabase** | Active Plan Tier (Pro, Team, or Enterprise) & PITR Status | Determines backup retention (7d vs 14d vs 30d) and point-in-time recovery | Verify in Supabase Dashboard -> Database -> Backups. |
+| **Supabase** | Hosted Plan Confirmed (Free; ap-south-1; PG 17.6.x); Upgrade Evaluation | Current Free tier has no automated daily backup retention or PITR. Future upgrade would activate 7d/14d/30d backup lifecycle | Re-evaluate if organization upgrades to Pro/Team/Enterprise or institutes off-site manual backups. |
 | **Vercel** | Active Plan Tier (Pro vs Enterprise) & Observability Plus | Determines runtime log retention (1d vs 3d vs 30d) | Verify in Vercel Dashboard -> Project Settings -> Observability. |
 | **Stripe** | Account Eligibility & Verification (MR-5 dependency) | Prerequisites for unpausing commercial billing under `MPG-DEC-049` | Remains paused; resolve independently before MR-8. |
 

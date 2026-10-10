@@ -13,7 +13,7 @@
 
 ## 1. Executive Summary & Authority
 
-Under `MPG-DEC-050` and the Owner Acceptance of MR-7C.3B (`856d7b8`), MR-7C.3C external identifier erasure enforcement (`8796b5e`), and MR-7C.3C delivery correction (`50e1bcf`), MPG Reputation has established a cryptographically secure, tenant-isolated foundation for data subject export (MR-7C.2) and controlled customer erasure (MR-7C.3).
+Under `MPG-DEC-050` and the Owner Acceptance of MR-7C.3B (`856d7b87425413da481211313716fbbabb9d5948`), MR-7C.3C external identifier erasure enforcement (`8796b5e`), and MR-7C.3C delivery correction (`50e1bcf`), MPG Reputation has established a cryptographically secure, tenant-isolated foundation for data subject export (MR-7C.2) and controlled customer erasure (MR-7C.3).
 
 This document establishes **MR-7C.4A**: the authoritative retention requirements, foreign-key dependency audit, and data-class decision matrix for every persisted entity in MPG Reputation.
 

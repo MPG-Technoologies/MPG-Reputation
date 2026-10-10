@@ -2,11 +2,11 @@
 
 | Metadata | Value |
 |---|---|
-| Milestone Slice | MR-7C.4A — Retention Requirements + Data-Class Decision Matrix (**OWNER ACCEPTED / FROZEN** at `924a7f009d18bfeadd0944f5bca082548eac9e54`)<br>MR-7C.4B1 — Frozen Retention Controls Foundation (**ENGINEERING COMPLETE / READY FOR OWNER REVIEW**) |
+| Milestone Slice | MR-7C.4A — Retention Requirements + Data-Class Decision Matrix (**OWNER ACCEPTED / FROZEN** at `924a7f009d18bfeadd0944f5bca082548eac9e54`)<br>MR-7C.4B1 — Frozen Retention Controls Foundation (**OWNER ACCEPTED** at `dd9af1a7630da5c802b10b9c2345b8b525542d63`)<br>MR-7C.4B2 — Bounded Retention Maintenance Workflow (**OWNER ACCEPTED** at `17ff5bc331b225eb589694607754ac58f30e2473`) |
 | Document Type | Architecture Evidence & Frozen Retention Policy Foundation |
 | Program | MPG Reputation Market-Ready Build (MR-0 through MR-11) |
-| Authority | `MPG-DEC-050`; Owner Acceptance of MR-7C.4A (`924a7f009d18bfeadd0944f5bca082548eac9e54`) |
-| Status | OWNER APPROVED / FROZEN RETENTION POLICY; MR-7C.4B1 IMPLEMENTED |
+| Authority | `MPG-DEC-050`; Owner Acceptance of MR-7C.4A (`924a7f009d18bfeadd0944f5bca082548eac9e54`); Owner Acceptance of MR-7C.4B1 (`dd9af1a7630da5c802b10b9c2345b8b525542d63`); Owner Acceptance of MR-7C.4B2 (`17ff5bc331b225eb589694607754ac58f30e2473`) |
+| Status | OWNER APPROVED / FROZEN RETENTION POLICY; MR-7C.4B1 & MR-7C.4B2 OWNER ACCEPTED |
 | Execution Policy | Strict Data Class Retention Operations; Zero Generic Purge; Zero Hard Customer Deletes; Zero Production Scheduling Activation |
 
 ---
@@ -326,9 +326,9 @@ Implementation components:
 
 ---
 
-## 9. Multi-Tenant Maintenance Workflow (MR-7C.4B2 — ENGINEERING COMPLETE / CORRECTIONS APPLIED / READY FOR OWNER REVIEW)
+## 9. Multi-Tenant Maintenance Workflow (MR-7C.4B2 — OWNER ACCEPTED)
 
-The server-side bounded multi-tenant retention maintenance workflow coordinates the accepted C4B1 retention operations across organizations without rewriting C4B1 logic or modifying retention policy:
+The server-side bounded multi-tenant retention maintenance workflow coordinates the accepted C4B1 retention operations across organizations without rewriting C4B1 logic or modifying retention policy. It was accepted by the Owner at checkpoint `17ff5bc331b225eb589694607754ac58f30e2473`:
 
 ### 1. Architecture, Registration Boundary & Security Guard
 - Coordinator: `src/domain/privacy/retention-maintenance.ts` (`executeMultiTenantRetentionMaintenance`).

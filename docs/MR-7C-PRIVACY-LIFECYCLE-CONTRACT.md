@@ -3,10 +3,10 @@
 | Metadata | Value |
 |---|---|
 | Document | Privacy Lifecycle Contract & Direct Delete Safety Specification |
-| Milestone | MR-7 (Trust / Security / Compliance) — Slice MR-7C.1 |
+| Milestone | MR-7 (Trust / Security / Compliance) — IN PROGRESS |
 | Status | ACTIVE ENGINEERING CONTRACT (Not Legal Certification) |
 | Authoritative Repository | `MPG-Technoologies/MPG-Reputation` |
-| Product Baseline | `014ed995e8fccb6be899c68bacfedc65f56b4367` (on `main`) |
+| Product Baseline | `fcf8f81fa709cedc0a9ec3f46d68f90fbed06c84` (on `main`) |
 | Classification | Internal Engineering Architecture / Public Safe (Synthetic Fixtures Only) |
 
 ---
@@ -335,9 +335,10 @@ graph LR
      - **Vercel Audit**: Runtime logs retain data for 1h (Hobby), 1d (Pro), or 3d (Enterprise); no per-record log deletion API was verified (Category C — Natural Expiry Only); HTTP request paths naturally observe review and unsubscribe tokens (`/r/[token]`, `/unsubscribe/[token]`) as **PSEUDONYMOUS / LINKABLE DATA**; ACCOUNT CONFIGURATION VERIFICATION REQUIRED for plan and Observability Plus.
      - **Stripe Audit**: Live billing paused under `MPG-DEC-049`; processes B2B organization payer data only; zero consumer review recipient data. `stripe.customers.del()` deletes billing objects but does not equal complete PII erasure; statutory financial retention applies; distinct scopes must be re-evaluated if live billing resumes.
      - Documented Master Erasure Reconciliation Matrix, Account Evidence Gaps, and non-actions.
-   - **MR-7C.5B: External Processor Privacy Hardening & Verification (ENGINEERING COMPLETE / READY FOR OWNER REVIEW)**:
+   - **MR-7C.5B: External Processor Privacy Hardening & Verification (OWNER ACCEPTED)**:
+     - **Owner Acceptance**: Accepted at stabilization checkpoint `f850f464e81c1f40b6e9a5543ae64f18a32c446d`; followed by privacy-trigger production hardening release at commit `fcf8f81fa709cedc0a9ec3f46d68f90fbed06c84` (OWNER ACCEPTED / PRODUCTION VERIFIED; hosted database 25 / 25 migrations aligned).
      - **Inngest Step Return Minimization**: `evaluate-initial-eligibility` and `evaluate-post-delay-eligibility` in `src/inngest/functions/review-request.ts` stripped of `customerName`, `customerEmail`, `businessName`, and `reviewReplyToEmail`. `create-or-resolve-review-request` stripped of `token` and `unsubscribeToken`. `dispatch-review-email` and `dispatch-review-reminder` stripped of `renderedSubject`, `renderedBody`, recipient details, and tokens; return strictly `{ success: true, provider: result.provider }` (or safe idempotent skip/abort). Downstream steps query tokens directly from the PostgreSQL source of truth.
      - **Error Logging & Exception Sanitization**: Introduced `classifySafeDispatchError` in `src/inngest/functions/review-request.ts`. All error logging (`console.error`), audit event error metadata, message event sanitized error, and thrown retry exceptions enforce static safe categories (`RATE_LIMIT_EXCEEDED`, `Transient provider 429 Too Many Requests`, `EMAIL_DISPATCH_FAILED`, `REMINDER_DISPATCH_FAILED`). Arbitrary provider error messages, recipient emails, names, phone numbers, tokens, UUIDs, payload hashes, and secrets are strictly eliminated from error output.
      - **Fail-Closed Console Provider Production Guard**: `ConsoleEmailProvider.send()` in `src/providers/email/console.ts` throws `CONSOLE_EMAIL_PROVIDER_DISABLED_IN_PRODUCTION` when `process.env.NODE_ENV === 'production'` immediately before any rendering, formatting, or console logging occurs. Local test/dev execution preserved.
      - **Verification Suite**: 19 focused proofs in `test/integration/mr7c5b-provider-privacy-hardening.test.ts` and 13 unit tests in `test/providers/email.test.ts` pass cleanly alongside full regression suites (reminder workflow, authority send invariant, sender identity, suppression, erasure-safe unsubscribe, outbox recovery, retention controls, and real RLS / tenant isolation).
-     - **Backup-Restore Privacy Gap Separation**: The disaster recovery backup-restore privacy gap remains explicitly unresolved and separate from MR-7C.5B.
+     - **Backup-Restore Privacy Gap Separation (MR-7C.5C)**: The disaster recovery backup-restore privacy gap remains explicitly unresolved and separate from MR-7C.5B. Requirements and architecture for reconciling post-backup erasures and suppressions are formally defined under **MR-7C.5C** (`docs/MR-7C5C-DISASTER-RECOVERY-PRIVACY-RECONCILIATION.md`).

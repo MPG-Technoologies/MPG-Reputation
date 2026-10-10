@@ -4,12 +4,12 @@
 |---|---|
 | Document | External Processor Data Map, Retention Windows & Provider Privacy Hardening |
 | Milestone | MR-7 (Trust / Security / Compliance) — Slices MR-7C.5A & MR-7C.5B |
-| Status | MR-7C.5A — OWNER ACCEPTED (`707f89a072a5593541cfc906e0c19595578bda1c`); MR-7C.5B — ENGINEERING COMPLETE / READY FOR OWNER REVIEW |
+| Status | MR-7C.5A — OWNER ACCEPTED (`707f89a072a5593541cfc906e0c19595578bda1c`); MR-7C.5B — OWNER ACCEPTED (`f850f464e81c1f40b6e9a5543ae64f18a32c446d`); Production Release — OWNER ACCEPTED / PRODUCTION VERIFIED (`fcf8f81fa709cedc0a9ec3f46d68f90fbed06c84`) |
 | Authoritative Product Repository | `MPG-Technoologies/MPG-Reputation` |
-| Authoritative Branch | `chatgpt/mr7c5b-provider-privacy-hardening` |
-| Baseline Checkpoint | `707f89a072a5593541cfc906e0c19595578bda1c` (MR-7C.5A OWNER ACCEPTED) |
-| Company OS Authority | `E:\MPG` (`techwithmpg/mpg-company-os` at `7df63fb75cc184197b11fcbdeca1b1d333a8e81a`) |
-| Governance Scope | `MPG-DEC-038` through `MPG-DEC-049` |
+| Authoritative Main Baseline | `fcf8f81fa709cedc0a9ec3f46d68f90fbed06c84` (Hosted Database: 25 / 25 migrations aligned) |
+| Milestone Status | MR-7 — IN PROGRESS (Disaster-Recovery Case B Privacy Reconciliation Unresolved); MR-8 — GATED |
+| Company OS Authority | `E:\MPG` (`techwithmpg/mpg-company-os` at `f7f5d0ebe4058f7ff5c65b83dc75f4168e3174b0`) |
+| Governance Scope | `MPG-DEC-038` through `MPG-DEC-050` |
 | Public Safe | Yes (Synthetic Fixtures & Architectural Schemas Only) |
 
 ---
@@ -74,7 +74,7 @@ All processor mapping and lifecycle reconciliation in this specification adhere 
 8. **Operational Gating**:
    - Live customer messaging remains strictly **DISABLED** (`ENABLE_LIVE_EMAIL=false`).
    - SMS channel remains strictly **GATED** (no Twilio client, schema-gated only).
-   - Billing remains **PAUSED** under `MPG-DEC-049` (`ENABLE_STRIPE_LIVE_BILLING=false`).
+   - Billing remains **PAUSED** under `MPG-DEC-049` (`ENABLE_LIVE_BILLING=false`).
 
 ---
 
@@ -88,7 +88,7 @@ An exhaustive audit of `package.json`, environment variable specifications, prov
 | **Inngest** | Inngest Inc. | `inngest@4.20.0` | Durable serverless execution, delay queues, event orchestration, retention maintenance | Pseudonymous IDs (Event trigger 5 IDs & hardened step returns; pre-C5B step PII remediated in C5B; run traces retained per plan) | Active local & cloud orchestration; retention cron gated behind `ENABLE_RETENTION_MAINTENANCE=false` |
 | **Supabase** | Supabase, Inc. (AWS ap-south-1) | `@supabase/supabase-js@2.116.0`, `@supabase/ssr@0.12.7` | Primary PostgreSQL database, Auth, RLS (Free tier; manual/off-site backups evaluate restore obligations; PITR inactive) | Full Database (Direct PII, Pseudonymous, Operational, Compliance, Audit) | Active primary persistent datastore |
 | **Vercel** | Vercel Inc. | `next@16.3.5` | Application hosting, edge compute, serverless route execution, runtime logs | Transient request context, Pseudonymous IDs, Potential logged error text | Active hosting platform |
-| **Stripe** | Stripe, Inc. | `stripe@22.6.2` | Subscription billing, checkout sessions, invoice webhooks | Organization billing contact, payment method tokens (Zero end-consumer review data) | Paused under `MPG-DEC-049`; live billing disabled (`ENABLE_STRIPE_LIVE_BILLING=false`) |
+| **Stripe** | Stripe, Inc. | `stripe@22.6.2` | Subscription billing, checkout sessions, invoice webhooks | Organization billing contact, payment method tokens (Zero end-consumer review data) | Paused under `MPG-DEC-049`; live billing disabled (`ENABLE_LIVE_BILLING=false`) |
 
 ### Non-Processor Verification (Audited & Excluded)
 - **Google**: MPG Reputation generates destination review links directing customers to Google Business Profiles (via `/r/[token]`). There are **no Google OAuth scopes, no Google API clients, no Google SDKs, and zero customer data transmissions to Google**. Google is a link destination, not a data processor.
@@ -418,7 +418,7 @@ An exhaustive search for `console.log`, `console.error`, and `console.warn` acro
 ### 9.1 Role & Status in MPG Reputation
 - **Milestone Status**: Milestone MR-5 (Commercial Infrastructure / Billing) is **PAUSED** under `MPG-DEC-049`.
 - **Operational Gate**: Live billing is disabled in code:
-  `ENABLE_STRIPE_LIVE_BILLING !== 'true'`
+  `ENABLE_LIVE_BILLING !== 'true'`
   Webhook handler rejects live events with HTTP 503 (`Live billing is disabled`).
 - **Data Scope**: Stripe processes **organization billing entities** (B2B tenant subscription contacts, corporate credit cards, billing addresses). **Stripe never receives, processes, or stores end-consumer review recipients (`customers` table)**.
 
@@ -547,7 +547,7 @@ The privacy leakage remediation identified in MR-7C.5A was implemented and verif
 
 > [!IMPORTANT]
 > **Explicit Separation of Backup-Restore Privacy Gap**:
-> The disaster recovery backup-restore privacy gap (Case B catastrophic DB loss documented in Section 11) is **not** addressed in MR-7C.5B and remains explicitly unresolved and separate. MR-7C.5B addresses application-controlled Inngest and email provider data minimization and error safety only.
+> The disaster recovery backup-restore privacy gap (Case B catastrophic DB loss documented in Section 11) is **not** addressed in MR-7C.5B and remains explicitly unresolved and separate. MR-7C.5B addresses application-controlled Inngest and email provider data minimization and error safety only. Requirements and architecture for disaster recovery backup restore privacy reconciliation are formally specified under **MR-7C.5C** (`docs/MR-7C5C-DISASTER-RECOVERY-PRIVACY-RECONCILIATION.md`).
 
 ---
 

@@ -79,6 +79,11 @@ describe.skipIf(!isDbAvailable)('Security Definer Realtime Broadcast Trigger Pri
     'public.broadcast_review_request_change()',
   ]
 
+  const privacyTriggerFunctions = [
+    'public.protect_recipient_evidence_immutability()',
+    'public.protect_erased_customer_immutability()',
+  ]
+
   beforeAll(async () => {
     adminClient = createClient<Database>(SUPABASE_URL, SERVICE_ROLE_KEY!, {
       auth: { autoRefreshToken: false, persistSession: false },
@@ -461,6 +466,177 @@ describe.skipIf(!isDbAvailable)('Security Definer Realtime Broadcast Trigger Pri
 
       expect(error).toBeNull()
       expect(userAReads).toHaveLength(0)
+    })
+  })
+
+  describe('4. Privacy Lifecycle Trigger Hardening & Verification (Migration #25)', () => {
+    it.each(privacyTriggerFunctions)(
+      'proves anon role has no direct EXECUTE privilege on %s',
+      (func) => {
+        const hasPriv = checkFunctionPrivilegeDirect('anon', func, 'EXECUTE')
+        expect(hasPriv).toBe(false)
+      }
+    )
+
+    it.each(privacyTriggerFunctions)(
+      'proves authenticated role has no direct EXECUTE privilege on %s',
+      (func) => {
+        const hasPriv = checkFunctionPrivilegeDirect('authenticated', func, 'EXECUTE')
+        expect(hasPriv).toBe(false)
+      }
+    )
+
+    it.each(privacyTriggerFunctions)(
+      'proves public pseudo-role has no direct EXECUTE privilege on %s',
+      (func) => {
+        const hasPriv = checkFunctionPrivilegeDirect('public', func, 'EXECUTE')
+        expect(hasPriv).toBe(false)
+      }
+    )
+
+    it.each(privacyTriggerFunctions)(
+      'proves direct SQL call as anon fails with permission denied on %s',
+      (func) => {
+        expect(() => {
+          executeDirectSql(`SET ROLE anon; SELECT ${func};`)
+        }).toThrow(/permission denied/)
+      }
+    )
+
+    it.each(privacyTriggerFunctions)(
+      'proves direct SQL call as authenticated fails with permission denied on %s',
+      (func) => {
+        expect(() => {
+          executeDirectSql(`SET ROLE authenticated; SELECT ${func};`)
+        }).toThrow(/permission denied/)
+      }
+    )
+
+    it('verifies protect_recipient_evidence_immutability has explicit search_path = public, pg_temp in proconfig', () => {
+      const sql = `SELECT proconfig::text FROM pg_proc WHERE proname = 'protect_recipient_evidence_immutability';`
+      const result = executeDirectSql(sql).trim()
+      expect(result).toContain('search_path=public, pg_temp')
+    })
+
+    it('verifies protect_erased_customer_immutability has explicit search_path = public, pg_temp in proconfig', () => {
+      const sql = `SELECT proconfig::text FROM pg_proc WHERE proname = 'protect_erased_customer_immutability';`
+      const result = executeDirectSql(sql).trim()
+      expect(result).toContain('search_path=public, pg_temp')
+    })
+
+    it('proves trg_protect_recipient_evidence_immutability blocks changing suppression_contact_hash A -> B but permits idempotent A -> A', async () => {
+      const { data: newCce, error: cceErr } = await adminClient
+        .from('customer_completion_events')
+        .insert({
+          organization_id: orgAId,
+          location_id: locAId,
+          customer_id: customerAId,
+          source: 'crm',
+          source_event_id: `sec-imm-cce-${Date.now()}`,
+          contact: { email: `imm_test_${Date.now()}@example.test` },
+        })
+        .select()
+        .single()
+      expect(cceErr).toBeNull()
+
+      const token = `tok_imm_${Date.now()}`
+      const { data: rr, error: rrErr } = await adminClient
+        .from('review_requests')
+        .insert({
+          organization_id: orgAId,
+          location_id: locAId,
+          customer_id: customerAId,
+          completion_event_id: newCce!.id,
+          token,
+          token_hash: `hash_${token}`,
+          status: 'SCHEDULED',
+        })
+        .select()
+        .single()
+      expect(rrErr).toBeNull()
+
+      const hashA = 'a'.repeat(64)
+      const hashB = 'b'.repeat(64)
+
+      const { data: evidence, error: evErr } = await adminClient
+        .from('review_request_recipient_evidence')
+        .insert({
+          organization_id: orgAId,
+          review_request_id: rr!.id,
+          channel: 'email',
+          suppression_contact_hash: hashA,
+        })
+        .select()
+        .single()
+      expect(evErr).toBeNull()
+
+      // Attempting to update hash to hashB should throw from trigger
+      const attemptHashUpdate = () => {
+        executeDirectSql(`
+          UPDATE public.review_request_recipient_evidence
+          SET suppression_contact_hash = '${hashB}'
+          WHERE id = '${evidence!.id}';
+        `)
+      }
+      expect(attemptHashUpdate).toThrow(/Recipient suppression contact hash is immutable once bound/)
+
+      // Updating with same hash (idempotent) must succeed
+      executeDirectSql(`
+        UPDATE public.review_request_recipient_evidence
+        SET suppression_contact_hash = '${hashA}'
+        WHERE id = '${evidence!.id}';
+      `)
+      const { data: evidenceAfter } = await adminClient
+        .from('review_request_recipient_evidence')
+        .select('suppression_contact_hash')
+        .eq('id', evidence!.id)
+        .single()
+      expect(evidenceAfter?.suppression_contact_hash).toBe(hashA)
+    })
+
+    it('proves trg_protect_erased_customer_immutability blocks restoring PII onto an erased customer while non-erased customer updates succeed', async () => {
+      // 1. Mark customer A as erased in customer_erasure_records
+      await adminClient.from('customer_erasure_records').insert({
+        organization_id: orgAId,
+        customer_id: customerAId,
+        actor_type: 'system',
+      })
+
+      // Anonymize customer A initially
+      await adminClient
+        .from('customers')
+        .update({
+          first_name: '[Deleted Customer]',
+          last_name: null,
+          email: null,
+          phone: null,
+        })
+        .eq('id', customerAId)
+
+      // Attempting to restore email on erased customer A must throw
+      const attemptRestoreEmail = () => {
+        executeDirectSql(`
+          UPDATE public.customers
+          SET email = 'restored@example.test'
+          WHERE id = '${customerAId}';
+        `)
+      }
+      expect(attemptRestoreEmail).toThrow(/Customer is privacy-erased and cannot have PII restored/)
+
+      // Updating non-erased customer B must succeed without trigger errors
+      const newLastName = `Updated_${Date.now()}`
+      const { error: nonErasedUpdateErr } = await adminClient
+        .from('customers')
+        .update({ last_name: newLastName })
+        .eq('id', customerBId)
+      expect(nonErasedUpdateErr).toBeNull()
+
+      const { data: custB } = await adminClient
+        .from('customers')
+        .select('last_name')
+        .eq('id', customerBId)
+        .single()
+      expect(custB?.last_name).toBe(newLastName)
     })
   })
 })

@@ -19,8 +19,6 @@ export interface SendEmailResult {
   provider: 'console' | 'resend'
   messageId: string
   error?: string
-  renderedSubject: string
-  renderedBody: string
 }
 
 export interface EmailProvider {

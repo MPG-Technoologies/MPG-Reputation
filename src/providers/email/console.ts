@@ -6,6 +6,10 @@ export class ConsoleEmailProvider implements EmailProvider {
   readonly name = 'console' as const
 
   async send(input: SendEmailInput): Promise<SendEmailResult> {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('CONSOLE_EMAIL_PROVIDER_DISABLED_IN_PRODUCTION')
+    }
+
     const fallback = renderNeutralReviewEmail({
       recipientName: input.recipientName,
       businessName: input.businessName,
@@ -34,8 +38,6 @@ export class ConsoleEmailProvider implements EmailProvider {
       success: true,
       provider: 'console',
       messageId,
-      renderedSubject: finalSubject,
-      renderedBody: body,
     }
   }
 }

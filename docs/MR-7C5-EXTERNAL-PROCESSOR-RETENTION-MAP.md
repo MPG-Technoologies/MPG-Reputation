@@ -1,13 +1,13 @@
-# MR-7C.5A — External Processor Data Map & Retention / Deletion Contract
+# MR-7C.5A & MR-7C.5B — External Processor Data Map, Retention Contract & Privacy Hardening
 
 | Metadata | Value |
 |---|---|
-| Document | External Processor Data Map, Retention Windows & Deletion Architecture Contract |
-| Milestone | MR-7 (Trust / Security / Compliance) — Slice MR-7C.5A |
-| Status | ENGINEERING COMPLETE / READY FOR OWNER REVIEW |
+| Document | External Processor Data Map, Retention Windows & Provider Privacy Hardening |
+| Milestone | MR-7 (Trust / Security / Compliance) — Slices MR-7C.5A & MR-7C.5B |
+| Status | MR-7C.5A — OWNER ACCEPTED (`707f89a072a5593541cfc906e0c19595578bda1c`); MR-7C.5B — ENGINEERING COMPLETE / READY FOR OWNER REVIEW |
 | Authoritative Product Repository | `MPG-Technoologies/MPG-Reputation` |
-| Authoritative Branch | `chatgpt/mr7c5a-processor-retention-map` |
-| Baseline Checkpoint | `17ff5bc331b225eb589694607754ac58f30e2473` (MR-7C.4B2 OWNER ACCEPTED) |
+| Authoritative Branch | `chatgpt/mr7c5b-provider-privacy-hardening` |
+| Baseline Checkpoint | `707f89a072a5593541cfc906e0c19595578bda1c` (MR-7C.5A OWNER ACCEPTED) |
 | Company OS Authority | `E:\MPG` (`techwithmpg/mpg-company-os` at `7df63fb75cc184197b11fcbdeca1b1d333a8e81a`) |
 | Governance Scope | `MPG-DEC-038` through `MPG-DEC-049` |
 | Public Safe | Yes (Synthetic Fixtures & Architectural Schemas Only) |
@@ -489,27 +489,61 @@ Where vendor retention periods depend on specific plan configurations or account
 
 ---
 
-## 13. Required MR-7C.5B Engineering Actions (Hardening Plan)
+## 13. MR-7C.5B Engineering Implementation & Privacy Hardening
 
-Based on the evidence discovered in MR-7C.5A, the following bounded engineering tasks are recommended for implementation in **MR-7C.5B**:
+The privacy leakage remediation identified in MR-7C.5A was implemented and verified in **MR-7C.5B**:
 
 1. **Inngest Step Return Value Minimization**:
-   - Refactor `evaluate-initial-eligibility` and `evaluate-post-delay-eligibility` in [`src/inngest/functions/review-request.ts`](file:///E:/MPG-Reputation/src/inngest/functions/review-request.ts) to return strictly:
+   - `evaluate-initial-eligibility` and `evaluate-post-delay-eligibility` in [`src/inngest/functions/review-request.ts`](file:///E:/MPG-Reputation/src/inngest/functions/review-request.ts) return strictly minimal orchestration data:
      ```typescript
-     { eligible: true, deliveryChannel: eligibility.deliveryChannel }
+     { eligible: boolean, deliveryChannel: 'email', destinationId?: string }
      ```
-     Omit `customerName` and `customerEmail`.
-   - Refactor `dispatch-review-email` and `dispatch-review-reminder` to return an opaque operational result:
+     `customerName`, `customerEmail`, `businessName`, and `reviewReplyToEmail` are completely stripped from step outputs.
+   - `create-or-resolve-review-request` returns `{ reviewRequestId, isNew, status }`. Direct `token` and `unsubscribeToken` are stripped from durable step return and workflow scope. Downstream steps query tokens directly from the PostgreSQL source of truth by `reviewRequestId`.
+   - `dispatch-review-email` and `dispatch-review-reminder` return strictly:
      ```typescript
-     { success: true, provider: result.provider, messageId: result.messageId }
+     { success: true, provider: result.provider }
      ```
-     Strip `renderedSubject` and `renderedBody` so that email content is not recorded in Inngest Cloud run history.
-2. **Error Logging Sanitization**:
-   - In [`src/inngest/functions/review-request.ts`](file:///E:/MPG-Reputation/src/inngest/functions/review-request.ts), wrap error strings logged via `console.error` in a sanitization helper that redacts email patterns and customer names.
-3. **Environment Guard on `ConsoleEmailProvider`**:
-   - In [`src/providers/email/console.ts`](file:///E:/MPG-Reputation/src/providers/email/console.ts), assert that `process.env.NODE_ENV !== 'production'`, preventing accidental local-provider selection in hosted Vercel environments.
-4. **Verification Test Suite for External Minimization**:
-   - Add unit tests verifying that serialized Inngest step outputs and event payloads contain zero email addresses, phone numbers, or personal names.
+     (or safe idempotent skip `{ success: true, alreadySent: true, provider: 'idempotent_skip' }` / abort `{ success: false, aborted: true, provider: 'abort' }`).
+   - `SendEmailResult` in [`src/providers/email/types.ts`](file:///E:/MPG-Reputation/src/providers/email/types.ts), `ConsoleEmailProvider` ([`src/providers/email/console.ts`](file:///E:/MPG-Reputation/src/providers/email/console.ts)), and `ResendEmailProvider` ([`src/providers/email/resend.ts`](file:///E:/MPG-Reputation/src/providers/email/resend.ts)) stripped `renderedSubject` and `renderedBody`. Neither email subject nor body is ever persisted in Inngest Cloud durable state.
+2. **Error Logging & Exception Sanitization**:
+   - Introduced `classifySafeDispatchError` in [`src/inngest/functions/review-request.ts`](file:///E:/MPG-Reputation/src/inngest/functions/review-request.ts) enforcing static, safe operational failure categories (`RATE_LIMIT_EXCEEDED`, `Transient provider 429 Too Many Requests`, `EMAIL_DISPATCH_FAILED`, `REMINDER_DISPATCH_FAILED`).
+   - Collapses arbitrary provider errors to safe categories before passing to `console.error`, `audit_events`, `message_events`, or rethrown Inngest retry exceptions.
+   - Eliminates potential leakage of customer emails, names, phone numbers, tokens, UUIDs, payload hashes, and secrets in error traces.
+3. **Fail-Closed Production Guard on `ConsoleEmailProvider`**:
+   - In [`src/providers/email/console.ts`](file:///E:/MPG-Reputation/src/providers/email/console.ts), added immediate fail-closed guard:
+     ```typescript
+     if (process.env.NODE_ENV === 'production') {
+       throw new Error('CONSOLE_EMAIL_PROVIDER_DISABLED_IN_PRODUCTION')
+     }
+     ```
+     Throws before any email rendering, address formatting, or console logging occurs, preventing accidental leakage in hosted production environments while preserving synthetic local/test execution.
+4. **Focused Verification Test Suite**:
+   - 19 focused tests in [`test/integration/mr7c5b-provider-privacy-hardening.test.ts`](file:///E:/MPG-Reputation/test/integration/mr7c5b-provider-privacy-hardening.test.ts) proving:
+     1. Initial eligibility contains no customerName
+     2. Initial eligibility contains no customerEmail
+     3. Post-delay eligibility contains no name/email
+     4. Review dispatch contains no renderedSubject
+     5. Review dispatch contains no renderedBody
+     6. Reminder dispatch contains no rendered content
+     7. Provider error containing email does not leak
+     8. Provider error containing name/phone does not leak
+     9. Provider error containing review token does not leak
+     10. Provider error containing unsubscribe token does not leak
+     11. Provider error containing long hash/UUID does not leak unnecessarily
+     12. ConsoleEmailProvider fails before logging in production
+     13. ConsoleEmailProvider remains usable locally
+     14. Successful send still works
+     15. Reminder still works
+     16. Suppression still works
+     17. Unsubscribe still works
+     18. Authority/sender checks still work
+     19. Retry/idempotency behavior remains correct
+   - 13 tests in [`test/providers/email.test.ts`](file:///E:/MPG-Reputation/test/providers/email.test.ts).
+
+> [!IMPORTANT]
+> **Explicit Separation of Backup-Restore Privacy Gap**:
+> The disaster recovery backup-restore privacy gap (Case B catastrophic DB loss documented in Section 11) is **not** addressed in MR-7C.5B and remains explicitly unresolved and separate. MR-7C.5B addresses application-controlled Inngest and email provider data minimization and error safety only.
 
 ---
 

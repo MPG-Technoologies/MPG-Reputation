@@ -45,7 +45,39 @@ describe('Email Providers', () => {
     expect(result.success).toBe(true)
     expect(result.provider).toBe('console')
     expect(result.messageId).toContain('console_')
-    expect(result.renderedBody).toContain('honest feedback')
+    expect((result as unknown as Record<string, unknown>).renderedBody).toBeUndefined()
+    expect((result as unknown as Record<string, unknown>).renderedSubject).toBeUndefined()
+  })
+
+  it('ConsoleEmailProvider throws fail-closed error before logging in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    const consoleSpy = vi.spyOn(console, 'log')
+    const provider = new ConsoleEmailProvider()
+
+    await expect(
+      provider.send({
+        to: 'customer@example.test',
+        recipientName: 'Jane',
+        businessName: 'Northstar Dental',
+        trackingUrl: 'https://example.test/r/token-123',
+      })
+    ).rejects.toThrow('CONSOLE_EMAIL_PROVIDER_DISABLED_IN_PRODUCTION')
+
+    expect(consoleSpy).not.toHaveBeenCalled()
+  })
+
+  it('ConsoleEmailProvider remains usable in test/development environments', async () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    const provider = new ConsoleEmailProvider()
+    const result = await provider.send({
+      to: 'customer@example.test',
+      recipientName: 'Jane',
+      businessName: 'Northstar Dental',
+      trackingUrl: 'https://example.test/r/token-123',
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.provider).toBe('console')
   })
 
   it('getEmailProvider defaults to ConsoleEmailProvider', () => {

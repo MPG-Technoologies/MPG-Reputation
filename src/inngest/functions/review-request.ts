@@ -38,6 +38,28 @@ export interface FinalEmailDispatchAuthorityResult {
 }
 
 /**
+ * MR-7C.5B: Safe failure category classifier.
+ * Never passes arbitrary error strings or messages to logs, step results, or audit metadata.
+ * Prevents Direct PII, tokens, hashes, and secrets from leaking into durable traces or logs.
+ */
+export function classifySafeDispatchError(
+  err: unknown,
+  fallbackCategory: 'EMAIL_DISPATCH_FAILED' | 'REMINDER_DISPATCH_FAILED'
+): string {
+  if (err instanceof Error) {
+    const msg = err.message
+    // Only accept strictly defined, safe operational error categories
+    if (msg === 'RATE_LIMIT_EXCEEDED' || msg === 'Transient provider 429 Too Many Requests') {
+      return msg
+    }
+    if (msg === 'EMAIL_DISPATCH_FAILED' || msg === 'REMINDER_DISPATCH_FAILED') {
+      return msg
+    }
+  }
+  return fallbackCategory
+}
+
+/**
  * MR-7B.1: Final Email Dispatch Authority & Suppression Invariant
  * Freshly re-reads current permission + suppression from the database source of truth
  * immediately before every provider email invocation (initial, retry, and reminder).
@@ -63,7 +85,7 @@ export async function checkFinalEmailDispatchAuthority({
     .maybeSingle()
 
   if (customerError) {
-    throw new Error(`Final authority customer lookup failed: ${customerError.message}`)
+    throw new Error('Final authority customer lookup failed')
   }
 
   if (!cust) {
@@ -98,7 +120,7 @@ export async function checkFinalEmailDispatchAuthority({
     .maybeSingle()
 
   if (suppressionError) {
-    throw new Error(`Final authority suppression lookup failed: ${suppressionError.message}`)
+    throw new Error('Final authority suppression lookup failed')
   }
 
   if (suppression) {
@@ -179,7 +201,7 @@ export async function checkFinalEmailSenderIdentity({
     .maybeSingle()
 
   if (orgError) {
-    throw new Error(`Final sender identity organization lookup failed: ${orgError.message}`)
+    throw new Error('Final sender identity organization lookup failed')
   }
 
   if (!org) {
@@ -211,7 +233,7 @@ export async function checkFinalEmailSenderIdentity({
     .maybeSingle()
 
   if (locError) {
-    throw new Error(`Final sender identity location lookup failed: ${locError.message}`)
+    throw new Error('Final sender identity location lookup failed')
   }
 
   if (!loc) {
@@ -295,12 +317,8 @@ export async function executeReviewRequestHandler({
           eligible: false,
           reason: `Organization status is ${org?.status || 'NOT_FOUND'}`,
           decision: 'ORGANIZATION_INACTIVE' as const,
-          businessName: org?.name || null,
-          locationName: null,
-          customerName: null,
-          customerEmail: null,
+          deliveryChannel: 'email' as const,
           destinationId: null,
-          reviewReplyToEmail: null,
         }
       }
 
@@ -319,12 +337,8 @@ export async function executeReviewRequestHandler({
           eligible: false,
           reason: `Location status is ${loc?.status || 'NOT_FOUND'}`,
           decision: 'LOCATION_INACTIVE' as const,
-          businessName: org.name,
-          locationName: null,
-          customerName: null,
-          customerEmail: null,
+          deliveryChannel: 'email' as const,
           destinationId: null,
-          reviewReplyToEmail: null,
         }
       }
 
@@ -344,12 +358,8 @@ export async function executeReviewRequestHandler({
           eligible: false,
           reason: 'Customer not found',
           decision: 'NO_CONTACT' as const,
-          businessName: org.name,
-          locationName: loc.name,
-          customerName: null,
-          customerEmail: null,
+          deliveryChannel: 'email' as const,
           destinationId: null,
-          reviewReplyToEmail: null,
         }
       }
 
@@ -412,12 +422,8 @@ export async function executeReviewRequestHandler({
         decision: decision.decision,
         eligible: decision.eligible,
         reason: decision.reason,
-        businessName: org.name,
-        locationName: loc.name,
-        customerName: cust.first_name,
-        customerEmail: cust.email,
+        deliveryChannel: 'email' as const,
         destinationId: dest?.id || null,
-        reviewReplyToEmail: loc.review_reply_to_email || null,
       }
     }
 
@@ -543,8 +549,6 @@ export async function executeReviewRequestHandler({
           }
           return {
             id: existing.id,
-            token: existing.token,
-            unsubscribeToken: unsubToken,
             isNew: false,
             status: existing.status,
             remindedAt: existing.reminded_at,
@@ -568,7 +572,7 @@ export async function executeReviewRequestHandler({
       )
 
       if (consumeError) {
-        throw new Error(`Failed to consume trial entitlement: ${consumeError.message}`)
+        throw new Error('Failed to consume trial entitlement')
       }
 
       const entitlement = (consumeResult || {}) as {
@@ -597,8 +601,6 @@ export async function executeReviewRequestHandler({
 
         return {
           id: null,
-          token: null,
-          unsubscribeToken: null,
           isNew: false,
           status: 'BLOCKED',
           remindedAt: null,
@@ -626,17 +628,15 @@ export async function executeReviewRequestHandler({
           unsubscribe_token: unsubToken,
           unsubscribe_token_hash: unsubTokenHash,
         })
-        .select('id, token, unsubscribe_token')
+        .select('id')
         .single()
 
       if (error || !created) {
-        throw new Error(`Failed to create review request: ${error?.message || 'unknown error'}`)
+        throw new Error('Failed to create review request')
       }
 
       return {
         id: created.id,
-        token: created.token,
-        unsubscribeToken: created.unsubscribe_token || unsubToken,
         isNew: true,
         status: 'SCHEDULED',
         remindedAt: null,
@@ -652,7 +652,7 @@ export async function executeReviewRequestHandler({
       }
     }
 
-    if (!reviewRequest.id || !reviewRequest.token) {
+    if (!reviewRequest.id) {
       return {
         processed: false,
         stage: 'entitlement',
@@ -661,8 +661,6 @@ export async function executeReviewRequestHandler({
     }
 
     const reviewRequestId = reviewRequest.id as string
-    const reviewRequestToken = reviewRequest.token as string
-    const reviewRequestUnsubscribeToken = (reviewRequest.unsubscribeToken || reviewRequest.token) as string
 
     // Step 5: Provider Send Guarded by Atomic State Machine (Prompt Correction 5 & 8)
     // One completion event + channel = at most one initial customer send
@@ -670,12 +668,12 @@ export async function executeReviewRequestHandler({
       // 1. Fetch current status of review_request from source of truth
       const { data: currentReq } = await supabase
         .from('review_requests')
-        .select('id, status, updated_at')
+        .select('id, token, unsubscribe_token, status, updated_at')
         .eq('id', reviewRequestId)
         .single()
 
-      if (!currentReq) {
-        throw new Error(`Review request not found: ${reviewRequestId}`)
+      if (!currentReq || !currentReq.token) {
+        throw new Error('Review request not found')
       }
 
       // If already successfully sent, delivered, or clicked: skip safely
@@ -684,7 +682,6 @@ export async function executeReviewRequestHandler({
           success: true,
           alreadySent: true,
           provider: 'idempotent_skip',
-          messageId: 'skipped_already_sent',
         }
       }
 
@@ -694,7 +691,6 @@ export async function executeReviewRequestHandler({
           success: false,
           aborted: true,
           provider: 'abort',
-          messageId: 'aborted_due_to_ineligibility',
         }
       }
 
@@ -718,7 +714,6 @@ export async function executeReviewRequestHandler({
           success: true,
           alreadySent: true,
           provider: 'idempotent_skip',
-          messageId: 'skipped_concurrent_dispatch',
         }
       }
 
@@ -770,7 +765,6 @@ export async function executeReviewRequestHandler({
           success: false,
           aborted: true,
           provider: 'abort',
-          messageId: `dispatch_blocked_${finalAuthority.decision.toLowerCase()}`,
         }
       }
 
@@ -817,7 +811,6 @@ export async function executeReviewRequestHandler({
             success: false,
             aborted: true,
             provider: 'abort',
-            messageId: 'dispatch_blocked_sender_identity_incomplete',
           }
         }
       }
@@ -854,12 +847,11 @@ export async function executeReviewRequestHandler({
           success: false,
           aborted: true,
           provider: 'abort',
-          messageId: `dispatch_blocked_${finalSenderIdentity.decision.toLowerCase()}`,
         }
       }
 
       const freshCustomerEmail = finalAuthority.customerEmail!
-      const recipientName = finalAuthority.customerName || postDelayCheck.customerName || 'there'
+      const recipientName = finalAuthority.customerName || 'there'
       const freshRecipientHash = hashSuppressionContact('email', freshCustomerEmail)
 
       // MR-7C.3A: Freeze recipient BEFORE first provider invocation
@@ -873,7 +865,7 @@ export async function executeReviewRequestHandler({
         .maybeSingle()
 
       if (evidenceReadError) {
-        throw new Error(`Failed to read recipient evidence: ${evidenceReadError.message}`)
+        throw new Error('Failed to read recipient evidence')
       }
 
       if (existingEvidence?.suppression_contact_hash) {
@@ -898,7 +890,6 @@ export async function executeReviewRequestHandler({
             success: false,
             aborted: true,
             provider: 'abort',
-            messageId: 'dispatch_blocked_recipient_changed',
           }
         }
         // If existing binding equals freshRecipientHash: safe retry with same recipient!
@@ -941,7 +932,6 @@ export async function executeReviewRequestHandler({
               success: false,
               aborted: true,
               provider: 'abort',
-              messageId: 'dispatch_blocked_recipient_changed',
             }
           }
         }
@@ -960,13 +950,14 @@ export async function executeReviewRequestHandler({
         throw new Error('Recipient evidence verification failed before provider invocation')
       }
 
-      const effectiveBusinessName = finalSenderIdentity.businessName || postDelayCheck.businessName || 'our business'
-      const effectiveReplyTo = finalSenderIdentity.reviewReplyToEmail !== undefined ? finalSenderIdentity.reviewReplyToEmail : postDelayCheck.reviewReplyToEmail
+      const effectiveBusinessName = finalSenderIdentity.businessName || 'our business'
+      const effectiveReplyTo = finalSenderIdentity.reviewReplyToEmail !== undefined ? finalSenderIdentity.reviewReplyToEmail : null
       const effectivePostalAddress = finalSenderIdentity.businessPostalAddress
 
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-      const trackingUrl = buildTrackedReviewUrl(appUrl, reviewRequestToken)
-      const unsubscribeUrl = buildUnsubscribeUrl(appUrl, reviewRequestUnsubscribeToken)
+      const trackingUrl = buildTrackedReviewUrl(appUrl, currentReq.token)
+      const effectiveUnsubToken = currentReq.unsubscribe_token || currentReq.token
+      const unsubscribeUrl = buildUnsubscribeUrl(appUrl, effectiveUnsubToken)
       const fromAddress = process.env.EMAIL_FROM_ADDRESS?.trim() || undefined
 
       const composed = composeReviewRequestEmail({
@@ -1009,7 +1000,7 @@ export async function executeReviewRequestHandler({
         })
 
         if (!result.success) {
-          throw new Error(result.error || 'Email provider rejected send')
+          throw new Error(result.error || 'EMAIL_DISPATCH_FAILED')
         }
 
         // Durably mark SENT
@@ -1058,10 +1049,13 @@ export async function executeReviewRequestHandler({
           p_amount: 1,
         })
 
-        return result
+        return {
+          success: true,
+          provider: result.provider,
+        }
       } catch (sendErr: unknown) {
-        const errorMsg = (sendErr instanceof Error ? sendErr.message : 'Email dispatch failed').slice(0, 500)
-        console.error('Email dispatch error; marking review request FAILED for retry:', errorMsg)
+        const safeCategory = classifySafeDispatchError(sendErr, 'EMAIL_DISPATCH_FAILED')
+        console.error('Email dispatch error; marking review request FAILED for retry:', safeCategory)
 
         // MR-4: Record provider send failure
         await supabase.rpc('record_usage_event', {
@@ -1081,7 +1075,7 @@ export async function executeReviewRequestHandler({
           .update({
             status: 'FAILED',
             failed_at: new Date().toISOString(),
-            error_message: errorMsg,
+            error_message: safeCategory,
             updated_at: new Date().toISOString(),
           })
           .eq('id', reviewRequest.id!)
@@ -1093,15 +1087,15 @@ export async function executeReviewRequestHandler({
           provider: 'email',
           event_type: 'failed',
           status: 'FAILED',
-          sanitized_error: errorMsg,
+          sanitized_error: safeCategory,
           metadata: {
             messageKind: 'initial_review_request',
             reviewRequestId: reviewRequest.id,
           },
         })
 
-        // Rethrow for Inngest retry mechanism
-        throw sendErr
+        // Rethrow safe error for Inngest retry mechanism
+        throw new Error(safeCategory)
       }
     })
 
@@ -1113,7 +1107,6 @@ export async function executeReviewRequestHandler({
         emailSent: false,
         stage: 'initial_dispatch',
         reason: isAborted ? 'aborted_due_to_ineligibility' : 'initial_dispatch_failed',
-        sendResult,
       }
     }
 
@@ -1142,6 +1135,7 @@ export async function executeReviewRequestHandler({
           eligible: false,
           reason: 'Review request not found',
           decision: 'NOT_FOUND',
+          deliveryChannel: 'email' as const,
         }
       }
 
@@ -1158,6 +1152,7 @@ export async function executeReviewRequestHandler({
           eligible: false,
           reason: structuralCheck.reason || 'Ineligible for reminder',
           decision: structuralCheck.reason || 'INELIGIBLE',
+          deliveryChannel: 'email' as const,
         }
       }
 
@@ -1168,6 +1163,7 @@ export async function executeReviewRequestHandler({
           eligible: false,
           reason: freshEligibility.reason,
           decision: freshEligibility.decision,
+          deliveryChannel: 'email' as const,
         }
       }
 
@@ -1186,6 +1182,7 @@ export async function executeReviewRequestHandler({
               eligible: false,
               reason: lifecycle.reason || 'TRIAL_EXPIRED',
               decision: 'TRIAL_EXPIRED',
+              deliveryChannel: 'email' as const,
             }
           }
         }
@@ -1195,10 +1192,7 @@ export async function executeReviewRequestHandler({
         eligible: true,
         reason: 'Customer is eligible for review reminder',
         decision: 'ELIGIBLE_FOR_REMINDER',
-        customerEmail: freshEligibility.customerEmail,
-        customerName: freshEligibility.customerName,
-        businessName: freshEligibility.businessName,
-        reviewReplyToEmail: freshEligibility.reviewReplyToEmail,
+        deliveryChannel: 'email' as const,
       }
     })
 
@@ -1238,12 +1232,12 @@ export async function executeReviewRequestHandler({
       // 1. Fetch current status of review_request
       const { data: currentReq } = await supabase
         .from('review_requests')
-        .select('id, status, reminded_at, clicked_at')
+        .select('id, token, unsubscribe_token, status, reminded_at, clicked_at')
         .eq('id', reviewRequestId)
         .single()
 
-      if (!currentReq) {
-        throw new Error(`Review request not found: ${reviewRequestId}`)
+      if (!currentReq || !currentReq.token) {
+        throw new Error('Review request not found')
       }
 
       // Idempotency: if already reminded, return idempotent skip
@@ -1252,7 +1246,6 @@ export async function executeReviewRequestHandler({
           success: true,
           alreadySent: true,
           provider: 'idempotent_skip',
-          messageId: 'skipped_already_reminded',
         }
       }
 
@@ -1262,7 +1255,6 @@ export async function executeReviewRequestHandler({
           success: false,
           aborted: true,
           provider: 'abort',
-          messageId: 'aborted_due_to_click',
         }
       }
 
@@ -1271,7 +1263,6 @@ export async function executeReviewRequestHandler({
           success: false,
           aborted: true,
           provider: 'abort',
-          messageId: 'aborted_due_to_ineligibility',
         }
       }
 
@@ -1304,7 +1295,6 @@ export async function executeReviewRequestHandler({
           success: false,
           aborted: true,
           provider: 'abort',
-          messageId: `reminder_blocked_${finalAuthority.decision.toLowerCase()}`,
         }
       }
 
@@ -1338,7 +1328,6 @@ export async function executeReviewRequestHandler({
           success: false,
           aborted: true,
           provider: 'abort',
-          messageId: 'reminder_blocked_recipient_changed',
         }
       }
 
@@ -1372,7 +1361,6 @@ export async function executeReviewRequestHandler({
           success: false,
           aborted: true,
           provider: 'abort',
-          messageId: `reminder_blocked_${finalSenderIdentity.decision.toLowerCase()}`,
         }
       }
 
@@ -1398,20 +1386,19 @@ export async function executeReviewRequestHandler({
           success: false,
           aborted: true,
           provider: 'abort',
-          messageId: `reminder_blocked_${finalSenderIdentity.decision.toLowerCase()}`,
         }
       }
 
-      const reminderRecipientName = finalAuthority.customerName || preReminderCheck.customerName || 'there'
-
-      const effectiveBusinessName = finalSenderIdentity.businessName || preReminderCheck.businessName || 'our business'
-      const effectiveReplyTo = finalSenderIdentity.reviewReplyToEmail !== undefined ? finalSenderIdentity.reviewReplyToEmail : preReminderCheck.reviewReplyToEmail
+      const reminderRecipientName = finalAuthority.customerName || 'there'
+      const effectiveBusinessName = finalSenderIdentity.businessName || 'our business'
+      const effectiveReplyTo = finalSenderIdentity.reviewReplyToEmail !== undefined ? finalSenderIdentity.reviewReplyToEmail : null
       const effectivePostalAddress = finalSenderIdentity.businessPostalAddress
 
       // 2. Compose neutral reminder email
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-      const trackingUrl = buildTrackedReviewUrl(appUrl, reviewRequestToken)
-      const unsubscribeUrl = buildUnsubscribeUrl(appUrl, reviewRequestUnsubscribeToken)
+      const trackingUrl = buildTrackedReviewUrl(appUrl, currentReq.token)
+      const effectiveUnsubToken = currentReq.unsubscribe_token || currentReq.token
+      const unsubscribeUrl = buildUnsubscribeUrl(appUrl, effectiveUnsubToken)
       const fromAddress = process.env.EMAIL_FROM_ADDRESS?.trim() || undefined
 
       const composed = composeReviewReminderEmail({
@@ -1454,7 +1441,7 @@ export async function executeReviewRequestHandler({
         })
 
         if (!result.success) {
-          throw new Error(result.error || 'Email provider rejected reminder send')
+          throw new Error(result.error || 'REMINDER_DISPATCH_FAILED')
         }
 
         // 3. Durably mark reminded_at (does NOT regress status: SENT remains SENT, DELIVERED remains DELIVERED)
@@ -1476,7 +1463,6 @@ export async function executeReviewRequestHandler({
             success: true,
             alreadySent: true,
             provider: result.provider,
-            messageId: result.messageId,
           }
         }
 
@@ -1540,10 +1526,13 @@ export async function executeReviewRequestHandler({
           },
         })
 
-        return result
+        return {
+          success: true,
+          provider: result.provider,
+        }
       } catch (sendErr: unknown) {
-        const errorMsg = (sendErr instanceof Error ? sendErr.message : 'Reminder dispatch failed').slice(0, 500)
-        console.error('Reminder dispatch error:', errorMsg)
+        const safeCategory = classifySafeDispatchError(sendErr, 'REMINDER_DISPATCH_FAILED')
+        console.error('Reminder dispatch error:', safeCategory)
 
         // MR-4: Record provider send failure for reminder
         await supabase.rpc('record_usage_event', {
@@ -1565,7 +1554,7 @@ export async function executeReviewRequestHandler({
           provider: 'email',
           event_type: 'failed',
           status: 'FAILED',
-          sanitized_error: errorMsg,
+          sanitized_error: safeCategory,
           metadata: {
             messageKind: 'review_request_reminder',
             reviewRequestId,
@@ -1582,12 +1571,12 @@ export async function executeReviewRequestHandler({
           entity_id: reviewRequestId,
           metadata: {
             reviewRequestId,
-            error: errorMsg,
+            error: safeCategory,
           },
         })
 
-        // Rethrow for Inngest retry mechanism
-        throw sendErr
+        // Rethrow safe error for Inngest retry mechanism
+        throw new Error(safeCategory)
       }
     })
 

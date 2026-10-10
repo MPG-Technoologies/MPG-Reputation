@@ -62,13 +62,12 @@ export class ResendEmailProvider implements EmailProvider {
       const response = await this.client.emails.send(payload, requestOptions)
 
       if (response.error) {
+        const isRateLimit = response.error.name === 'rate_limit_exceeded'
         return {
           success: false,
           provider: 'resend',
           messageId: '',
-          error: response.error.message,
-          renderedSubject: finalSubject,
-          renderedBody: textBody,
+          error: isRateLimit ? 'RATE_LIMIT_EXCEEDED' : 'EMAIL_DISPATCH_FAILED',
         }
       }
 
@@ -76,18 +75,13 @@ export class ResendEmailProvider implements EmailProvider {
         success: true,
         provider: 'resend',
         messageId: response.data?.id || '',
-        renderedSubject: finalSubject,
-        renderedBody: textBody,
       }
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : String(err)
+    } catch {
       return {
         success: false,
         provider: 'resend',
         messageId: '',
-        error: errorMessage,
-        renderedSubject: finalSubject,
-        renderedBody: textBody,
+        error: 'EMAIL_DISPATCH_FAILED',
       }
     }
   }

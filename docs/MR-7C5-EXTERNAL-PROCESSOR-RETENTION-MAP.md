@@ -345,11 +345,19 @@ In planned rollbacks or non-catastrophic database rebuilds where the pre-restore
 4. **Verification Gate**: Execute automated verification queries ensuring all erased customers have `first_name = '[Deleted Customer]'`, `email IS NULL`, and `phone IS NULL`.
 5. **Return to Live Service**: Only after privacy reconciliation passes is the application returned to active service.
 
+> [!NOTE]
+> **MR-7C.5C1 IMPLEMENTATION FOUNDATION (CASE A)**:
+> In MR-7C.5C1, the collection and verification foundation for Case A is implemented and tested (`src/domain/privacy/restore-verification.ts`):
+> - `PrivacyRestoreDeltaV1`: Strongly typed versioned delta schema containing strictly post-backup operational evidence (erasure customer/org IDs, suppression channel/hash pairs, timestamps; zero customer PII, zero tokens, zero credentials).
+> - `collectPrivacyRestoreDelta`: Server-only collector extracting post-backup erasures and suppressions deterministically from a readable source database.
+> - `verifyRestoredPrivacyState` & `evaluateRestoreDecision`: Verifies the restored database against the delta, confirming all erased customers have tombstoned names, NULLed PII, scrubbed errors, and empty completion contact payloads, and confirming all required suppressions exist. Fails closed (`BLOCK_RESTORE_ACTIVATION`) if resurrected PII or missing suppressions are detected. Returns strictly aggregate safe metrics with zero direct PII or hashes.
+> - **No Automatic Mutation / Replay in C5C1**: Pure collection + verification. Mutation/replay authority remains in a future bounded slice to preserve security boundaries.
+
 #### Case B — Current DB Unavailable (Catastrophic Loss)
 In catastrophic disaster-recovery scenarios where the primary database cluster is completely unavailable or corrupted prior to export:
 - **Architecture Gap Identified**: MPG Reputation currently stores erasure certificates (`customer_erasure_records`) and suppression hashes exclusively inside the primary PostgreSQL database. If that cluster is abruptly lost, MPG currently has **no guaranteed independent, offsite authoritative source** of post-backup erasure certificates or suppression deltas.
-- **Contractual Boundary**: C5A documents this gap. It does **not** invent a new external privacy ledger, distributed replication bus, or unverified secondary store.
-- **Future Milestone Requirement**: Resolving Case B requires a dedicated, bounded restore-safety architecture slice (e.g., streaming immutable erasure certificates to offsite encrypted object storage or durable audit replication) before pilot launch.
+- **Contractual Boundary**: C5A and C5C1 document this gap as **EXPLICITLY UNRESOLVED**. C5C1 does **not** invent an external offsite storage provider (such as S3, R2, Vercel Blob, secondary DB, or external KMS).
+- **Future Milestone Requirement**: Resolving Case B requires a dedicated, bounded restore-safety architecture decision by the Owner (selecting an independent durable offsite privacy ledger/storage boundary) before pilot launch.
 
 ```mermaid
 sequenceDiagram

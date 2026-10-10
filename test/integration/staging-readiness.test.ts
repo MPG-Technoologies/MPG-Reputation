@@ -16,7 +16,10 @@ vi.mock('@/app/app/progress-bar', () => ({ TopProgressBar: () => null }))
 vi.mock('@/app/app/dashboard/live-dashboard', () => ({
   LiveDashboard: (props: Record<string, unknown>) => React.createElement('pre', null, JSON.stringify(props)),
 }))
-vi.mock('next/navigation', () => ({ redirect: (url: string) => { throw new Error(`redirect:${url}`) } }))
+vi.mock('next/navigation', () => ({
+  redirect: (url: string) => { throw new Error(`redirect:${url}`) },
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn() }),
+}))
 
 import LocationPage from '@/app/app/settings/location/page'
 import DestinationPage from '@/app/app/settings/review-destination/page'

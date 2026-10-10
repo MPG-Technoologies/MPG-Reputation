@@ -935,7 +935,7 @@ describe.skipIf(!isDbAvailable)('MR-3 Real PostgreSQL Completion Source Platform
     // Verify completed_at is distinct from created_at (ingestion time)
     expect(compEvent?.completed_at).not.toBe(compEvent?.created_at)
 
-    // 2. Verify domain_event_outbox payload preserves the exact supplied timestamp
+    // 2. Verify domain_event_outbox payload contains the minimized domain event reference
     const { data: outboxRows, error: outboxErr } = await adminClient
       .from('domain_event_outbox')
       .select('payload')
@@ -944,7 +944,7 @@ describe.skipIf(!isDbAvailable)('MR-3 Real PostgreSQL Completion Source Platform
 
     expect(outboxErr).toBeNull()
     expect(outboxRows?.length).toBe(1)
-    const payloadData = outboxRows?.[0].payload as { completedAt: string }
-    expect(payloadData.completedAt).toContain('2026-05-15T08:45:00')
+    const payloadData = outboxRows?.[0].payload as { eventId: string }
+    expect(payloadData.eventId).toBe(data.eventId)
   })
 })

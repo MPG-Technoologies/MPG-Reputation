@@ -85,7 +85,7 @@ An exhaustive audit of `package.json`, environment variable specifications, prov
 | Processor Name | Vendor / Entity | SDK / Dependency | Functional Role in MPG Reputation | Customer Data Classification | Active Operational Status |
 |---|---|---|---|---|---|
 | **Resend** | Resend, Inc. | `resend@6.28.1` | Transactional email delivery, bounce/complaint webhooks, delivery monitoring | Direct PII (Recipient email, first name, message body), Pseudonymous IDs | Configured behind `ENABLE_LIVE_EMAIL=false` gate; active in synthetic test mode |
-| **Inngest** | Inngest Inc. | `inngest@4.20.0` | Durable serverless execution, delay queues, event orchestration, retention maintenance | Pseudonymous IDs (Event trigger), Direct PII (Workflow step return values — *Leakage identified*) | Active local & cloud orchestration; retention cron gated behind `ENABLE_RETENTION_MAINTENANCE=false` |
+| **Inngest** | Inngest Inc. | `inngest@4.20.0` | Durable serverless execution, delay queues, event orchestration, retention maintenance | Pseudonymous IDs (Event trigger 5 IDs & hardened step returns; pre-C5B step PII remediated in C5B; run traces retained per plan) | Active local & cloud orchestration; retention cron gated behind `ENABLE_RETENTION_MAINTENANCE=false` |
 | **Supabase** | Supabase, Inc. (AWS ap-south-1) | `@supabase/supabase-js@2.116.0`, `@supabase/ssr@0.12.7` | Primary PostgreSQL database, Auth, RLS (Free tier; manual/off-site backups evaluate restore obligations; PITR inactive) | Full Database (Direct PII, Pseudonymous, Operational, Compliance, Audit) | Active primary persistent datastore |
 | **Vercel** | Vercel Inc. | `next@16.3.5` | Application hosting, edge compute, serverless route execution, runtime logs | Transient request context, Pseudonymous IDs, Potential logged error text | Active hosting platform |
 | **Stripe** | Stripe, Inc. | `stripe@22.6.2` | Subscription billing, checkout sessions, invoice webhooks | Organization billing contact, payment method tokens (Zero end-consumer review data) | Paused under `MPG-DEC-049`; live billing disabled (`ENABLE_STRIPE_LIVE_BILLING=false`) |
@@ -224,46 +224,51 @@ In MR-7B.3, the event payload for `customer.completed` was minimized to strictly
 ```
 *Verified Invariant*: The trigger event payload contains zero customer names, email addresses, phone numbers, or contact payloads.
 
-### 6.2 Critical Repository Finding: Step Return Value PII Leakage
-A detailed source code audit of [`src/inngest/functions/review-request.ts`](file:///E:/MPG-Reputation/src/inngest/functions/review-request.ts) revealed that **Inngest Cloud step execution outputs still capture Direct PII**:
+### 6.2 Historical C5A Finding — Remediated in C5B: Step Return Value PII Leakage
+During the initial MR-7C.5A repository audit (prior to the MR-7C.5B remediation detailed in Section 13), a source code audit of [`src/inngest/functions/review-request.ts`](file:///E:/MPG-Reputation/src/inngest/functions/review-request.ts) revealed that the **pre-C5B implementation captured Direct PII in Inngest Cloud step execution outputs**.
 
-1. **Step `evaluate-initial-eligibility`** (lines 207–210):
+The code examples below document this **historical, pre-C5B implementation** for audit and governance traceability:
+
+1. **Historical Pre-C5B Step `evaluate-initial-eligibility`**:
    ```typescript
+   // HISTORICAL PRE-C5B CODE (Remediated in C5B)
    return {
      eligible: true,
-     customerName: eligibility.customer.firstName,  // <-- DIRECT PII
-     customerEmail: eligibility.customer.email,      // <-- DIRECT PII
+     customerName: eligibility.customer.firstName,  // <-- HISTORICAL PRE-C5B PII
+     customerEmail: eligibility.customer.email,      // <-- HISTORICAL PRE-C5B PII
      deliveryChannel: eligibility.deliveryChannel,
    }
    ```
-2. **Step `evaluate-post-delay-eligibility`** (lines 405–408):
+2. **Historical Pre-C5B Step `evaluate-post-delay-eligibility`**:
    ```typescript
+   // HISTORICAL PRE-C5B CODE (Remediated in C5B)
    return {
      eligible: true,
-     customerName: eligibility.customer.firstName,  // <-- DIRECT PII
-     customerEmail: eligibility.customer.email,      // <-- DIRECT PII
+     customerName: eligibility.customer.firstName,  // <-- HISTORICAL PRE-C5B PII
+     customerEmail: eligibility.customer.email,      // <-- HISTORICAL PRE-C5B PII
      deliveryChannel: eligibility.deliveryChannel,
    }
    ```
-3. **Step `dispatch-review-email`** (lines 1061 & 1111):
-   `dispatch-review-email` returns the complete `SendEmailResult` object returned by `EmailProvider.send()`, which explicitly includes:
+3. **Historical Pre-C5B Step `dispatch-review-email`**:
+   In pre-C5B code, `dispatch-review-email` returned the complete `SendEmailResult` object returned by `EmailProvider.send()`, which historically included:
    ```typescript
+   // HISTORICAL PRE-C5B CODE (Remediated in C5B)
    {
      success: true,
      provider: 'resend',
      messageId: response.data?.id,
-     renderedSubject: finalSubject,  // <-- DIRECT PII (Contains customer first name)
-     renderedBody: textBody          // <-- DIRECT PII (Contains customer first name, email text)
+     renderedSubject: finalSubject,  // <-- HISTORICAL PRE-C5B PII (Contained customer first name)
+     renderedBody: textBody          // <-- HISTORICAL PRE-C5B PII (Contained customer first name, email text)
    }
    ```
-4. **Step `dispatch-review-reminder`** (line 1542):
-   Returns the reminder `SendEmailResult` including `renderedSubject` and `renderedBody` (**Direct PII**).
+4. **Historical Pre-C5B Step `dispatch-review-reminder`**:
+   Returned the reminder `SendEmailResult` including `renderedSubject` and `renderedBody` (historical Direct PII).
 
-Because Inngest's execution architecture serializes every `step.run()` return value and stores it in the Inngest Cloud run history, **customer names, email addresses, and rendered message content are currently stored in Inngest Cloud run traces**.
+Because Inngest's execution architecture serializes every `step.run()` return value and stores it in Inngest Cloud run history, customer names, email addresses, and rendered message content were captured in Inngest Cloud run traces under that pre-C5B implementation.
 
-> [!WARNING]
-> **SECURITY / PRIVACY CORRECTION REQUIRED — MR-7C.5B**:
-> Inngest step return values must be stripped of PII. Steps must return opaque operational confirmations (`{ eligible: true, deliveryChannel: 'email' }` and `{ success: true, provider: 'resend', messageId: '...' }`). Direct PII must remain ephemeral inside the step closure or be resolved at the immediate point of dispatch.
+> [!NOTE]
+> **REMEDIATED IN MR-7C.5B — IMPLEMENTED & VERIFIED**:
+> As documented and verified in Section 13, MR-7C.5B completely stripped Direct PII from MPG-controlled Inngest step return values. MPG steps now return strictly opaque operational status and confirmations (`{ eligible: true, deliveryChannel: 'email' }` and `{ success: true, provider: result.provider }`), while tokens are queried directly by ID from the database within downstream step executions. Direct customer PII remains strictly ephemeral inside step execution closures. Inngest Cloud run traces therefore no longer receive or persist customerName, customerEmail, renderedSubject, or renderedBody.
 
 ### 6.3 Inngest Operational Retention & Limits
 *Official Evidence*: Grounded via Inngest Documentation (inngest.com/docs/platform/limits):
@@ -282,7 +287,7 @@ Because Inngest's execution architecture serializes every `step.run()` return va
 ### 6.4 Customer Erasure Relationship
 - Customer erasure in MPG cannot trigger an individual Inngest run deletion.
 - Inngest run data naturally expires according to the plan retention window (ranging from 24 hours on Free, 7 days on Pro, 14 days on Business, up to 365 days on Enterprise per limits documentation; ACCOUNT CONFIGURATION VERIFICATION REQUIRED).
-- In MR-7C.5B (`SECURITY / PRIVACY CORRECTION REQUIRED — MR-7C.5B`), eliminating PII from step return values ensures that Inngest Cloud retains only opaque UUIDs (`customerId`, `reviewRequestId`), rendering Inngest run history completely pseudonymous and non-sensitive during its natural expiry window.
+- In MR-7C.5B (implemented and verified), eliminating PII from step return values ensures that Inngest Cloud durable step outputs retain only opaque identifiers, rendering MPG-controlled Inngest run history pseudonymous during its natural expiry window (subject to account plan verification; Inngest is not claimed to store zero data globally).
 
 ---
 
@@ -391,7 +396,7 @@ An exhaustive search for `console.log`, `console.error`, and `console.warn` acro
 1. **`ConsoleEmailProvider`** ([`src/providers/email/console.ts`](file:///E:/MPG-Reputation/src/providers/email/console.ts)):
    - Logs `To: ${input.to}`, `Subject: ${finalSubject}`, and `Body: ${body}` directly to console.
    - *Assessment*: This provider is designed strictly for local offline development. In staging or preview environments on Vercel, if `ConsoleEmailProvider` were selected, raw customer PII would be written to Vercel runtime logs.
-   - *C5B Hardening Recommendation*: Add an environment assertion ensuring `ConsoleEmailProvider` immediately throws an exception if `NODE_ENV === 'production'`.
+   - *C5B Hardening (Implemented in MR-7C.5B)*: Added an immediate fail-closed environment assertion in `ConsoleEmailProvider` throwing `CONSOLE_EMAIL_PROVIDER_DISABLED_IN_PRODUCTION` if `NODE_ENV === 'production'`.
 2. **Production API & Webhook Routes**:
    - [`/api/webhooks/resend`](file:///E:/MPG-Reputation/src/app/api/webhooks/resend/route.ts): Logs status codes, event types, and error strings (`dedupErr.message`, `casResult.error`). Does not log raw request bodies or customer contact fields.
    - [`/api/webhooks/stripe`](file:///E:/MPG-Reputation/src/app/api/webhooks/stripe/route.ts): Logs operational status and payload conflict events without personal data.
@@ -399,8 +404,8 @@ An exhaustive search for `console.log`, `console.error`, and `console.warn` acro
    - [`/domain/completion/api-handler.ts`](file:///E:/MPG-Reputation/src/domain/completion/api-handler.ts): Logs operational stage failures with error codes. Raw contact payloads are not logged.
 3. **Inngest Review Request Functions** ([`src/inngest/functions/review-request.ts`](file:///E:/MPG-Reputation/src/inngest/functions/review-request.ts)):
    - Line 1064: `console.error('Email dispatch error; marking review request FAILED for retry:', errorMsg)`.
-   - *Risk Assessment*: If Resend returns an error string echoing the recipient's email address (e.g., `"Invalid email address: customer@example.com"`), `errorMsg` could carry customer PII into Vercel runtime logs.
-   - *C5B Hardening Recommendation*: Pass `errorMsg` through a sanitization helper that strips email patterns before logging.
+   - *Risk Assessment*: If Resend returns an error string echoing the recipient's email address (e.g., `"Invalid email address: customer@example.com"`), unhandled `errorMsg` could carry customer PII into Vercel runtime logs.
+   - *C5B Hardening (Implemented in MR-7C.5B)*: Added `classifySafeDispatchError` in `review-request.ts` to enforce static categorized error labels and strip email, name, phone, token, and secret patterns before logging or rethrowing.
 
 ### 8.3 Individual Deletion in Vercel Logs
 - **Public API / CLI / Dashboard**: **NOT AVAILABLE**. Vercel does not support deleting individual log lines from runtime logs.
@@ -437,9 +442,9 @@ The table below synthesizes the complete retention and deletion architecture acr
 | Processor | Data Sent | PII Level | Primary Retention Window | Backup Retention Window | Individual Deletion Available? | Deletion Mode | Erasure Action Required? | Evidence Level | Remaining Risk / Note |
 |---|---|---|---|---|---|---|---|---|---|
 | **Resend** | Recipient email, first name, rendered review email body & subject, tags (`review_request_id`) | **DIRECT PII** | 30 days (Free/Pro/Scale); Configurable (Enterprise) | 7 days | **No public deletion API verified** (Support-assisted for specific early removal) | **Category C** (Natural Expiry Only) | **None** (Expires naturally at 30 days) | **VERIFIED — OFFICIAL DOC** | Content storage controls unverified without plan confirmation (UNVERIFIED / ACCOUNT OR PROVIDER CONFIRMATION REQUIRED). Manual early specific-message deletion requires Resend Support. |
-| **Inngest** | Event trigger (5 opaque IDs); Step outputs (`customerName`, `customerEmail`, `renderedSubject`, `renderedBody`) | **DIRECT PII** (*In Step Outputs*) | Free 24h, Pro 7d, Business 14d, Enterprise up to 365d per limits docs (ACCOUNT CONFIGURATION VERIFICATION REQUIRED) | N/A (Cloud state) | **No public deletion API verified** (Cancellation only; no run trace deletion API) | **Category C** (Natural Expiry Only) | **Remediate in MR-7C.5B** (Strip PII from step return values) | **VERIFIED — REPOSITORY & OFFICIAL DOC** | PII leakage in step returns must be fixed in C5B so Inngest retains only opaque IDs. ACCOUNT CONFIGURATION VERIFICATION REQUIRED for active plan. |
+| **Inngest** | Event trigger (5 opaque IDs); Hardened step outputs (opaque confirmations only; pre-C5B customerName/customerEmail/renderedSubject/renderedBody removed) | **PSEUDONYMOUS / OPAQUE RUN TRACES** (MPG step returns stripped of Direct PII in C5B; run traces retained per plan) | Free 24h, Pro 7d, Business 14d, Enterprise up to 365d per limits docs (ACCOUNT CONFIGURATION VERIFICATION REQUIRED) | N/A (Cloud state) | **No public deletion API verified** (Cancellation only; no run trace deletion API) | **Category C** (Natural Expiry Only) | **IMPLEMENTED / VERIFIED in MR-7C.5B** (PII stripped from durable step returns) | **VERIFIED — REPOSITORY & OFFICIAL DOC** | Pre-C5B step PII leakage remediated in C5B. Inngest retains pseudonymous run traces during natural expiry. ACCOUNT CONFIGURATION VERIFICATION REQUIRED for active plan/run history limits; do not claim Inngest globally stores zero data. |
 | **Supabase** | Full relational database (customers, completions, requests, suppressions, evidence, ledgers) | **DIRECT PII** (Primary Store) | Retained until explicit erasure or lifecycle aging | Free plan (no user-accessible 7/14/30d automated backups; PITR inactive; manual backups or future tier upgrades evaluate Category D) | **YES (Primary DB)**; **NO (Backups)** | **Category A (Primary)**; **Category D (Backups / Manual Dumps)** | **Primary DB**: `execute_customer_erasure` RPC. **Backups**: Post-Restore Reconciliation. | **VERIFIED — HOSTED EVIDENCE (Free / ap-south-1 / PG 17.6) & DOCS** | Restoring an old backup could resurrect erased PII unless Post-Restore Reconciliation is executed. RESTORE PRIVACY GAP identified for Case B. |
-| **Vercel** | Request URLs, path tokens (`/r/[token]`, `/unsubscribe/[token]`), headers, console log output, error traces | **PSEUDONYMOUS / LINKABLE DATA & ERROR LOGS** | 1h (Hobby), 1d (Pro), 3d (Enterprise); 30d (Observability Plus) | N/A | **No per-record log deletion API verified** | **Category C** (Natural Expiry Only) | **None** (Logs expire naturally; harden error logging in C5B) | **VERIFIED — OFFICIAL DOC** | URL paths log pseudonymous review/unsubscribe tokens. Ensure `ConsoleEmailProvider` cannot run in production; sanitize error logs. ACCOUNT CONFIGURATION VERIFICATION REQUIRED for plan/Observability Plus. |
+| **Vercel** | Request URLs, path tokens (`/r/[token]`, `/unsubscribe/[token]`), headers, console log output, error traces | **PSEUDONYMOUS / LINKABLE DATA & ERROR LOGS** | 1h (Hobby), 1d (Pro), 3d (Enterprise); 30d (Observability Plus) | N/A | **No per-record log deletion API verified** | **Category C** (Natural Expiry Only) | **None** (Logs expire naturally; error logging sanitized in MR-7C.5B) | **VERIFIED — OFFICIAL DOC** | URL paths log pseudonymous review/unsubscribe tokens. `ConsoleEmailProvider` blocked in production; dispatch errors sanitized via `classifySafeDispatchError`. ACCOUNT CONFIGURATION VERIFICATION REQUIRED for plan/Observability Plus. |
 | **Stripe** | Tenant billing contacts, payment tokens, invoices (Zero review customer data) | **B2B PII / FINANCIAL** | Retained per active subscription + statutory tax/AML retention | Per Stripe infrastructure | **Object deletion available (`stripe.customers.del()`); Redaction jobs separate** | **Category A** (Programmatic API Delete) | **None** (End-consumer reviews never enter Stripe; billing paused) | **VERIFIED — OFFICIAL DOC** | `stripe.customers.del()` does not equal complete PII erasure; statutory tax/AML retention applies. Live billing paused under `MPG-DEC-049`. Re-evaluate if live billing resumes. |
 
 ---

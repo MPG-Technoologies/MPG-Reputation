@@ -44,6 +44,17 @@ function checkFunctionPrivilegeDirect(role: string, func: string, privilege = 'E
   return result === 't' || result === 'true'
 }
 
+function getLatestRealtimeBroadcast(topic: string, event: string): { payload: Record<string, unknown> } | null {
+  const sql = `SELECT payload::text FROM realtime.messages WHERE topic = '${topic}' AND event = '${event}' ORDER BY inserted_at DESC LIMIT 1;`
+  const result = executeDirectSql(sql).trim()
+  if (!result) return null
+  try {
+    return { payload: JSON.parse(result) as Record<string, unknown> }
+  } catch {
+    return null
+  }
+}
+
 describe.skipIf(!isDbAvailable)('Security Definer Realtime Broadcast Trigger Privileges & Hardening', () => {
   let adminClient: ReturnType<typeof createClient<Database>>
   let userAClient: ReturnType<typeof createClient<Database>>
@@ -258,8 +269,9 @@ describe.skipIf(!isDbAvailable)('Security Definer Realtime Broadcast Trigger Pri
     )
   })
 
-  describe('2. Normal Database Trigger Execution Remains Functional', () => {
-    it('executes broadcast_customer_completion trigger on customer completion insert', async () => {
+  describe('2. Normal Database Trigger Execution Remains Functional and Emits Broadcasts', () => {
+    it('executes broadcast_customer_completion trigger on customer completion insert and emits realtime message', async () => {
+      const sourceEventId = `sec-comp-trg-${Date.now()}`
       const { data, error } = await adminClient
         .from('customer_completion_events')
         .insert({
@@ -267,7 +279,7 @@ describe.skipIf(!isDbAvailable)('Security Definer Realtime Broadcast Trigger Pri
           location_id: locAId,
           customer_id: customerAId,
           source: 'crm',
-          source_event_id: `sec-comp-trg-${Date.now()}`,
+          source_event_id: sourceEventId,
           contact: { email: 'sec_test_trg@example.test' },
         })
         .select()
@@ -276,18 +288,24 @@ describe.skipIf(!isDbAvailable)('Security Definer Realtime Broadcast Trigger Pri
       expect(error).toBeNull()
       expect(data).toBeDefined()
       expect(data?.id).toBeDefined()
+
+      const broadcast = getLatestRealtimeBroadcast(`organization:${orgAId}:dashboard`, 'customer.completed')
+      expect(broadcast).not.toBeNull()
+      expect(broadcast?.payload.type).toBe('customer.completed')
+      expect(broadcast?.payload.completionEventId).toBe(data!.id)
+      expect(broadcast?.payload.organizationId).toBe(orgAId)
     })
 
-    it('executes broadcast_audit_checking and broadcast_audit_ineligible triggers on audit_events insert', async () => {
+    it('executes broadcast_audit_checking trigger on review_request.checking insert and emits realtime message', async () => {
       const { data: auditChecking, error: errChecking } = await adminClient
         .from('audit_events')
         .insert({
           organization_id: orgAId,
           actor_type: 'system',
-          event_type: 'eligibility.checked',
-          entity_type: 'customer',
-          entity_id: customerAId,
-          metadata: { decision: 'CHECKING' },
+          event_type: 'review_request.checking',
+          entity_type: 'customer_completion_event',
+          entity_id: cceAId,
+          metadata: { completionEventId: cceAId },
         })
         .select()
         .single()
@@ -295,42 +313,63 @@ describe.skipIf(!isDbAvailable)('Security Definer Realtime Broadcast Trigger Pri
       expect(errChecking).toBeNull()
       expect(auditChecking?.id).toBeDefined()
 
+      const broadcast = getLatestRealtimeBroadcast(`organization:${orgAId}:dashboard`, 'review_request.checking')
+      expect(broadcast).not.toBeNull()
+      expect(broadcast?.payload.type).toBe('review_request.checking')
+      expect(broadcast?.payload.organizationId).toBe(orgAId)
+      expect(broadcast?.payload.completionEventId).toBe(cceAId)
+    })
+
+    it('executes broadcast_audit_ineligible trigger on review_request.ineligible insert and emits realtime message', async () => {
       const { data: auditIneligible, error: errIneligible } = await adminClient
         .from('audit_events')
         .insert({
           organization_id: orgAId,
           actor_type: 'system',
-          event_type: 'eligibility.checked',
-          entity_type: 'customer',
-          entity_id: customerAId,
-          metadata: { decision: 'INELIGIBLE', reason: 'RECENT_REQUEST' },
+          event_type: 'review_request.ineligible',
+          entity_type: 'customer_completion_event',
+          entity_id: cceAId,
+          metadata: { completionEventId: cceAId, reason: 'RECENT_REQUEST' },
         })
         .select()
         .single()
 
       expect(errIneligible).toBeNull()
       expect(auditIneligible?.id).toBeDefined()
+
+      const broadcast = getLatestRealtimeBroadcast(`organization:${orgAId}:dashboard`, 'review_request.ineligible')
+      expect(broadcast).not.toBeNull()
+      expect(broadcast?.payload.type).toBe('review_request.ineligible')
+      expect(broadcast?.payload.organizationId).toBe(orgAId)
+      expect(broadcast?.payload.completionEventId).toBe(cceAId)
     })
 
-    it('executes broadcast_audit_entitlement_blocked trigger on entitlement audit insert', async () => {
+    it('executes broadcast_audit_entitlement_blocked trigger on review_request.blocked_by_entitlement insert and emits realtime message', async () => {
       const { data: auditBlocked, error: errBlocked } = await adminClient
         .from('audit_events')
         .insert({
           organization_id: orgAId,
           actor_type: 'system',
-          event_type: 'billing.entitlement_blocked',
-          entity_type: 'organization',
-          entity_id: orgAId,
-          metadata: { reason: 'TRIAL_EXPIRED' },
+          event_type: 'review_request.blocked_by_entitlement',
+          entity_type: 'customer_completion_event',
+          entity_id: cceAId,
+          metadata: { completionEventId: cceAId, reason: 'TRIAL_EXPIRED' },
         })
         .select()
         .single()
 
       expect(errBlocked).toBeNull()
       expect(auditBlocked?.id).toBeDefined()
+
+      const broadcast = getLatestRealtimeBroadcast(`organization:${orgAId}:dashboard`, 'review_request.blocked_by_entitlement')
+      expect(broadcast).not.toBeNull()
+      expect(broadcast?.payload.type).toBe('review_request.blocked_by_entitlement')
+      expect(broadcast?.payload.organizationId).toBe(orgAId)
+      expect(broadcast?.payload.completionEventId).toBe(cceAId)
+      expect(broadcast?.payload.reason).toBe('TRIAL_EXPIRED')
     })
 
-    it('executes broadcast_review_request_change trigger on review_requests insert and update', async () => {
+    it('executes broadcast_review_request_change trigger on review_requests insert and update and emits realtime messages', async () => {
       const token = `tok_sec_trg_${Date.now()}`
       const { data: rr, error: rrErr } = await adminClient
         .from('review_requests')
@@ -349,6 +388,12 @@ describe.skipIf(!isDbAvailable)('Security Definer Realtime Broadcast Trigger Pri
       expect(rrErr).toBeNull()
       expect(rr?.id).toBeDefined()
 
+      const broadcastCreated = getLatestRealtimeBroadcast(`organization:${orgAId}:dashboard`, 'review_request.created')
+      expect(broadcastCreated).not.toBeNull()
+      expect(broadcastCreated?.payload.type).toBe('review_request.created')
+      expect(broadcastCreated?.payload.requestId).toBe(rr!.id)
+      expect(broadcastCreated?.payload.organizationId).toBe(orgAId)
+
       const { data: rrUpdated, error: updateErr } = await adminClient
         .from('review_requests')
         .update({ status: 'SENT' })
@@ -358,6 +403,12 @@ describe.skipIf(!isDbAvailable)('Security Definer Realtime Broadcast Trigger Pri
 
       expect(updateErr).toBeNull()
       expect(rrUpdated?.status).toBe('SENT')
+
+      const broadcastUpdated = getLatestRealtimeBroadcast(`organization:${orgAId}:dashboard`, 'review_request.updated')
+      expect(broadcastUpdated).not.toBeNull()
+      expect(broadcastUpdated?.payload.type).toBe('review_request.updated')
+      expect(broadcastUpdated?.payload.requestId).toBe(rr!.id)
+      expect(broadcastUpdated?.payload.status).toBe('SENT')
     })
   })
 

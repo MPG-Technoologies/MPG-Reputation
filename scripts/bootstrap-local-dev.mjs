@@ -16,22 +16,39 @@
  * ==============================================================================
  */
 
+import { fileURLToPath } from 'url'
+import path from 'path'
+import process from 'process'
 import { createClient } from '@supabase/supabase-js'
+
+export const ALLOWED_LOCAL_SUPABASE_ORIGINS = new Set([
+  'http://127.0.0.1:54331',
+  'http://localhost:54331',
+])
+
+export function assertAllowedLocalSupabaseUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    throw new Error(`[BOOTSTRAP FATAL] Invalid Supabase URL: expected non-empty string, got ${rawUrl}`)
+  }
+
+  let parsed
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    throw new Error(`[BOOTSTRAP FATAL] Refusing to run dev bootstrap against malformed Supabase URL: ${rawUrl}`)
+  }
+
+  if (!ALLOWED_LOCAL_SUPABASE_ORIGINS.has(parsed.origin)) {
+    throw new Error(
+      `[BOOTSTRAP FATAL] Refusing to run dev bootstrap against non-local Supabase URL: ${rawUrl}. Allowed origins: ${Array.from(ALLOWED_LOCAL_SUPABASE_ORIGINS).join(', ')}`
+    )
+  }
+
+  return parsed.origin
+}
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://127.0.0.1:54331'
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU'
-
-// 1. Strict Local-Only URL Guard
-const parsedUrl = new URL(SUPABASE_URL)
-const allowedHosts = ['127.0.0.1', 'localhost']
-if (!allowedHosts.includes(parsedUrl.hostname) || parsedUrl.protocol !== 'http:') {
-  console.error(`[BOOTSTRAP FATAL] Refusing to run dev bootstrap against non-local Supabase URL: ${SUPABASE_URL}`)
-  process.exit(1)
-}
-
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
-})
 
 const DEV_USER_EMAIL = 'developer@local.test'
 const DEV_USER_PASSWORD = 'SafePassword123!'
@@ -39,7 +56,15 @@ const SYNTHETIC_ORG_ID = 'b0000000-0000-0000-0000-000000000001'
 const SYNTHETIC_LOC_ID = 'c0000000-0000-0000-0000-000000000001'
 const SYNTHETIC_DEST_ID = 'd0000000-0000-0000-0000-000000000001'
 
-async function bootstrap() {
+export async function bootstrap(supabaseClient) {
+  let supabase = supabaseClient
+  if (!supabase) {
+    assertAllowedLocalSupabaseUrl(SUPABASE_URL)
+    supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+  }
+
   console.log(`[BOOTSTRAP] Connecting to local Supabase at ${SUPABASE_URL}...`)
 
   // 2. Deterministic Auth User via GoTrue Admin API
@@ -167,7 +192,25 @@ async function bootstrap() {
   console.log(`                    Target:   ${SUPABASE_URL}`)
 }
 
-bootstrap().catch((err) => {
-  console.error(`[BOOTSTRAP ERROR]`, err)
-  process.exit(1)
-})
+const isDirectExecution = Boolean(
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))
+)
+
+if (isDirectExecution) {
+  try {
+    assertAllowedLocalSupabaseUrl(SUPABASE_URL)
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err))
+    process.exit(1)
+  }
+
+  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+
+  bootstrap(supabase).catch((err) => {
+    console.error(`[BOOTSTRAP ERROR]`, err)
+    process.exit(1)
+  })
+}

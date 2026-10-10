@@ -21,6 +21,8 @@ export interface SendEmailResult {
   error?: string
 }
 
+export type ResendRecipientPolicy = 'unrestricted' | 'resend_test_only'
+
 export interface EmailProvider {
   readonly name: 'console' | 'resend'
   send(input: SendEmailInput): Promise<SendEmailResult>

@@ -1,13 +1,32 @@
 import { Resend } from 'resend'
-import type { EmailProvider, SendEmailInput, SendEmailResult } from './types'
+import type { EmailProvider, ResendRecipientPolicy, SendEmailInput, SendEmailResult } from './types'
 import { renderNeutralReviewEmail } from './types'
+
+export const RESEND_SYNTHETIC_RECIPIENTS = Object.freeze([
+  'delivered@resend.dev',
+  'bounced@resend.dev',
+  'complained@resend.dev',
+] as const)
+
+const RESEND_SYNTHETIC_SET = new Set<string>(RESEND_SYNTHETIC_RECIPIENTS)
+
+export function isResendSyntheticRecipient(address: string | undefined | null): boolean {
+  if (!address || typeof address !== 'string') return false
+  const normalized = address.trim().toLowerCase()
+  return RESEND_SYNTHETIC_SET.has(normalized)
+}
 
 export class ResendEmailProvider implements EmailProvider {
   readonly name = 'resend' as const
+  readonly recipientPolicy: ResendRecipientPolicy
   private client: Resend
   private fromAddress: string
 
-  constructor(apiKey: string, fromAddress?: string) {
+  constructor(
+    apiKey: string,
+    fromAddress?: string,
+    recipientPolicy: ResendRecipientPolicy = 'unrestricted'
+  ) {
     const configuredFrom = (fromAddress || process.env.EMAIL_FROM_ADDRESS || '').trim()
     if (!configuredFrom || !configuredFrom.includes('@')) {
       throw new Error(
@@ -16,9 +35,14 @@ export class ResendEmailProvider implements EmailProvider {
     }
     this.client = new Resend(apiKey)
     this.fromAddress = configuredFrom
+    this.recipientPolicy = recipientPolicy
   }
 
   async send(input: SendEmailInput): Promise<SendEmailResult> {
+    if (this.recipientPolicy === 'resend_test_only' && !isResendSyntheticRecipient(input.to)) {
+      throw new Error('SYNTHETIC_RECIPIENT_REQUIRED')
+    }
+
     const fallback = renderNeutralReviewEmail({
       recipientName: input.recipientName,
       businessName: input.businessName,

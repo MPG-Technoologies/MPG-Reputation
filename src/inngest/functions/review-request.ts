@@ -55,6 +55,9 @@ export function classifySafeDispatchError(
     if (msg === 'EMAIL_DISPATCH_FAILED' || msg === 'REMINDER_DISPATCH_FAILED') {
       return msg
     }
+    if (msg === 'SYNTHETIC_RECIPIENT_REQUIRED') {
+      return msg
+    }
   }
   return fallbackCategory
 }

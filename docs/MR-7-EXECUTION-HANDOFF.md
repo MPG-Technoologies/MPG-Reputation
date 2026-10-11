@@ -10,7 +10,7 @@
 | Feature Branch | `chatgpt/mr7c5c2-restore-delta-replay` (merged into `main` at `14115de90168766c3992794042921800291b0f54`) |
 | Product Main Baseline | `14115de90168766c3992794042921800291b0f54` |
 | Company OS Main Baseline | `72aeef0757a277051cff57a7c9ee9f7a3e1f7c97` |
-| Public Safe | Yes; local synthetic fixtures only for verification; no real customer data used |
+| Public Safe | Yes; hosted engineering/test Supabase environment using seed/synthetic fixtures and zero real customer data |
 
 ---
 
@@ -227,17 +227,26 @@
   - **Verification**: 72 dedicated unit and domain-level tests pass cleanly (`test/domain/restore-privacy-verification.test.ts`).
 - **MR-7C.5C2 — CONTROLLED RESTORE-DELTA REPLAY ENGINE (CASE A) (OWNER ACCEPTED / MERGED)**:
   - **Owner Acceptance & Merged Checkpoint**: Explicitly Owner Accepted and merged into product `main` at commit `14115de90168766c3992794042921800291b0f54` from branch `chatgpt/mr7c5c2-restore-delta-replay`. Case A collection/verification (`MR-7C.5C1`) and controlled restore-delta replay (`MR-7C.5C2`) are accepted. MR-7 remains **ACTIVE / IN PROGRESS** (NOT `MR-7 — COMPLETE`). Case B disaster recovery gap remains unresolved.
-  - **Database Migration State**: Migration `supabase/migrations/20261011120000_mr7c5c2_restore_delta_replay.sql` exists in the repository and was validated during development, but was **NOT applied to hosted Supabase during merge/acceptance**. Repository merge and hosted-database migration remain separate controlled actions. C5C2 is not claimed to be hosted/production verified.
-  - **Database Operating Decision**: Future MPG Reputation database work and DB-backed validation should default to the **ONLINE / HOSTED Supabase database** rather than Docker/local Supabase.
-    - This DOES NOT authorize:
-      - hosted db reset;
-      - destructive production resets;
-      - arbitrary data mutation;
-      - real customer data testing;
-      - automatic production migration application;
-      - weakening RLS/auth/tenant isolation.
-    - Hosted DB changes remain strictly bounded and migration-controlled.
-    - Synthetic data only for engineering validation.
+  - **Database Migration State**: Migration `supabase/migrations/20261011120000_mr7c5c2_restore_delta_replay.sql` exists in the repository and was validated during development, but was **NOT applied to hosted Supabase during the merge/acceptance event**. Repository merge and hosted-database migration remain separate controlled actions. C5C2 is not claimed to be hosted/production verified. This historical fact does not constitute a permanent prohibition on hosted migration application.
+  - **Hosted Database Operating Decision**: The MPG Reputation hosted Supabase database is currently an **engineering / test database** containing seed/test/synthetic fixtures, not live customer production data. Future database engineering and DB-backed verification defaults to this hosted Supabase environment instead of Docker/local Supabase.
+    - **Authorized within Owner-approved engineering slices**: Routine bounded hosted database work is authorized, including:
+      - applying version-controlled repository migrations;
+      - schema changes required by the approved slice;
+      - creating and removing test-only database functions, triggers, and objects;
+      - inserting, updating, deleting, and rebuilding synthetic/seed fixtures;
+      - RLS, privilege, and tenant-isolation verification;
+      - integration testing against the hosted database;
+      - cleanup of synthetic test state.
+    - **Strictly NOT authorized**:
+      - real customer data;
+      - weakening RLS, authentication, authorization, or tenant isolation;
+      - arbitrary service-role access;
+      - unrelated schema or database changes;
+      - live customer messaging;
+      - live billing;
+      - real-customer pilot activity;
+      - commercial activation;
+      - broad destructive database reset without explicit justification (hosted `db reset` is NOT the normal/default workflow; repository migrations remain the version-controlled source of schema change).
   - **Objective & Scope**: Reapplies post-backup privacy states (customer erasure tombstones and suppressions) from a validated `PrivacyRestoreDeltaV1` to an isolated restored database during disaster-recovery maintenance (Case A). C5C2 itself does NOT activate infrastructure.
   - **Authority & Maintenance Boundary**:
     - Strictly server-only (`import 'server-only'`) and maintenance-only. Zero browser UI, zero tenant Server Actions, zero public API routes, zero schedulers, zero Inngest jobs, zero automatic restore hooks.
@@ -383,7 +392,7 @@ If rollback of MR-7C.5C2 is required:
 
 - **Milestone Status**: MR-7 is ACTIVE / IN PROGRESS; MR-7B.1, MR-7B.2, MR-7B.3, MR-7C.1, MR-7C.2, MR-7C.3A, MR-7C.3B, MR-7C.3C External Identifier Erasure, MR-7C.3C Customer Erasure Delivery Surface, MR-7C.4A Retention Requirements + Data-Class Decision Matrix, MR-7C.4B1 Initial Retention Controls Foundation (`dd9af1a7630da5c802b10b9c2345b8b525542d63`), MR-7C.4B2 Bounded Retention Maintenance Workflow (`17ff5bc331b225eb589694607754ac58f30e2473`), MR-7C.5A External Processor Retention Map (`707f89a072a5593541cfc906e0c19595578bda1c`), MR-7C.5B Inngest / Provider Privacy Hardening, MR-7C.5C1 Post-Restore Privacy Verification Foundation (`9263b6a589795ccb17c8bbe24c61735419ebea26`), and MR-7C.5C2 Controlled Restore-Delta Replay Engine (`14115de90168766c3992794042921800291b0f54`) are **OWNER ACCEPTED**.
 - **MR-7C.5C2 Status**: **OWNER ACCEPTED / MERGED** at commit `14115de90168766c3992794042921800291b0f54` (NOT `MR-7 — COMPLETE`). C5C2 migration exists in repository but was **NOT applied to hosted Supabase during merge/acceptance**. C5C2 is not claimed to be hosted/production verified.
-- **Database Operating Decision**: Future MPG Reputation database work and DB-backed validation should default to the online/hosted Supabase database rather than Docker/local Supabase. Does not authorize hosted db reset, destructive resets, arbitrary data mutations, real customer testing, automatic migration application, or weakening RLS/auth/tenant isolation.
+- **Hosted Database Operating Decision**: Hosted Supabase is the default engineering/test database (containing seed/synthetic fixtures, zero real customer data). Within Owner-approved engineering slices, bounded repository migrations, schema changes, and synthetic test fixture mutations/verifications are authorized. Migration application must be bounded to an approved engineering slice, version-controlled, reviewed, and verified. Does not authorize real customer data, weakening RLS/auth/tenant isolation, arbitrary service-role access, unrelated DB mutations, live messaging, live billing, pilot activity, or broad destructive database resets (hosted `db reset` is not the default workflow).
 - **Case A State**: C5C1 collection/verification + C5C2 controlled replay accepted.
 - **Case B State**: **UNRESOLVED**. Catastrophic DB loss without pre-restore database readable remains an open architecture decision; zero offsite storage provider selected; not claimed to be solved.
 - **MR-7 State**: ACTIVE / IN PROGRESS (NOT complete).
@@ -415,4 +424,4 @@ If rollback of MR-7C.5C2 is required:
 - **Live billing remains paused** under `MPG-DEC-049`.
 - **Controlled Pilot (MR-8) remains strictly GATED**.
 - Feature branch `chatgpt/mr7c5c2-restore-delta-replay` merged into `main` at `14115de90168766c3992794042921800291b0f54`.
-- **Hosted application or migration is NOT authorized**. Live messaging activation, billing activation, automated purging, and deployment remain strictly unauthorized.
+- **Hosted Database Authority & Release Boundary**: Hosted Supabase is the current engineering/test database. Bounded migration, schema, and synthetic test-data changes are authorized within Owner-approved engineering slices. Application deployment, live messaging, live billing, real-customer pilot activity, and commercial activation remain separately gated.

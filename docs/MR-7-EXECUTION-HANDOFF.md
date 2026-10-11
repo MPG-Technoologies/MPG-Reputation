@@ -4,13 +4,13 @@
 |---|---|
 | Date | 2026-10-11 |
 | Authority | Owner direction (Company OS source of truth: techwithmpg/mpg-company-os at `72aeef0757a277051cff57a7c9ee9f7a3e1f7c97`; `MPG-DEC-050`) |
-| Milestone | MR-7 (Trust / Security / Compliance) — ACTIVE |
-| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.2B — OWNER ACCEPTED**<br>**MR-7C.2 — OWNER ACCEPTED / COMPLETE**<br>**MR-7C.3A — OWNER ACCEPTED** (`5bef1ae68309767b645415fb80e09f70da576e0d`)<br>**MR-7C.3B — OWNER ACCEPTED** (`856d7b87425413da481211313716fbbabb9d5948`)<br>**MR-7C.3C External Identifier Erasure Enforcement — OWNER ACCEPTED** (`8796b5e6fb89cea49a96c85917e4808ad5891fa6`)<br>**MR-7C.3C Customer Erasure Delivery Surface — OWNER ACCEPTED** (`50e1bcf0fa833d9be16471c3b748a464e9ea5b76`)<br>**MR-7C.4A Retention Requirements + Data-Class Decision Matrix — OWNER ACCEPTED / FROZEN** (`924a7f009d18bfeadd0944f5bca082548eac9e54`)<br>**MR-7C.4B1 Initial Retention Controls Foundation — OWNER ACCEPTED** (`dd9af1a7630da5c802b10b9c2345b8b525542d63`)<br>**MR-7C.4B2 Bounded Retention Maintenance Workflow — OWNER ACCEPTED** (`17ff5bc331b225eb589694607754ac58f30e2473`)<br>**MR-7C.5A External Processor Retention Map — OWNER ACCEPTED** (`707f89a072a5593541cfc906e0c19595578bda1c`)<br>**MR-7C.5B Inngest / Provider Privacy Hardening — OWNER ACCEPTED**<br>**MR-7C.5C1 Post-Restore Privacy Verification Foundation — OWNER ACCEPTED** (`9263b6a589795ccb17c8bbe24c61735419ebea26`)<br>**MR-7C.5C2 Controlled Restore-Delta Replay Engine — ENGINEERING COMPLETE / READY FOR OWNER REVIEW** (NOT `MR-7 — COMPLETE`) |
-| Current Bounded Slice | MR-7C.5C2 — Controlled Restore-Delta Replay Engine — ENGINEERING COMPLETE / READY FOR OWNER REVIEW |
-| Feature Branch | `chatgpt/mr7c5c2-restore-delta-replay` |
-| Product Main Baseline | `d2c9aa8c1db41dd06d584b8da7c4a86f43b18827` |
+| Milestone | MR-7 (Trust / Security / Compliance) — ACTIVE / IN PROGRESS |
+| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.2B — OWNER ACCEPTED**<br>**MR-7C.2 — OWNER ACCEPTED / COMPLETE**<br>**MR-7C.3A — OWNER ACCEPTED** (`5bef1ae68309767b645415fb80e09f70da576e0d`)<br>**MR-7C.3B — OWNER ACCEPTED** (`856d7b87425413da481211313716fbbabb9d5948`)<br>**MR-7C.3C External Identifier Erasure Enforcement — OWNER ACCEPTED** (`8796b5e6fb89cea49a96c85917e4808ad5891fa6`)<br>**MR-7C.3C Customer Erasure Delivery Surface — OWNER ACCEPTED** (`50e1bcf0fa833d9be16471c3b748a464e9ea5b76`)<br>**MR-7C.4A Retention Requirements + Data-Class Decision Matrix — OWNER ACCEPTED / FROZEN** (`924a7f009d18bfeadd0944f5bca082548eac9e54`)<br>**MR-7C.4B1 Initial Retention Controls Foundation — OWNER ACCEPTED** (`dd9af1a7630da5c802b10b9c2345b8b525542d63`)<br>**MR-7C.4B2 Bounded Retention Maintenance Workflow — OWNER ACCEPTED** (`17ff5bc331b225eb589694607754ac58f30e2473`)<br>**MR-7C.5A External Processor Retention Map — OWNER ACCEPTED** (`707f89a072a5593541cfc906e0c19595578bda1c`)<br>**MR-7C.5B Inngest / Provider Privacy Hardening — OWNER ACCEPTED**<br>**MR-7C.5C1 Post-Restore Privacy Verification Foundation — OWNER ACCEPTED** (`9263b6a589795ccb17c8bbe24c61735419ebea26`)<br>**MR-7C.5C2 Controlled Restore-Delta Replay Engine — OWNER ACCEPTED / MERGED** (`14115de90168766c3992794042921800291b0f54`) |
+| Current Bounded Slice | MR-7C.5C2 — Controlled Restore-Delta Replay Engine — OWNER ACCEPTED / MERGED (Case A); Case B Unresolved / Architecture Decision Next |
+| Feature Branch | `chatgpt/mr7c5c2-restore-delta-replay` (merged into `main` at `14115de90168766c3992794042921800291b0f54`) |
+| Product Main Baseline | `14115de90168766c3992794042921800291b0f54` |
 | Company OS Main Baseline | `72aeef0757a277051cff57a7c9ee9f7a3e1f7c97` |
-| Public Safe | Yes; local synthetic fixtures only for verification; no real customer data used |
+| Public Safe | Yes; hosted engineering/test Supabase environment using seed/synthetic fixtures and zero real customer data |
 
 ---
 
@@ -225,8 +225,28 @@
     - **No Automatic Mutation / Replay in C5C1**: Pure collection + verification. Mutation/replay authority remains in a future bounded slice.
     - **Case B Explicitly Unresolved**: Catastrophic database loss with no pre-restore DB readable still lacks an independent offsite delta ledger. Documented honestly as unresolved.
   - **Verification**: 72 dedicated unit and domain-level tests pass cleanly (`test/domain/restore-privacy-verification.test.ts`).
-- **MR-7C.5C2 — CONTROLLED RESTORE-DELTA REPLAY ENGINE (CASE A) (ENGINEERING COMPLETE / READY FOR OWNER REVIEW)**:
-  - **Status**: Engineering complete on feature branch `chatgpt/mr7c5c2-restore-delta-replay`; ready for independent Owner review (NOT yet Owner Accepted; NOT `MR-7 — COMPLETE`).
+- **MR-7C.5C2 — CONTROLLED RESTORE-DELTA REPLAY ENGINE (CASE A) (OWNER ACCEPTED / MERGED)**:
+  - **Owner Acceptance & Merged Checkpoint**: Explicitly Owner Accepted and merged into product `main` at commit `14115de90168766c3992794042921800291b0f54` from branch `chatgpt/mr7c5c2-restore-delta-replay`. Case A collection/verification (`MR-7C.5C1`) and controlled restore-delta replay (`MR-7C.5C2`) are accepted. MR-7 remains **ACTIVE / IN PROGRESS** (NOT `MR-7 — COMPLETE`). Case B disaster recovery gap remains unresolved.
+  - **Database Migration State**: Migration `supabase/migrations/20261011120000_mr7c5c2_restore_delta_replay.sql` exists in the repository and was validated during development, but was **NOT applied to hosted Supabase during the merge/acceptance event**. Repository merge and hosted-database migration remain separate controlled actions. C5C2 is not claimed to be hosted/production verified. This historical fact does not constitute a permanent prohibition on hosted migration application.
+  - **Hosted Database Operating Decision**: The MPG Reputation hosted Supabase database is currently an **engineering / test database** containing seed/test/synthetic fixtures, not live customer production data. Future database engineering and DB-backed verification defaults to this hosted Supabase environment instead of Docker/local Supabase.
+    - **Authorized within Owner-approved engineering slices**: Routine bounded hosted database work is authorized, including:
+      - applying version-controlled repository migrations;
+      - schema changes required by the approved slice;
+      - creating and removing test-only database functions, triggers, and objects;
+      - inserting, updating, deleting, and rebuilding synthetic/seed fixtures;
+      - RLS, privilege, and tenant-isolation verification;
+      - integration testing against the hosted database;
+      - cleanup of synthetic test state.
+    - **Strictly NOT authorized**:
+      - real customer data;
+      - weakening RLS, authentication, authorization, or tenant isolation;
+      - arbitrary service-role access;
+      - unrelated schema or database changes;
+      - live customer messaging;
+      - live billing;
+      - real-customer pilot activity;
+      - commercial activation;
+      - broad destructive database reset without explicit justification (hosted `db reset` is NOT the normal/default workflow; repository migrations remain the version-controlled source of schema change).
   - **Objective & Scope**: Reapplies post-backup privacy states (customer erasure tombstones and suppressions) from a validated `PrivacyRestoreDeltaV1` to an isolated restored database during disaster-recovery maintenance (Case A). C5C2 itself does NOT activate infrastructure.
   - **Authority & Maintenance Boundary**:
     - Strictly server-only (`import 'server-only'`) and maintenance-only. Zero browser UI, zero tenant Server Actions, zero public API routes, zero schedulers, zero Inngest jobs, zero automatic restore hooks.
@@ -351,7 +371,7 @@
    - **MR-7C.5A**: External Processor Data Map + Retention / Deletion Contract *(OWNER ACCEPTED at `707f89a072a5593541cfc906e0c19595578bda1c` — Authoritative specification in `docs/MR-7C5-EXTERNAL-PROCESSOR-RETENTION-MAP.md`; audited Resend, Inngest, Supabase, Vercel, Stripe; identified Inngest step output PII leakage for MR-7C.5B remediation; identified Case B Restore Privacy Gap; verified zero public deletion APIs for Resend/Inngest/Vercel; confirmed Stripe paused)*
    - **MR-7C.5B**: Inngest / Provider Privacy Hardening *(OWNER ACCEPTED — Inngest step output minimization: stripped `customerName`, `customerEmail`, `renderedSubject`, `renderedBody`, tokens; static error classification via `classifySafeDispatchError` eliminating raw error leakage into logs/audits/traces; fail-closed production guard on `ConsoleEmailProvider`; verified across 19 proof integration tests and regression suite)*
    - **MR-7C.5C1**: Post-Restore Privacy Verification Foundation (Case A) *(OWNER ACCEPTED at `9263b6a589795ccb17c8bbe24c61735419ebea26` — `PrivacyRestoreDeltaV1` strongly typed schema; `collectPrivacyRestoreDelta` deterministic collector from readable pre-restore DB; `verifyRestoredPrivacyState` restored DB verifier checking customer tombstones, zero PII, scrubbed errors, empty completion contact payloads, and present suppressions; `evaluateRestoreDecision` fail-closed gate returning safe aggregate metrics; Case B catastrophic database loss explicitly remains unresolved and separate)*
-   - **MR-7C.5C2**: Controlled Restore-Delta Replay Engine (Case A) *(ENGINEERING COMPLETE / READY FOR OWNER REVIEW — branch `chatgpt/mr7c5c2-restore-delta-replay`)*
+   - **MR-7C.5C2**: Controlled Restore-Delta Replay Engine (Case A) *(OWNER ACCEPTED / MERGED at `14115de90168766c3992794042921800291b0f54`)*
 
 ---
 
@@ -370,8 +390,13 @@ If rollback of MR-7C.5C2 is required:
 
 ## 7. Owner Gate
 
-- **Milestone Status**: MR-7 is ACTIVE; MR-7B.1, MR-7B.2, MR-7B.3, MR-7C.1, MR-7C.2, MR-7C.3A, MR-7C.3B, MR-7C.3C External Identifier Erasure, MR-7C.3C Customer Erasure Delivery Surface, MR-7C.4A Retention Requirements + Data-Class Decision Matrix, MR-7C.4B1 Initial Retention Controls Foundation (`dd9af1a7630da5c802b10b9c2345b8b525542d63`), MR-7C.4B2 Bounded Retention Maintenance Workflow (`17ff5bc331b225eb589694607754ac58f30e2473`), MR-7C.5A External Processor Retention Map (`707f89a072a5593541cfc906e0c19595578bda1c`), MR-7C.5B Inngest / Provider Privacy Hardening, and MR-7C.5C1 Post-Restore Privacy Verification Foundation (`9263b6a589795ccb17c8bbe24c61735419ebea26`) are **OWNER ACCEPTED**.
-- **MR-7C.5C2 Status**: **ENGINEERING COMPLETE / READY FOR OWNER REVIEW** (NOT yet Owner Accepted; real PostgreSQL verification passed across 32 integration tests; NOT `MR-7 — COMPLETE`).
+- **Milestone Status**: MR-7 is ACTIVE / IN PROGRESS; MR-7B.1, MR-7B.2, MR-7B.3, MR-7C.1, MR-7C.2, MR-7C.3A, MR-7C.3B, MR-7C.3C External Identifier Erasure, MR-7C.3C Customer Erasure Delivery Surface, MR-7C.4A Retention Requirements + Data-Class Decision Matrix, MR-7C.4B1 Initial Retention Controls Foundation (`dd9af1a7630da5c802b10b9c2345b8b525542d63`), MR-7C.4B2 Bounded Retention Maintenance Workflow (`17ff5bc331b225eb589694607754ac58f30e2473`), MR-7C.5A External Processor Retention Map (`707f89a072a5593541cfc906e0c19595578bda1c`), MR-7C.5B Inngest / Provider Privacy Hardening, MR-7C.5C1 Post-Restore Privacy Verification Foundation (`9263b6a589795ccb17c8bbe24c61735419ebea26`), and MR-7C.5C2 Controlled Restore-Delta Replay Engine (`14115de90168766c3992794042921800291b0f54`) are **OWNER ACCEPTED**.
+- **MR-7C.5C2 Status**: **OWNER ACCEPTED / MERGED** at commit `14115de90168766c3992794042921800291b0f54` (NOT `MR-7 — COMPLETE`). C5C2 migration exists in repository but was **NOT applied to hosted Supabase during merge/acceptance**. C5C2 is not claimed to be hosted/production verified.
+- **Hosted Database Operating Decision**: Hosted Supabase is the default engineering/test database (containing seed/synthetic fixtures, zero real customer data). Within Owner-approved engineering slices, bounded repository migrations, schema changes, and synthetic test fixture mutations/verifications are authorized. Migration application must be bounded to an approved engineering slice, version-controlled, reviewed, and verified. Does not authorize real customer data, weakening RLS/auth/tenant isolation, arbitrary service-role access, unrelated DB mutations, live messaging, live billing, pilot activity, or broad destructive database resets (hosted `db reset` is not the default workflow).
+- **Case A State**: C5C1 collection/verification + C5C2 controlled replay accepted.
+- **Case B State**: **UNRESOLVED**. Catastrophic DB loss without pre-restore database readable remains an open architecture decision; zero offsite storage provider selected; not claimed to be solved.
+- **MR-7 State**: ACTIVE / IN PROGRESS (NOT complete).
+- **MR-8 State**: GATED until all prerequisites are deliberately reconciled.
 - **Customer Erasure Authority**: Frozen by Owner Decision to **OWNER ONLY**.
 - **External Identifier Erasure Policy**: Resolved by Owner Decision (`source_customer_id = NULL`, `source_transaction_id = NULL`, `source_event_id = RETAIN`).
 - **Frozen Retention Policy**:
@@ -398,5 +423,5 @@ If rollback of MR-7C.5C2 is required:
 - **Live messaging remains disabled** (`ENABLE_LIVE_EMAIL=false`).
 - **Live billing remains paused** under `MPG-DEC-049`.
 - **Controlled Pilot (MR-8) remains strictly GATED**.
-- Feature branch `chatgpt/mr7c5c2-restore-delta-replay` active.
-- **Hosted application or migration is NOT authorized**. Live messaging activation, billing activation, automated purging, and deployment remain strictly unauthorized.
+- Feature branch `chatgpt/mr7c5c2-restore-delta-replay` merged into `main` at `14115de90168766c3992794042921800291b0f54`.
+- **Hosted Database Authority & Release Boundary**: Hosted Supabase is the current engineering/test database. Bounded migration, schema, and synthetic test-data changes are authorized within Owner-approved engineering slices. Application deployment, live messaging, live billing, real-customer pilot activity, and commercial activation remain separately gated.

@@ -1338,6 +1338,24 @@ export interface Database {
         }
         Returns: Json
       }
+      replay_customer_erasure_maintenance: {
+        Args: {
+          p_org_id: string
+          p_customer_id: string
+          p_erased_at: string
+        }
+        Returns: Json
+      }
+      replay_suppression_maintenance: {
+        Args: {
+          p_org_id: string
+          p_channel: string
+          p_contact_hash: string
+          p_reason: string
+          p_created_at: string
+        }
+        Returns: Json
+      }
     }
     Enums: Record<string, never>
     CompositeTypes: Record<string, never>

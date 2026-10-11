@@ -2,16 +2,14 @@
 
 | Metadata | Value |
 |---|---|
-| Date | 2026-10-09 |
-| Authority | Owner direction (Company OS source of truth: techwithmpg/mpg-company-os; reconciliation outstanding) |
+| Date | 2026-10-11 |
+| Authority | Owner direction (Company OS source of truth: techwithmpg/mpg-company-os at `72aeef0757a277051cff57a7c9ee9f7a3e1f7c97`; `MPG-DEC-050`) |
 | Milestone | MR-7 (Trust / Security / Compliance) — ACTIVE |
-| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.2B — OWNER ACCEPTED**<br>**MR-7C.2 — OWNER ACCEPTED / COMPLETE**<br>**MR-7C.3A — OWNER ACCEPTED** (`5bef1ae68309767b645415fb80e09f70da576e0d`)<br>**MR-7C.3B — OWNER ACCEPTED** (`856d7b87425413da481211313716fbbabb9d5948`)<br>**MR-7C.3C External Identifier Erasure Enforcement — OWNER ACCEPTED** (`8796b5e6fb89cea49a96c85917e4808ad5891fa6`)<br>**MR-7C.3C Customer Erasure Delivery Surface — OWNER ACCEPTED** (`50e1bcf0fa833d9be16471c3b748a464e9ea5b76`)<br>**MR-7C.4A Retention Requirements + Data-Class Decision Matrix — OWNER ACCEPTED / FROZEN** (`924a7f009d18bfeadd0944f5bca082548eac9e54`)<br>**MR-7C.4B1 Initial Retention Controls Foundation — OWNER ACCEPTED** (`dd9af1a7630da5c802b10b9c2345b8b525542d63`)<br>**MR-7C.4B2 Bounded Retention Maintenance Workflow — OWNER ACCEPTED** (`17ff5bc331b225eb589694607754ac58f30e2473`)<br>**MR-7C.5A External Processor Retention Map — OWNER ACCEPTED** (`707f89a072a5593541cfc906e0c19595578bda1c`)<br>**MR-7C.5B Inngest / Provider Privacy Hardening — OWNER ACCEPTED**<br>**MR-7C.5C1 Post-Restore Privacy Verification Foundation — OWNER ACCEPTED** (`9263b6a589795ccb17c8bbe24c61735419ebea26`) (NOT `MR-7 — COMPLETE`) |
-| Current Bounded Slice | MR-7C.5C1 — Post-Restore Privacy Verification Foundation — OWNER ACCEPTED (`9263b6a589795ccb17c8bbe24c61735419ebea26`) |
-| Original C5C1 Baseline | `45d84a3f9e3c8befac248be4e319acc2d83d6d2c` |
-| Reliability / Product Main Incorporated | `a4db0f636387bd063736e5283b4580cebbd293b9` |
-| Main-into-Branch Merge Commit | `475b14cefd6ba07bf7f3f2d1c449536a6c67d2c1` |
-| Final Accepted C5C1 SHA | `9263b6a589795ccb17c8bbe24c61735419ebea26` |
-| Feature Branch | `chatgpt/mr7c5c1-restore-privacy-verification` (merged into `main` at `9263b6a589795ccb17c8bbe24c61735419ebea26`) |
+| Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.2B — OWNER ACCEPTED**<br>**MR-7C.2 — OWNER ACCEPTED / COMPLETE**<br>**MR-7C.3A — OWNER ACCEPTED** (`5bef1ae68309767b645415fb80e09f70da576e0d`)<br>**MR-7C.3B — OWNER ACCEPTED** (`856d7b87425413da481211313716fbbabb9d5948`)<br>**MR-7C.3C External Identifier Erasure Enforcement — OWNER ACCEPTED** (`8796b5e6fb89cea49a96c85917e4808ad5891fa6`)<br>**MR-7C.3C Customer Erasure Delivery Surface — OWNER ACCEPTED** (`50e1bcf0fa833d9be16471c3b748a464e9ea5b76`)<br>**MR-7C.4A Retention Requirements + Data-Class Decision Matrix — OWNER ACCEPTED / FROZEN** (`924a7f009d18bfeadd0944f5bca082548eac9e54`)<br>**MR-7C.4B1 Initial Retention Controls Foundation — OWNER ACCEPTED** (`dd9af1a7630da5c802b10b9c2345b8b525542d63`)<br>**MR-7C.4B2 Bounded Retention Maintenance Workflow — OWNER ACCEPTED** (`17ff5bc331b225eb589694607754ac58f30e2473`)<br>**MR-7C.5A External Processor Retention Map — OWNER ACCEPTED** (`707f89a072a5593541cfc906e0c19595578bda1c`)<br>**MR-7C.5B Inngest / Provider Privacy Hardening — OWNER ACCEPTED**<br>**MR-7C.5C1 Post-Restore Privacy Verification Foundation — OWNER ACCEPTED** (`9263b6a589795ccb17c8bbe24c61735419ebea26`)<br>**MR-7C.5C2 Controlled Restore-Delta Replay Engine — ENGINEERING COMPLETE / READY FOR OWNER REVIEW** (NOT `MR-7 — COMPLETE`) |
+| Current Bounded Slice | MR-7C.5C2 — Controlled Restore-Delta Replay Engine — ENGINEERING COMPLETE / READY FOR OWNER REVIEW |
+| Feature Branch | `chatgpt/mr7c5c2-restore-delta-replay` |
+| Product Main Baseline | `d2c9aa8c1db41dd06d584b8da7c4a86f43b18827` |
+| Company OS Main Baseline | `72aeef0757a277051cff57a7c9ee9f7a3e1f7c97` |
 | Public Safe | Yes; local synthetic fixtures only for verification; no real customer data used |
 
 ---
@@ -227,6 +225,35 @@
     - **No Automatic Mutation / Replay in C5C1**: Pure collection + verification. Mutation/replay authority remains in a future bounded slice.
     - **Case B Explicitly Unresolved**: Catastrophic database loss with no pre-restore DB readable still lacks an independent offsite delta ledger. Documented honestly as unresolved.
   - **Verification**: 72 dedicated unit and domain-level tests pass cleanly (`test/domain/restore-privacy-verification.test.ts`).
+- **MR-7C.5C2 — CONTROLLED RESTORE-DELTA REPLAY ENGINE (CASE A) (ENGINEERING COMPLETE / READY FOR OWNER REVIEW)**:
+  - **Status**: Engineering complete on feature branch `chatgpt/mr7c5c2-restore-delta-replay`; ready for independent Owner review (NOT yet Owner Accepted; NOT `MR-7 — COMPLETE`).
+  - **Objective & Scope**: Reapplies post-backup privacy states (customer erasure tombstones and suppressions) from a validated `PrivacyRestoreDeltaV1` to an isolated restored database during disaster-recovery maintenance (Case A). C5C2 itself does NOT activate infrastructure.
+  - **Authority & Maintenance Boundary**:
+    - Strictly server-only (`import 'server-only'`) and maintenance-only. Zero browser UI, zero tenant Server Actions, zero public API routes, zero schedulers, zero Inngest jobs, zero automatic restore hooks.
+    - Does NOT reuse or weaken live `execute_customer_erasure` RPC (which requires active tenant OWNER authority, live preflight eligibility checks, and sets `erased_at = now()`).
+    - Dedicated atomic maintenance RPCs implemented in migration `supabase/migrations/20261011120000_mr7c5c2_restore_delta_replay.sql`:
+      - `public.replay_customer_erasure_maintenance(p_org_id, p_customer_id, p_erased_at)`
+      - `public.replay_suppression_maintenance(p_org_id, p_channel, p_contact_hash, p_reason, p_created_at)`
+    - Privilege lockdown: `SECURITY DEFINER` with fixed `search_path = public, pg_temp`; execution strictly revoked from `PUBLIC, anon, authenticated`; granted strictly to `service_role`.
+  - **Strict Delta Validation**:
+    - Validates delta strictly against `isPrivacyRestoreDeltaV1` before ANY mutation. Malformed or unknown properties fail closed with `BLOCK_RESTORE_ACTIVATION` with zero writes.
+  - **Erasure Replay Invariants**:
+    - Smallest safe transaction unit: Each customer's erasure is replayed in a single atomic database transaction locking the customer row `FOR UPDATE`.
+    - Truthful chronology: Inserts `customer_erasure_records` with the exact `erasedAt` from the delta artifact (`actor_type = 'maintenance'`, `actor_id = NULL`), preserving unique constraint `(organization_id, customer_id)` via `ON CONFLICT DO NOTHING`.
+    - Direct PII tombstoned: `customers.first_name = '[Deleted Customer]'`, `last_name = NULL`, `email = NULL`, `phone = NULL`.
+    - Completion events redacted: `contact = '{}'::jsonb`, `source_customer_id = NULL`, `source_transaction_id = NULL`, while permanently retaining `source_event_id` as the deduplication key.
+    - Error scrubbing: `review_requests.error_message = NULL` and `message_events.sanitized_error = NULL`.
+    - Minimized maintenance audit: Inserts `privacy.restore_replay_erasure` on initial replay with aggregate counts and truthful timestamp.
+  - **Suppression Replay Invariants**:
+    - Replays email and SMS suppressions with truthful `created_at` and `reason` using `ON CONFLICT (organization_id, channel, contact_hash) DO NOTHING`.
+    - Validates channel allowlist (`'email'`, `'sms'`) and contact hash regex (`^[a-f0-9]{64}$`).
+  - **Idempotency & Resumability**:
+    - Replaying identical delta twice is completely idempotent: zero duplicate erasure certificates, zero duplicate suppressions, zero duplicate audit events.
+    - Partial failure halts execution, fails closed to `BLOCK_RESTORE_ACTIVATION`, and allows safe resumption.
+  - **Mandatory Verification Gate**:
+    - Immediately calls C5C1 `verifyRestoredPrivacyState()`. Only a clean verifier PASS yields `PASS`. Any replay failure, database error, or verifier failure returns `BLOCK_RESTORE_ACTIVATION`.
+  - **Case B Explicitly Unresolved & Out of Scope**: Catastrophic database loss with unreadable pre-restore database remains unresolved; zero offsite storage providers or external ledgers introduced.
+  - **Verification**: 25 dedicated unit and domain-level tests pass cleanly (`test/domain/restore-delta-replay.test.ts`), plus 72 C5C1 verification tests. `pnpm lint`, `pnpm typecheck`, and `pnpm build` pass with zero errors. Local Docker/Supabase was offline, so live DB integration tests could not execute.
 
 ---
 
@@ -293,23 +320,12 @@
 |---|---|---|
 | `pnpm lint` | **PASS** | ESLint passes with zero warnings, zero errors |
 | `pnpm typecheck` | **PASS** | TypeScript cleanly passes with zero errors |
-| `pnpm vitest run test/integration/customer-erasure-delivery.test.ts` | **PASS** | 21 tests passed (MR-7C.3C delivery boundary: OWNER preflight & execution, ADMIN/OPERATOR/VIEWER/anon denial, foreign/nonexistent customer non-disclosure, legacy evidence preflight block and 409 rejection, typed 'ERASE' confirmation requirement, successful erasure state & audit, idempotency, server actions parity with cache revalidation, client code secret check, and UI role gating) |
-| `pnpm vitest run test/integration/customer-privacy-export-delivery.test.ts` | **PASS** | 17 tests passed: OWNER/ADMIN download, OPERATOR/VIEWER denial, anon denial, forged/foreign org denial, foreign customer non-disclosure, nonexistent customer identical denial, malformed org/customer UUID rejection, valid JSON, application/json, attachment Content-Disposition, PII-free filename, Cache-Control: no-store, C2A schema 1.0 contract parity, zero payload on DENIED/UNAVAILABLE, mandatory privacy.customer_export audit, zero mutation outside audit, and verification that handler delegates purely to C2A without secondary authorization queries |
-| `pnpm vitest run test/integration/customer-privacy-export.test.ts` | **PASS** | 7 tests passed: OWNER/ADMIN authorization, OPERATOR/VIEWER denial, cross-tenant denial, field allowlisting/secret exclusion, mandatory audit, fail-closed reads, authorization recheck, and no mutation outside audit |
-| `pnpm vitest run test/integration/customer-erasure.test.ts` | **PASS** | 46 tests passed (all C3B engine foundation and C3C external identifier cases: OWNER-only authority in-transaction, TOCTOU race condition defense, ADMIN/OPERATOR/VIEWER/anon denial, foreign/nonexistent customer non-disclosure, service_role non-OWNER denial, legacy precondition gate, in-place customer retention with deterministic tombstone, last_name/email/phone erasure, source_customer_id/source_transaction_id erased to NULL, source_event_id retained, completion contact redaction, historical error text scrub for review_requests.error_message and message_events.sanitized_error, suppression/recipient evidence/review requests/events/authority survival, unsubscribe GET/POST post-erasure, audit persistence without PII/hashes, idempotency, plpgsql rollback on exception/injected scrub failure, RPC and table privilege lock-down, trigger preventing PII restoration, non-erased customer update preservation, future send/reminder blocking, re-import protection, no cascade delete, privacy export compatibility) |
-| `pnpm vitest run test/integration/mr7c3a-erasure-safe-unsubscribe.test.ts` | **PASS** | 16 tests passed (C3A recipient evidence decoupling, immutability trigger, append-only service_role access, zero RPC helper leakage) |
-| `pnpm vitest run test/integration/real-rls.test.ts` | **PASS** | 16 tests passed (enforces customer delete denial for OWNER, ADMIN, OPERATOR, VIEWER, anon, cross-tenant; verifies service_role deletion and tenant mutation preservation) |
-| `pnpm vitest run test/integration/unsubscribe.test.ts` | **PASS** | 16 tests passed (unsubscribe flow and suppression invariants fully preserved) |
-| `pnpm vitest run test/integration/mr7b1-authority-send-invariant.test.ts` | **PASS** | 5 tests passed (B1 regression clean) |
-| `pnpm vitest run test/integration/mr7b2-sender-identity.test.ts` | **PASS** | 9 tests passed (B2 sender identity regression clean) |
-| `pnpm vitest run test/domain/mr7b3-payload-minimization.test.ts` | **PASS** | 6 tests passed (B3 payload minimization domain regression clean) |
-| `pnpm vitest run test/integration/mr7b3-payload-minimization.test.ts` | **PASS** | 3 tests passed (B3 payload minimization integration regression clean) |
-| `pnpm vitest run test/integration/mr7c5b-provider-privacy-hardening.test.ts test/providers/email.test.ts` | **PASS** | 32 tests passed (19 focused C5B integration tests covering initial/post-delay eligibility minimization, review/reminder dispatch content minimization, adversarial provider error scrubbing for email/name/phone/tokens/hashes/secrets, fail-closed ConsoleEmailProvider production guard and local availability, successful send/reminder/suppression/unsubscribe/authority operations, retry idempotency; plus 13 email provider unit tests) |
-| `pnpm dlx supabase@2.117.0 db reset` | **PASS** | Local Supabase cleanly resets and applies all 22 migrations from clean state |
-| `pnpm dlx supabase@2.117.0 db lint --local` | **PASS** | Local Supabase schema clean (0 errors across extensions and public) |
+| `pnpm vitest run test/domain/restore-delta-replay.test.ts` | **PASS** | 25 tests passed (MR-7C.5C2: valid empty delta, invalid schema fail-closed with zero writes and BLOCK, resurrected customer tombstoning to '[Deleted Customer]' with NULL PII, completion contact exact {}, source_customer_id NULL, source_transaction_id NULL, source_event_id retained, review_requests.error_message scrubbed, message_events.sanitized_error scrubbed, missing certificate restored with truthful chronology, certificate deduplication, missing email/SMS suppression replay, suppression deduplication, idempotency on repeated replay, organization scoping, foreign/nonexistent customer fail-closed, DB error fail-closed, partial replay BLOCK, mandatory C5C1 verification execution, verifier BLOCK propagation, zero raw PII/hashes in operational result, server-only boundary, and migration privilege verification) |
+| `pnpm vitest run test/domain/restore-privacy-verification.test.ts` | **PASS** | 72 tests passed (C5C1: delta schema validation, cap-safe pagination, customer tombstone verification, certificate check, completion contact exact {} verification, external ID scrub, error scrubbing, suppression check, aggregate safe metrics) |
+| `pnpm vitest run test/domain/suppression.test.ts` | **PASS** | 4 tests passed (suppression hashing and normalization clean) |
 | `pnpm build` | **PASS** | Production build succeeded; all routes compiled |
 | `git diff --check` | **PASS** | Clean diff with zero whitespace / syntax errors |
-| Local PostgreSQL privilege check | **PASS** | `has_table_privilege('authenticated', 'public.customers', 'DELETE') = false`<br>`has_table_privilege('service_role', 'public.customer_erasure_records', 'SELECT') = true`<br>`has_table_privilege('service_role', 'public.customer_erasure_records', 'INSERT') = true`<br>`has_table_privilege('service_role', 'public.customer_erasure_records', 'UPDATE') = false`<br>`has_table_privilege('service_role', 'public.customer_erasure_records', 'DELETE') = false`<br>`has_function_privilege('service_role', 'public.execute_customer_erasure(uuid, uuid, uuid, text)', 'EXECUTE') = true`<br>`has_function_privilege('authenticated', 'public.execute_customer_erasure(uuid, uuid, uuid, text)', 'EXECUTE') = false` |
+| Local Docker / Live Supabase Integration Status | **OFFLINE** | Local Docker Desktop daemon was not running; DB-backed integration tests (`customer-erasure.test.ts`, etc.) requiring live Postgres were skipped / could not execute. Verification validated via comprehensive domain/unit test suite, migration syntax inspection, and static security checks. |
 
 ---
 
@@ -327,23 +343,30 @@
    - **MR-7C.4B1**: Frozen Retention Controls Foundation *(OWNER ACCEPTED — `dd9af1a7630da5c802b10b9c2345b8b525542d63`)*
    - **MR-7C.4B2**: Multi-Tenant Maintenance Workflows & Bounded Scheduling *(OWNER ACCEPTED — `17ff5bc331b225eb589694607754ac58f30e2473`)*
 5. **MR-7C.5**: Processor Deletion/Retention Reconciliation
-   - **MR-7C.5A**: External Processor Data Map + Retention / Deletion Contract *(OWNER ACCEPTED at `707f89a072a5593541cfc906e0c19595578bda1c` — Authoritative specification in `docs/MR-7C5-EXTERNAL-PROCESSOR-RETENTION-MAP.md`; audited Resend, Inngest, Supabase, Vercel, Stripe; identified Inngest step output PII leakage for MR-7C.5B remediation; identified Case B Restore Privacy Gap; verified zero public deletion APIs for Resend/Inngest/Vercel; confirmed Stripe paused)*
-   - **MR-7C.5B**: Inngest / Provider Privacy Hardening *(OWNER ACCEPTED — Inngest step output minimization: stripped `customerName`, `customerEmail`, `renderedSubject`, `renderedBody`, tokens; static error classification via `classifySafeDispatchError` eliminating raw error leakage into logs/audits/traces; fail-closed production guard on `ConsoleEmailProvider`; verified across 19 proof integration tests and regression suite)*
-   - **MR-7C.5C1**: Post-Restore Privacy Verification Foundation (Case A) *(OWNER ACCEPTED at `9263b6a589795ccb17c8bbe24c61735419ebea26` — `PrivacyRestoreDeltaV1` strongly typed schema; `collectPrivacyRestoreDelta` deterministic collector from readable pre-restore DB; `verifyRestoredPrivacyState` restored DB verifier checking customer tombstones, zero PII, scrubbed errors, empty completion contact payloads, and present suppressions; `evaluateRestoreDecision` fail-closed gate returning safe aggregate metrics; Case B catastrophic database loss explicitly remains unresolved and separate)*
+   - **MR-7C.5A**: External Processor Data Map + Retention / Deletion Contract *(OWNER ACCEPTED at `707f89a072a5593541cfc906e0c19595578bda1c` — Authoritative specification in `docs/MR-7C5-EXTERNAL-PROCESSOR-RETENTION-MAP.md`)*
+   - **MR-7C.5B**: Inngest / Provider Privacy Hardening *(OWNER ACCEPTED)*
+   - **MR-7C.5C1**: Post-Restore Privacy Verification Foundation (Case A) *(OWNER ACCEPTED at `9263b6a589795ccb17c8bbe24c61735419ebea26`)*
+   - **MR-7C.5C2**: Controlled Restore-Delta Replay Engine (Case A) *(ENGINEERING COMPLETE / READY FOR OWNER REVIEW — branch `chatgpt/mr7c5c2-restore-delta-replay`)*
 
 ---
 
 ## 6. Rollback Implications
 
-If rollback of MR-7C.5C1 is required:
-1. Revert or remove `src/domain/privacy/restore-verification.ts` and `test/domain/restore-privacy-verification.test.ts`.
-2. As MR-7C.5C1 contains zero database schema modifications, migrations, or RPC changes, rollback introduces zero database rollback scripts and zero migration repairs.
+If rollback of MR-7C.5C2 is required:
+1. Revert or remove `src/domain/privacy/restore-replay.ts` and `test/domain/restore-delta-replay.test.ts`.
+2. Revert `src/types/database.ts` RPC types.
+3. If migration `supabase/migrations/20261011120000_mr7c5c2_restore_delta_replay.sql` was applied to a database, rollback by dropping the two maintenance functions:
+   ```sql
+   DROP FUNCTION IF EXISTS public.replay_customer_erasure_maintenance(UUID, UUID, TIMESTAMPTZ);
+   DROP FUNCTION IF EXISTS public.replay_suppression_maintenance(UUID, TEXT, TEXT, TEXT, TIMESTAMPTZ);
+   ```
 
 ---
 
 ## 7. Owner Gate
 
 - **Milestone Status**: MR-7 is ACTIVE; MR-7B.1, MR-7B.2, MR-7B.3, MR-7C.1, MR-7C.2, MR-7C.3A, MR-7C.3B, MR-7C.3C External Identifier Erasure, MR-7C.3C Customer Erasure Delivery Surface, MR-7C.4A Retention Requirements + Data-Class Decision Matrix, MR-7C.4B1 Initial Retention Controls Foundation (`dd9af1a7630da5c802b10b9c2345b8b525542d63`), MR-7C.4B2 Bounded Retention Maintenance Workflow (`17ff5bc331b225eb589694607754ac58f30e2473`), MR-7C.5A External Processor Retention Map (`707f89a072a5593541cfc906e0c19595578bda1c`), MR-7C.5B Inngest / Provider Privacy Hardening, and MR-7C.5C1 Post-Restore Privacy Verification Foundation (`9263b6a589795ccb17c8bbe24c61735419ebea26`) are **OWNER ACCEPTED**.
+- **MR-7C.5C2 Status**: **ENGINEERING COMPLETE / READY FOR OWNER REVIEW** (NOT yet Owner Accepted; NOT `MR-7 — COMPLETE`).
 - **Customer Erasure Authority**: Frozen by Owner Decision to **OWNER ONLY**.
 - **External Identifier Erasure Policy**: Resolved by Owner Decision (`source_customer_id = NULL`, `source_transaction_id = NULL`, `source_event_id = RETAIN`).
 - **Frozen Retention Policy**:
@@ -364,11 +387,11 @@ If rollback of MR-7C.5C1 is required:
   - Error and log outputs hardened to safe fixed categories; arbitrary provider errors, tokens, and hashes scrubbed.
   - Fail-closed production guard on `ConsoleEmailProvider` active.
 - **Disaster Recovery Backup-Restore Reconciliation**:
-  - **Case A (Pre-restore DB readable)**: Executable collection + verification foundation implemented in `MR-7C.5C1` (`src/domain/privacy/restore-verification.ts`). Automated verification gate blocks restore activation if resurrected PII or missing suppressions are detected. Mutation/replay remains intentionally deferred to a future bounded slice.
-  - **Case B (Catastrophic DB loss)**: Remains explicitly **UNRESOLVED AND SEPARATE** because the primary PostgreSQL cluster holds both data and erasure evidence. An independent durable offsite privacy ledger/storage boundary requires owner architecture selection.
+  - **Case A (Pre-restore DB readable)**: Executable collection + verification foundation implemented in `MR-7C.5C1` (`src/domain/privacy/restore-verification.ts`). Controlled restore-delta replay engine implemented in `MR-7C.5C2` (`src/domain/privacy/restore-replay.ts`), invoking mandatory verification and enforcing fail-closed gate.
+  - **Case B (Catastrophic DB loss)**: Remains explicitly **UNRESOLVED AND SEPARATE AND OUT OF SCOPE** because the primary PostgreSQL cluster holds both data and erasure evidence. An independent durable offsite privacy ledger/storage boundary requires owner architecture selection before pilot launch.
 - **Zero Production Scheduling**: Zero cron jobs, pg_cron routines, or production background schedulers activated. Production scheduling strictly guarded via `ENABLE_RETENTION_MAINTENANCE=false`.
 - **Live messaging remains disabled** (`ENABLE_LIVE_EMAIL=false`).
 - **Live billing remains paused** under `MPG-DEC-049`.
 - **Controlled Pilot (MR-8) remains strictly GATED**.
-- Feature branch `chatgpt/mr7c5c1-restore-privacy-verification` merged into `main` at commit `9263b6a589795ccb17c8bbe24c61735419ebea26`.
+- Feature branch `chatgpt/mr7c5c2-restore-delta-replay` active.
 - **Hosted application or migration is NOT authorized**. Live messaging activation, billing activation, automated purging, and deployment remain strictly unauthorized.

@@ -3,6 +3,7 @@ import {
   deriveActivationReadiness,
   deriveDashboardSystemStatus,
   DASHBOARD_OPERATIONAL_WINDOW_HOURS,
+  isRecentFailureTimestamp,
 } from '../../src/domain/activation'
 import { deriveLiveActivity } from '../../src/lib/dashboard/live-activity-projection'
 import {
@@ -13,7 +14,6 @@ import type {
   DashboardSnapshot,
   ReviewRequestIneligibleEvent,
   ReviewRequestUpdatedEvent,
-  CustomerCompletedEvent,
 } from '../../src/lib/dashboard/realtime-types'
 
 describe('Dashboard Operational Status & Invariant Verification', () => {
@@ -346,23 +346,23 @@ describe('Dashboard Operational Status & Invariant Verification', () => {
     expect(kpis.ineligibleCount).toBe(4)
   })
 
-  describe('Realtime Operational-Health Regression Invariants', () => {
-    it('1. Snapshot with failedCount=2, recentFailedRequestCount=0, systemStatus=RUNNING receives SENT update -> remains RUNNING and no failed-requests item', () => {
+  describe('Realtime Operational-Health Regression Invariants (Recency & Recovery Invariants)', () => {
+    it('1. recentCount=1, failedCount=2: OLD historical FAILED request recovers -> failedCount=1, recentFailedRequestCount remains 1, NEEDS_ATTENTION remains, failed-requests attention remains', () => {
       const orgId = 'org-reg-1'
       const snapshot: DashboardSnapshot = {
         kpis: {
           completedCount: 10,
           eligibleCount: 8,
-          scheduledCount: 1,
+          scheduledCount: 0,
           sentCount: 5,
           clickedCount: 2,
-          failedCount: 2, // Historical failures
-          recentFailedRequestCount: 0,
+          failedCount: 2, // 1 recent + 1 historical
+          recentFailedRequestCount: 1, // 1 recent failure inside 24h
           outboxFailedCount: 0,
         },
         recentRequests: [
           {
-            id: 'req-hist-1',
+            id: 'req-hist-old',
             customer_id: 'cust-1',
             channel: 'email',
             status: 'FAILED',
@@ -370,137 +370,8 @@ describe('Dashboard Operational Status & Invariant Verification', () => {
             created_at: '2026-09-01T10:00:00Z',
             sent_at: '2026-09-01T10:01:00Z',
             clicked_at: null,
-            customerName: 'Old User 1',
-            recipientEmail: 'old1@example.test',
-          },
-          {
-            id: 'req-active-1',
-            customer_id: 'cust-2',
-            channel: 'email',
-            status: 'SCHEDULED',
-            token: 'tok-2',
-            created_at: '2026-10-11T07:00:00Z',
-            sent_at: null,
-            clicked_at: null,
-            customerName: 'Current User',
-            recipientEmail: 'current@example.test',
-          },
-        ],
-        systemStatus: 'RUNNING',
-        statusDescription: 'Review request workflow actively processing completions.',
-        attentionItems: [],
-        locationsNeedingDestinationCount: 0,
-      }
-
-      const state = createInitialState(orgId, snapshot)
-      expect(state.systemStatus).toBe('RUNNING')
-
-      const sentEvent: ReviewRequestUpdatedEvent = {
-        eventId: 'evt-sent-1',
-        type: 'review_request.updated',
-        organizationId: orgId,
-        requestId: 'req-active-1',
-        customerId: 'cust-2',
-        channel: 'email',
-        previousStatus: 'SCHEDULED',
-        status: 'SENT',
-        sentAt: '2026-10-11T07:01:00Z',
-        updatedAt: '2026-10-11T07:01:00Z',
-      }
-
-      const nextState = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: sentEvent })
-
-      expect(nextState.systemStatus).toBe('RUNNING')
-      expect(nextState.kpis.failedCount).toBe(2)
-      expect(nextState.kpis.recentFailedRequestCount).toBe(0)
-      expect(nextState.attentionItems.find((i) => i.id === 'failed-requests')).toBeUndefined()
-    })
-
-    it('2. Same snapshot receives SENT -> FAILED transition -> recentFailedRequestCount=1, failedCount updates, NEEDS_ATTENTION', () => {
-      const orgId = 'org-reg-2'
-      const snapshot: DashboardSnapshot = {
-        kpis: {
-          completedCount: 10,
-          eligibleCount: 8,
-          scheduledCount: 1,
-          sentCount: 5,
-          clickedCount: 2,
-          failedCount: 2,
-          recentFailedRequestCount: 0,
-          outboxFailedCount: 0,
-        },
-        recentRequests: [
-          {
-            id: 'req-active-2',
-            customer_id: 'cust-3',
-            channel: 'email',
-            status: 'SENT',
-            token: 'tok-3',
-            created_at: '2026-10-11T07:00:00Z',
-            sent_at: '2026-10-11T07:01:00Z',
-            clicked_at: null,
-            customerName: 'User 3',
-            recipientEmail: 'user3@example.test',
-          },
-        ],
-        systemStatus: 'RUNNING',
-        statusDescription: 'Review request workflow actively processing completions.',
-        attentionItems: [],
-        locationsNeedingDestinationCount: 0,
-      }
-
-      const state = createInitialState(orgId, snapshot)
-
-      const failEvent: ReviewRequestUpdatedEvent = {
-        eventId: 'evt-fail-2',
-        type: 'review_request.updated',
-        organizationId: orgId,
-        requestId: 'req-active-2',
-        customerId: 'cust-3',
-        channel: 'email',
-        previousStatus: 'SENT',
-        status: 'FAILED',
-        failedAt: '2026-10-11T07:02:00Z',
-        updatedAt: '2026-10-11T07:02:00Z',
-      }
-
-      const nextState = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: failEvent })
-
-      expect(nextState.kpis.recentFailedRequestCount).toBe(1)
-      expect(nextState.kpis.failedCount).toBe(3) // 2 + 1
-      expect(nextState.systemStatus).toBe('NEEDS_ATTENTION')
-      const item = nextState.attentionItems.find((i) => i.id === 'failed-requests')
-      expect(item).toBeDefined()
-      expect(item?.severity).toBe('error')
-      expect(item?.title).toBe('Workflow Dispatch Failed')
-      expect(item?.description).toContain('1 review request dispatch(es) recorded delivery failures in the last 24 hours.')
-    })
-
-    it('3. Recent failed request recovers FAILED -> SENT -> recentFailedRequestCount=0, failed attention disappears, RUNNING', () => {
-      const orgId = 'org-reg-3'
-      const snapshotWithRecentFail: DashboardSnapshot = {
-        kpis: {
-          completedCount: 10,
-          eligibleCount: 8,
-          scheduledCount: 0,
-          sentCount: 4,
-          clickedCount: 2,
-          failedCount: 3,
-          recentFailedRequestCount: 1,
-          outboxFailedCount: 0,
-        },
-        recentRequests: [
-          {
-            id: 'req-active-3',
-            customer_id: 'cust-4',
-            channel: 'email',
-            status: 'FAILED',
-            token: 'tok-4',
-            created_at: '2026-10-11T07:00:00Z',
-            sent_at: '2026-10-11T07:01:00Z',
-            clicked_at: null,
-            customerName: 'User 4',
-            recipientEmail: 'user4@example.test',
+            customerName: 'Old User',
+            recipientEmail: 'old@example.test',
           },
         ],
         systemStatus: 'NEEDS_ATTENTION',
@@ -516,79 +387,584 @@ describe('Dashboard Operational Status & Invariant Verification', () => {
         locationsNeedingDestinationCount: 0,
       }
 
-      const state = createInitialState(orgId, snapshotWithRecentFail)
+      const state = createInitialState(orgId, snapshot)
 
-      const recoverEvent: ReviewRequestUpdatedEvent = {
-        eventId: 'evt-recover-3',
+      // Historical request recovers (failed 20 days ago)
+      const historicalRecoveryEvent: ReviewRequestUpdatedEvent = {
+        eventId: 'evt-recover-hist',
         type: 'review_request.updated',
         organizationId: orgId,
-        requestId: 'req-active-3',
-        customerId: 'cust-4',
+        requestId: 'req-hist-old',
+        customerId: 'cust-1',
         channel: 'email',
         previousStatus: 'FAILED',
         status: 'SENT',
-        sentAt: '2026-10-11T07:05:00Z',
-        updatedAt: '2026-10-11T07:05:00Z',
+        sentAt: new Date().toISOString(),
+        failedAt: new Date(Date.now() - 20 * 24 * 3600 * 1000).toISOString(), // 20 days ago
+        updatedAt: new Date().toISOString(),
       }
 
-      const nextState = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: recoverEvent })
+      const nextState = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: historicalRecoveryEvent })
 
+      // failedCount decrements, but recentFailedRequestCount MUST remain 1
+      expect(nextState.kpis.failedCount).toBe(1)
+      expect(nextState.kpis.recentFailedRequestCount).toBe(1)
+      expect(nextState.systemStatus).toBe('NEEDS_ATTENTION')
+      const item = nextState.attentionItems.find((i) => i.id === 'failed-requests')
+      expect(item).toBeDefined()
+      expect(item?.description).toContain('1 review request dispatch(es) recorded delivery failures in the last 24 hours.')
+    })
+
+    it('2. recentCount=1, failedCount=2: RECENT FAILED request recovers -> failedCount=1, recentFailedRequestCount=0, failed attention removed, RUNNING if no other issue', () => {
+      const orgId = 'org-reg-2'
+      const snapshot: DashboardSnapshot = {
+        kpis: {
+          completedCount: 10,
+          eligibleCount: 8,
+          scheduledCount: 0,
+          sentCount: 5,
+          clickedCount: 2,
+          failedCount: 2,
+          recentFailedRequestCount: 1, // Only 1 failure in operational window
+          outboxFailedCount: 0,
+        },
+        recentRequests: [
+          {
+            id: 'req-recent-fail',
+            customer_id: 'cust-2',
+            channel: 'email',
+            status: 'FAILED',
+            token: 'tok-2',
+            created_at: new Date(Date.now() - 3 * 3600 * 1000).toISOString(),
+            sent_at: new Date(Date.now() - 3 * 3600 * 1000).toISOString(),
+            clicked_at: null,
+            customerName: 'Recent User',
+            recipientEmail: 'recent@example.test',
+          },
+        ],
+        systemStatus: 'NEEDS_ATTENTION',
+        statusDescription: 'Operational issues detected in recent dispatches or outbox.',
+        attentionItems: [
+          {
+            id: 'failed-requests',
+            severity: 'error',
+            title: 'Workflow Dispatch Failed',
+            description: '1 review request dispatch(es) recorded delivery failures in the last 24 hours. Please check email provider logs.',
+          },
+        ],
+        locationsNeedingDestinationCount: 0,
+      }
+
+      const state = createInitialState(orgId, snapshot)
+
+      // Recent request recovers (failed 2 hours ago)
+      const recentRecoveryEvent: ReviewRequestUpdatedEvent = {
+        eventId: 'evt-recover-recent',
+        type: 'review_request.updated',
+        organizationId: orgId,
+        requestId: 'req-recent-fail',
+        customerId: 'cust-2',
+        channel: 'email',
+        previousStatus: 'FAILED',
+        status: 'SENT',
+        sentAt: new Date().toISOString(),
+        failedAt: new Date(Date.now() - 2 * 3600 * 1000).toISOString(), // 2 hours ago
+        updatedAt: new Date().toISOString(),
+      }
+
+      const nextState = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: recentRecoveryEvent })
+
+      expect(nextState.kpis.failedCount).toBe(1)
       expect(nextState.kpis.recentFailedRequestCount).toBe(0)
-      expect(nextState.kpis.failedCount).toBe(2)
       expect(nextState.attentionItems.find((i) => i.id === 'failed-requests')).toBeUndefined()
       expect(nextState.systemStatus).toBe('RUNNING')
     })
 
-    it('4. Historical failedCount > 0 by itself can never force current NEEDS_ATTENTION', () => {
-      // Direct readiness derivation
-      const status = deriveDashboardSystemStatus({
-        readiness: readyReadiness,
-        recentFailedRequestCount: 0,
-        outboxFailedCount: 0,
-        sentCount: 5,
-      })
-      expect(status.systemStatus).toBe('RUNNING')
+    it('3. failedAt exactly inside 24h window -> recovery decrements recent count', () => {
+      const orgId = 'org-reg-3'
+      const fixedNow = 1700000000000
+      // Exactly on the 24-hour boundary
+      const exactBoundaryFailedAt = new Date(fixedNow - 24 * 3600 * 1000).toISOString()
+      expect(isRecentFailureTimestamp(exactBoundaryFailedAt, 24, fixedNow)).toBe(true)
 
-      // Reducer state
-      const orgId = 'org-reg-4'
       const snapshot: DashboardSnapshot = {
         kpis: {
-          completedCount: 20,
-          eligibleCount: 15,
-          scheduledCount: 2,
-          sentCount: 10,
-          clickedCount: 5,
-          failedCount: 7, // Historical failedCount > 0
-          recentFailedRequestCount: 0,
+          completedCount: 5,
+          eligibleCount: 5,
+          scheduledCount: 0,
+          sentCount: 4,
+          clickedCount: 1,
+          failedCount: 1,
+          recentFailedRequestCount: 1,
           outboxFailedCount: 0,
         },
         recentRequests: [],
+        systemStatus: 'NEEDS_ATTENTION',
+        statusDescription: 'Operational issues detected',
+        attentionItems: [
+          {
+            id: 'failed-requests',
+            severity: 'error',
+            title: 'Workflow Dispatch Failed',
+            description: '1 review request dispatch(es)',
+          },
+        ],
+        locationsNeedingDestinationCount: 0,
+      }
+
+      const state = createInitialState(orgId, snapshot)
+
+      // Test reducer with failure inside the 24h operational window
+      const recentFailedAt = new Date(Date.now() - 23 * 3600 * 1000).toISOString()
+      const event: ReviewRequestUpdatedEvent = {
+        eventId: 'evt-exact-24h',
+        type: 'review_request.updated',
+        organizationId: orgId,
+        requestId: 'req-3',
+        customerId: 'cust-3',
+        channel: 'email',
+        previousStatus: 'FAILED',
+        status: 'SENT',
+        failedAt: recentFailedAt,
+        updatedAt: new Date().toISOString(),
+      }
+
+      const nextState = dashboardReducer(state, { type: 'EVENT_RECEIVED', event })
+      expect(nextState.kpis.recentFailedRequestCount).toBe(0)
+      expect(nextState.kpis.failedCount).toBe(0)
+      expect(nextState.systemStatus).toBe('RUNNING')
+    })
+
+    it('4. failedAt outside 24h window -> recovery does not decrement recent count', () => {
+      const orgId = 'org-reg-4'
+      const fixedNow = 1700000000000
+      // 24 hours + 1 second ago (strictly outside operational window)
+      const outsideWindowFailedAt = new Date(fixedNow - (24 * 3600 * 1000 + 1000)).toISOString()
+      expect(isRecentFailureTimestamp(outsideWindowFailedAt, 24, fixedNow)).toBe(false)
+
+      const snapshot: DashboardSnapshot = {
+        kpis: {
+          completedCount: 5,
+          eligibleCount: 5,
+          scheduledCount: 0,
+          sentCount: 4,
+          clickedCount: 1,
+          failedCount: 1,
+          recentFailedRequestCount: 1,
+          outboxFailedCount: 0,
+        },
+        recentRequests: [],
+        systemStatus: 'NEEDS_ATTENTION',
+        statusDescription: 'Operational issues detected',
+        attentionItems: [
+          {
+            id: 'failed-requests',
+            severity: 'error',
+            title: 'Workflow Dispatch Failed',
+            description: '1 review request dispatch(es)',
+          },
+        ],
+        locationsNeedingDestinationCount: 0,
+      }
+
+      const state = createInitialState(orgId, snapshot)
+
+      // Test reducer with failure outside the 24h operational window
+      const olderFailedAt = new Date(Date.now() - (25 * 3600 * 1000)).toISOString()
+      const event: ReviewRequestUpdatedEvent = {
+        eventId: 'evt-outside-24h',
+        type: 'review_request.updated',
+        organizationId: orgId,
+        requestId: 'req-4',
+        customerId: 'cust-4',
+        channel: 'email',
+        previousStatus: 'FAILED',
+        status: 'SENT',
+        failedAt: olderFailedAt,
+        updatedAt: new Date().toISOString(),
+      }
+
+      const nextState = dashboardReducer(state, { type: 'EVENT_RECEIVED', event })
+      // recentFailedRequestCount MUST NOT decrement
+      expect(nextState.kpis.recentFailedRequestCount).toBe(1)
+      expect(nextState.kpis.failedCount).toBe(0)
+      expect(nextState.systemStatus).toBe('NEEDS_ATTENTION')
+    })
+
+    it('5. failedAt null -> realtime recovery does NOT decrement recent count', () => {
+      expect(isRecentFailureTimestamp(null)).toBe(false)
+
+      const orgId = 'org-reg-5'
+      const snapshot: DashboardSnapshot = {
+        kpis: {
+          completedCount: 5,
+          eligibleCount: 5,
+          scheduledCount: 0,
+          sentCount: 4,
+          clickedCount: 1,
+          failedCount: 2,
+          recentFailedRequestCount: 1,
+          outboxFailedCount: 0,
+        },
+        recentRequests: [],
+        systemStatus: 'NEEDS_ATTENTION',
+        statusDescription: 'Operational issues detected',
+        attentionItems: [
+          {
+            id: 'failed-requests',
+            severity: 'error',
+            title: 'Workflow Dispatch Failed',
+            description: '1 review request dispatch(es)',
+          },
+        ],
+        locationsNeedingDestinationCount: 0,
+      }
+
+      const state = createInitialState(orgId, snapshot)
+
+      const event: ReviewRequestUpdatedEvent = {
+        eventId: 'evt-null-failedat',
+        type: 'review_request.updated',
+        organizationId: orgId,
+        requestId: 'req-5',
+        customerId: 'cust-5',
+        channel: 'email',
+        previousStatus: 'FAILED',
+        status: 'SENT',
+        failedAt: null, // Null / unknown failure timestamp: fail conservatively
+        updatedAt: new Date().toISOString(),
+      }
+
+      const nextState = dashboardReducer(state, { type: 'EVENT_RECEIVED', event })
+      expect(nextState.kpis.recentFailedRequestCount).toBe(1)
+      expect(nextState.kpis.failedCount).toBe(1)
+      expect(nextState.systemStatus).toBe('NEEDS_ATTENTION')
+    })
+
+    it('6. malformed failedAt -> realtime recovery does NOT decrement recent count', () => {
+      expect(isRecentFailureTimestamp('invalid-date')).toBe(false)
+      expect(isRecentFailureTimestamp('2026-99-99T99:99:99Z')).toBe(false)
+
+      const orgId = 'org-reg-6'
+      const snapshot: DashboardSnapshot = {
+        kpis: {
+          completedCount: 5,
+          eligibleCount: 5,
+          scheduledCount: 0,
+          sentCount: 4,
+          clickedCount: 1,
+          failedCount: 2,
+          recentFailedRequestCount: 1,
+          outboxFailedCount: 0,
+        },
+        recentRequests: [],
+        systemStatus: 'NEEDS_ATTENTION',
+        statusDescription: 'Operational issues detected',
+        attentionItems: [
+          {
+            id: 'failed-requests',
+            severity: 'error',
+            title: 'Workflow Dispatch Failed',
+            description: '1 review request dispatch(es)',
+          },
+        ],
+        locationsNeedingDestinationCount: 0,
+      }
+
+      const state = createInitialState(orgId, snapshot)
+
+      const event: ReviewRequestUpdatedEvent = {
+        eventId: 'evt-malformed-failedat',
+        type: 'review_request.updated',
+        organizationId: orgId,
+        requestId: 'req-6',
+        customerId: 'cust-6',
+        channel: 'email',
+        previousStatus: 'FAILED',
+        status: 'SENT',
+        failedAt: 'malformed-not-a-timestamp',
+        updatedAt: new Date().toISOString(),
+      }
+
+      const nextState = dashboardReducer(state, { type: 'EVENT_RECEIVED', event })
+      expect(nextState.kpis.recentFailedRequestCount).toBe(1)
+      expect(nextState.kpis.failedCount).toBe(1)
+      expect(nextState.systemStatus).toBe('NEEDS_ATTENTION')
+    })
+
+    it('7. SENT -> FAILED -> increments both failedCount and recentFailedRequestCount', () => {
+      const orgId = 'org-reg-7'
+      const snapshot: DashboardSnapshot = {
+        kpis: {
+          completedCount: 10,
+          eligibleCount: 8,
+          scheduledCount: 1,
+          sentCount: 5,
+          clickedCount: 2,
+          failedCount: 2,
+          recentFailedRequestCount: 0,
+          outboxFailedCount: 0,
+        },
+        recentRequests: [
+          {
+            id: 'req-7',
+            customer_id: 'cust-7',
+            channel: 'email',
+            status: 'SENT',
+            token: 'tok-7',
+            created_at: new Date().toISOString(),
+            sent_at: new Date().toISOString(),
+            clicked_at: null,
+            customerName: 'User 7',
+            recipientEmail: 'user7@example.test',
+          },
+        ],
         systemStatus: 'RUNNING',
-        statusDescription: 'Review request workflow actively processing completions.',
+        statusDescription: 'Active',
         attentionItems: [],
         locationsNeedingDestinationCount: 0,
       }
 
       const state = createInitialState(orgId, snapshot)
-      expect(state.systemStatus).toBe('RUNNING')
 
-      // Any normal event arrives (e.g. customer completed)
-      const compEvent: CustomerCompletedEvent = {
-        eventId: 'evt-comp-4',
-        type: 'customer.completed',
+      const failEvent: ReviewRequestUpdatedEvent = {
+        eventId: 'evt-fail-7',
+        type: 'review_request.updated',
         organizationId: orgId,
-        completionEventId: 'comp-4',
-        completedAt: '2026-10-11T07:10:00Z',
-        createdAt: '2026-10-11T07:10:00Z',
+        requestId: 'req-7',
+        customerId: 'cust-7',
+        channel: 'email',
+        previousStatus: 'SENT',
+        status: 'FAILED',
+        failedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       }
 
-      const nextState = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: compEvent })
-      expect(nextState.systemStatus).toBe('RUNNING')
-      expect(nextState.attentionItems.find((i) => i.id === 'failed-requests')).toBeUndefined()
+      const nextState = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: failEvent })
+      expect(nextState.kpis.recentFailedRequestCount).toBe(1)
+      expect(nextState.kpis.failedCount).toBe(3)
+      expect(nextState.systemStatus).toBe('NEEDS_ATTENTION')
+      const item = nextState.attentionItems.find((i) => i.id === 'failed-requests')
+      expect(item).toBeDefined()
+      expect(item?.severity).toBe('error')
     })
 
-    it('5. Policy bypass realtime event does not change current operational status', () => {
-      const orgId = 'org-reg-5'
+    it('8. duplicate/replayed failure event -> does not double increment', () => {
+      const orgId = 'org-reg-8'
+      const snapshot: DashboardSnapshot = {
+        kpis: {
+          completedCount: 5,
+          eligibleCount: 5,
+          scheduledCount: 0,
+          sentCount: 5,
+          clickedCount: 0,
+          failedCount: 0,
+          recentFailedRequestCount: 0,
+          outboxFailedCount: 0,
+        },
+        recentRequests: [
+          {
+            id: 'req-8',
+            customer_id: 'cust-8',
+            channel: 'email',
+            status: 'SENT',
+            token: 'tok-8',
+            created_at: new Date().toISOString(),
+            sent_at: new Date().toISOString(),
+            clicked_at: null,
+            customerName: 'User 8',
+            recipientEmail: 'user8@example.test',
+          },
+        ],
+        systemStatus: 'RUNNING',
+        statusDescription: 'Active',
+        attentionItems: [],
+        locationsNeedingDestinationCount: 0,
+      }
+
+      const state = createInitialState(orgId, snapshot)
+
+      const failEvent: ReviewRequestUpdatedEvent = {
+        eventId: 'evt-fail-8',
+        type: 'review_request.updated',
+        organizationId: orgId,
+        requestId: 'req-8',
+        customerId: 'cust-8',
+        channel: 'email',
+        previousStatus: 'SENT',
+        status: 'FAILED',
+        failedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+
+      const state1 = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: failEvent })
+      expect(state1.kpis.recentFailedRequestCount).toBe(1)
+      expect(state1.kpis.failedCount).toBe(1)
+
+      // Replay with identical eventId
+      const state2 = dashboardReducer(state1, { type: 'EVENT_RECEIVED', event: failEvent })
+      expect(state2.kpis.recentFailedRequestCount).toBe(1)
+      expect(state2.kpis.failedCount).toBe(1)
+
+      // Replay with different eventId where row is already FAILED
+      const state3 = dashboardReducer(state1, {
+        type: 'EVENT_RECEIVED',
+        event: { ...failEvent, eventId: 'evt-fail-8-replayed' },
+      })
+      expect(state3.kpis.recentFailedRequestCount).toBe(1)
+      expect(state3.kpis.failedCount).toBe(1)
+    })
+
+    it('9. historical recovery while ANOTHER recent failure exists -> cannot produce false RUNNING state', () => {
+      const orgId = 'org-reg-9'
+      const snapshot: DashboardSnapshot = {
+        kpis: {
+          completedCount: 20,
+          eligibleCount: 15,
+          scheduledCount: 0,
+          sentCount: 10,
+          clickedCount: 5,
+          failedCount: 2, // 1 recent + 1 historical
+          recentFailedRequestCount: 1, // Request A failed 1h ago
+          outboxFailedCount: 0,
+        },
+        recentRequests: [
+          {
+            id: 'req-recent-a',
+            customer_id: 'cust-a',
+            channel: 'email',
+            status: 'FAILED',
+            token: 'tok-a',
+            created_at: new Date(Date.now() - 3600 * 1000).toISOString(),
+            sent_at: new Date(Date.now() - 3600 * 1000).toISOString(),
+            clicked_at: null,
+            customerName: 'Recent A',
+            recipientEmail: 'a@example.test',
+          },
+          {
+            id: 'req-hist-b',
+            customer_id: 'cust-b',
+            channel: 'email',
+            status: 'FAILED',
+            token: 'tok-b',
+            created_at: new Date(Date.now() - 15 * 24 * 3600 * 1000).toISOString(),
+            sent_at: new Date(Date.now() - 15 * 24 * 3600 * 1000).toISOString(),
+            clicked_at: null,
+            customerName: 'Hist B',
+            recipientEmail: 'b@example.test',
+          },
+        ],
+        systemStatus: 'NEEDS_ATTENTION',
+        statusDescription: 'Operational issues detected in recent dispatches or outbox.',
+        attentionItems: [
+          {
+            id: 'failed-requests',
+            severity: 'error',
+            title: 'Workflow Dispatch Failed',
+            description: '1 review request dispatch(es) recorded delivery failures in the last 24 hours.',
+          },
+        ],
+        locationsNeedingDestinationCount: 0,
+      }
+
+      const state = createInitialState(orgId, snapshot)
+
+      // Request B (historical, failed 15 days ago) recovers
+      const recoverBEvent: ReviewRequestUpdatedEvent = {
+        eventId: 'evt-recover-b',
+        type: 'review_request.updated',
+        organizationId: orgId,
+        requestId: 'req-hist-b',
+        customerId: 'cust-b',
+        channel: 'email',
+        previousStatus: 'FAILED',
+        status: 'SENT',
+        sentAt: new Date().toISOString(),
+        failedAt: new Date(Date.now() - 15 * 24 * 3600 * 1000).toISOString(), // 15 days ago
+        updatedAt: new Date().toISOString(),
+      }
+
+      const nextState = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: recoverBEvent })
+
+      // Crucial: Request A is still recently failed! Status MUST NOT turn to RUNNING.
+      expect(nextState.kpis.failedCount).toBe(1)
+      expect(nextState.kpis.recentFailedRequestCount).toBe(1)
+      expect(nextState.systemStatus).toBe('NEEDS_ATTENTION')
+      expect(nextState.systemStatus).not.toBe('RUNNING')
+      expect(nextState.attentionItems.find((i) => i.id === 'failed-requests')).toBeDefined()
+    })
+
+    it('10. unresolved outbox failure continues to force NEEDS_ATTENTION', () => {
+      const status = deriveDashboardSystemStatus({
+        readiness: readyReadiness,
+        recentFailedRequestCount: 0,
+        outboxFailedCount: 2,
+        sentCount: 10,
+      })
+      expect(status.systemStatus).toBe('NEEDS_ATTENTION')
+      expect(status.statusDescription).toContain('Operational issues detected')
+
+      const orgId = 'org-reg-10'
+      const snapshot: DashboardSnapshot = {
+        kpis: {
+          completedCount: 5,
+          eligibleCount: 5,
+          scheduledCount: 0,
+          sentCount: 5,
+          clickedCount: 0,
+          failedCount: 0,
+          recentFailedRequestCount: 0,
+          outboxFailedCount: 1,
+        },
+        recentRequests: [
+          {
+            id: 'req-10',
+            customer_id: 'cust-10',
+            channel: 'email',
+            status: 'SCHEDULED',
+            token: 'tok-10',
+            created_at: new Date().toISOString(),
+            sent_at: null,
+            clicked_at: null,
+            customerName: 'User 10',
+            recipientEmail: 'user10@example.test',
+          },
+        ],
+        systemStatus: 'NEEDS_ATTENTION',
+        statusDescription: 'Operational issues detected in recent dispatches or outbox.',
+        attentionItems: [
+          {
+            id: 'outbox-failed',
+            severity: 'error',
+            title: 'Background Events Awaiting Recovery',
+            description: '1 background event(s) encountered errors and are awaiting automated recovery.',
+          },
+        ],
+        locationsNeedingDestinationCount: 0,
+      }
+
+      const state = createInitialState(orgId, snapshot)
+
+      const event: ReviewRequestUpdatedEvent = {
+        eventId: 'evt-sent-10',
+        type: 'review_request.updated',
+        organizationId: orgId,
+        requestId: 'req-10',
+        customerId: 'cust-10',
+        channel: 'email',
+        previousStatus: 'SCHEDULED',
+        status: 'SENT',
+        sentAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+
+      const nextState = dashboardReducer(state, { type: 'EVENT_RECEIVED', event })
+      expect(nextState.systemStatus).toBe('NEEDS_ATTENTION')
+      expect(nextState.attentionItems.find((i) => i.id === 'outbox-failed')).toBeDefined()
+    })
+
+    it('11. policy bypass continues to have no effect on operational health', () => {
+      const orgId = 'org-reg-11'
       const snapshot: DashboardSnapshot = {
         kpis: {
           completedCount: 5,
@@ -612,166 +988,23 @@ describe('Dashboard Operational Status & Invariant Verification', () => {
       const state = createInitialState(orgId, snapshot)
 
       const event: ReviewRequestIneligibleEvent = {
-        eventId: 'evt-bypass-5',
+        eventId: 'evt-bypass-11',
         type: 'review_request.ineligible',
         organizationId: orgId,
-        completionEventId: 'comp-5',
-        auditEventId: 'audit-5',
+        completionEventId: 'comp-11',
+        auditEventId: 'audit-11',
         createdAt: new Date().toISOString(),
         reason: 'RECENT_REQUEST',
       }
 
       const nextState = dashboardReducer(state, { type: 'EVENT_RECEIVED', event })
-
       expect(nextState.systemStatus).toBe('RUNNING')
       expect(nextState.statusDescription).toBe('Review request workflow actively processing completions.')
       expect(nextState.attentionItems).toEqual([])
       expect(nextState.kpis.ineligibleCount).toBe(1)
     })
 
-    it('6. Unresolved outbox failure still forces NEEDS_ATTENTION', () => {
-      const status = deriveDashboardSystemStatus({
-        readiness: readyReadiness,
-        recentFailedRequestCount: 0,
-        outboxFailedCount: 2,
-        sentCount: 10,
-      })
-      expect(status.systemStatus).toBe('NEEDS_ATTENTION')
-      expect(status.statusDescription).toContain('Operational issues detected')
-
-      const orgId = 'org-reg-6'
-      const snapshot: DashboardSnapshot = {
-        kpis: {
-          completedCount: 5,
-          eligibleCount: 5,
-          scheduledCount: 0,
-          sentCount: 5,
-          clickedCount: 0,
-          failedCount: 0,
-          recentFailedRequestCount: 0,
-          outboxFailedCount: 1,
-        },
-        recentRequests: [
-          {
-            id: 'req-outbox-6',
-            customer_id: 'cust-6',
-            channel: 'email',
-            status: 'SCHEDULED',
-            token: 'tok-6',
-            created_at: '2026-10-11T07:00:00Z',
-            sent_at: null,
-            clicked_at: null,
-            customerName: 'User 6',
-            recipientEmail: 'user6@example.test',
-          },
-        ],
-        systemStatus: 'NEEDS_ATTENTION',
-        statusDescription: 'Operational issues detected in recent dispatches or outbox.',
-        attentionItems: [
-          {
-            id: 'outbox-failed',
-            severity: 'error',
-            title: 'Background Events Awaiting Recovery',
-            description: '1 background event(s) encountered errors and are awaiting automated recovery.',
-          },
-        ],
-        locationsNeedingDestinationCount: 0,
-      }
-
-      const state = createInitialState(orgId, snapshot)
-
-      const event: ReviewRequestUpdatedEvent = {
-        eventId: 'evt-outbox-sent',
-        type: 'review_request.updated',
-        organizationId: orgId,
-        requestId: 'req-outbox-6',
-        customerId: 'cust-6',
-        channel: 'email',
-        previousStatus: 'SCHEDULED',
-        status: 'SENT',
-        sentAt: '2026-10-11T07:01:00Z',
-        updatedAt: '2026-10-11T07:01:00Z',
-      }
-
-      const nextState = dashboardReducer(state, { type: 'EVENT_RECEIVED', event })
-      expect(nextState.systemStatus).toBe('NEEDS_ATTENTION')
-      expect(nextState.attentionItems.find((i) => i.id === 'outbox-failed')).toBeDefined()
-    })
-
-    it('7. Duplicate/replayed event does not double-increment recent failure count', () => {
-      const orgId = 'org-reg-7'
-      const snapshot: DashboardSnapshot = {
-        kpis: {
-          completedCount: 5,
-          eligibleCount: 5,
-          scheduledCount: 0,
-          sentCount: 5,
-          clickedCount: 0,
-          failedCount: 0,
-          recentFailedRequestCount: 0,
-          outboxFailedCount: 0,
-        },
-        recentRequests: [
-          {
-            id: 'req-dup-7',
-            customer_id: 'cust-7',
-            channel: 'email',
-            status: 'SENT',
-            token: 'tok-7',
-            created_at: '2026-10-11T07:00:00Z',
-            sent_at: '2026-10-11T07:01:00Z',
-            clicked_at: null,
-            customerName: 'User 7',
-            recipientEmail: 'user7@example.test',
-          },
-        ],
-        systemStatus: 'RUNNING',
-        statusDescription: 'Review request workflow actively processing completions.',
-        attentionItems: [],
-        locationsNeedingDestinationCount: 0,
-      }
-
-      const state = createInitialState(orgId, snapshot)
-
-      const failEvent: ReviewRequestUpdatedEvent = {
-        eventId: 'evt-dup-fail-7',
-        type: 'review_request.updated',
-        organizationId: orgId,
-        requestId: 'req-dup-7',
-        customerId: 'cust-7',
-        channel: 'email',
-        previousStatus: 'SENT',
-        status: 'FAILED',
-        failedAt: '2026-10-11T07:02:00Z',
-        updatedAt: '2026-10-11T07:02:00Z',
-      }
-
-      const stateAfterFail = dashboardReducer(state, { type: 'EVENT_RECEIVED', event: failEvent })
-      expect(stateAfterFail.kpis.recentFailedRequestCount).toBe(1)
-      expect(stateAfterFail.kpis.failedCount).toBe(1)
-
-      // Replay same event with identical eventId
-      const stateAfterReplay = dashboardReducer(stateAfterFail, {
-        type: 'EVENT_RECEIVED',
-        event: failEvent,
-      })
-      expect(stateAfterReplay.kpis.recentFailedRequestCount).toBe(1)
-      expect(stateAfterReplay.kpis.failedCount).toBe(1)
-
-      // Replay with different eventId but status already FAILED for this request
-      const replayDiffEventId: ReviewRequestUpdatedEvent = {
-        ...failEvent,
-        eventId: 'evt-dup-fail-7-replayed',
-      }
-      const stateAfterSecondReplay = dashboardReducer(stateAfterFail, {
-        type: 'EVENT_RECEIVED',
-        event: replayDiffEventId,
-      })
-      expect(stateAfterSecondReplay.kpis.recentFailedRequestCount).toBe(1)
-      expect(stateAfterSecondReplay.kpis.failedCount).toBe(1)
-    })
-
-    it('8. Tenant isolation/event organization guards remain unchanged', () => {
+    it('12. tenant isolation remains unchanged', () => {
       const orgIdA = 'org-tenant-a'
       const orgIdB = 'org-tenant-b'
       const snapshot: DashboardSnapshot = {
@@ -795,16 +1028,16 @@ describe('Dashboard Operational Status & Invariant Verification', () => {
       const stateA = createInitialState(orgIdA, snapshot)
 
       const foreignFailEvent: ReviewRequestUpdatedEvent = {
-        eventId: 'evt-foreign-fail',
+        eventId: 'evt-foreign-12',
         type: 'review_request.updated',
-        organizationId: orgIdB, // Tenant B event
+        organizationId: orgIdB, // Different tenant
         requestId: 'req-foreign',
         customerId: 'cust-foreign',
         channel: 'email',
         previousStatus: 'SENT',
         status: 'FAILED',
-        failedAt: '2026-10-11T07:00:00Z',
-        updatedAt: '2026-10-11T07:00:00Z',
+        failedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       }
 
       const stateAfter = dashboardReducer(stateA, { type: 'EVENT_RECEIVED', event: foreignFailEvent })
@@ -815,3 +1048,4 @@ describe('Dashboard Operational Status & Invariant Verification', () => {
     })
   })
 })
+

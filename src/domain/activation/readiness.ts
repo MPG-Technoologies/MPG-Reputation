@@ -153,6 +153,32 @@ export function getOperationalWindowStartIso(
   return new Date(nowMs - hours * 60 * 60 * 1000).toISOString()
 }
 
+/**
+ * Determines whether a failure timestamp belongs to the current operational window.
+ * Fails conservatively: returns false if failedAt is null, undefined, empty, unparseable,
+ * or outside the specified operational window.
+ */
+export function isRecentFailureTimestamp(
+  failedAt: string | null | undefined,
+  hours: number = DASHBOARD_OPERATIONAL_WINDOW_HOURS,
+  nowMs: number = Date.now()
+): boolean {
+  if (!failedAt || typeof failedAt !== 'string') {
+    return false
+  }
+
+  const failedMs = Date.parse(failedAt)
+  if (Number.isNaN(failedMs)) {
+    return false
+  }
+
+  const windowStartMs = nowMs - hours * 60 * 60 * 1000
+
+  // The failure must have occurred at or after the start of the operational window.
+  // Allow up to 1 minute of forward clock skew, but reject distant future timestamps.
+  return failedMs >= windowStartMs && failedMs <= nowMs + 60 * 1000
+}
+
 export function deriveDashboardSystemStatus({
   readiness,
   recentFailedRequestCount,

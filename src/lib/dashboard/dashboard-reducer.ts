@@ -11,7 +11,12 @@ import {
   type LiveActivityItem,
   type LiveActivityStage,
 } from './realtime-types'
-import { DASHBOARD_OPERATIONAL_WINDOW_HOURS } from '../../domain/activation'
+import {
+  DASHBOARD_OPERATIONAL_WINDOW_HOURS,
+  isRecentFailureTimestamp,
+} from '../../domain/activation'
+
+export { isRecentFailureTimestamp }
 
 export type DashboardAction =
   | { type: 'EVENT_RECEIVED'; event: DashboardRealtimeEvent }
@@ -471,6 +476,28 @@ export function dashboardReducer(
           }
         }
 
+        // Failure recency accounting:
+        // failedCount tracks all current FAILED requests (generic transition).
+        // recentFailedRequestCount tracks ONLY failures inside the 24h operational window.
+        const wasFailed = FAILED_SET.has(prev)
+        const isFailed = FAILED_SET.has(next)
+        const currentRecentFailed = state.kpis.recentFailedRequestCount ?? 0
+        let nextRecentFailed = currentRecentFailed
+
+        if (!wasFailed && isFailed) {
+          // Newly observed transition into FAILED: current operational failure occurring now
+          nextRecentFailed = currentRecentFailed + 1
+        } else if (wasFailed && !isFailed) {
+          // Recovery from FAILED:
+          // Decrement recentFailedRequestCount ONLY if the recovered request's
+          // failure belonged to the 24-hour operational window.
+          // Fails conservatively: if failedAt is null/missing/unparseable/historical,
+          // do NOT decrement in realtime.
+          if (isRecentFailureTimestamp(event.failedAt, DASHBOARD_OPERATIONAL_WINDOW_HOURS)) {
+            nextRecentFailed = Math.max(0, currentRecentFailed - 1)
+          }
+        }
+
         // Generic transition model
         const newKpis: DashboardKpis = {
           ...state.kpis,
@@ -478,12 +505,7 @@ export function dashboardReducer(
           sentCount: transitionCount(state.kpis.sentCount, prev, next, SENT_SET),
           clickedCount: transitionCount(state.kpis.clickedCount, prev, next, CLICKED_SET),
           failedCount: transitionCount(state.kpis.failedCount, prev, next, FAILED_SET),
-          recentFailedRequestCount: transitionCount(
-            state.kpis.recentFailedRequestCount ?? 0,
-            prev,
-            next,
-            FAILED_SET
-          ),
+          recentFailedRequestCount: nextRecentFailed,
         }
 
         let highlightedKpiKey: keyof DashboardKpis | null = null

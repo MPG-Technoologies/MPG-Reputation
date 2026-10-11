@@ -99,8 +99,8 @@ describe.skipIf(!isDbAvailable)(
 
     async function checked<T>(promise: PromiseLike<{ data: T; error: unknown }>): Promise<NonNullable<T>> {
       const res = await promise
-      if (res.error || res.data === null || res.data === undefined) {
-        throw new Error(`DB Error: ${JSON.stringify(res.error || 'null data')}`)
+      if (res.error) {
+        throw new Error(`DB Error: ${JSON.stringify(res.error)}`)
       }
       return res.data as NonNullable<T>
     }
@@ -180,6 +180,14 @@ describe.skipIf(!isDbAvailable)(
     }, 60_000)
 
     afterAll(async () => {
+      try {
+        executeDirectSql(`
+          DROP TRIGGER IF EXISTS tr_test_fail_restore_replay_audit ON public.audit_events;
+          DROP FUNCTION IF EXISTS public.test_fail_restore_replay_audit();
+        `)
+      } catch {
+        // Ignored
+      }
       for (const orgId of cleanupOrgIds) {
         await adminClient.from('organizations').delete().eq('id', orgId)
       }
@@ -560,26 +568,193 @@ describe.skipIf(!isDbAvailable)(
         expect(new Date(cert.erased_at).toISOString()).toBe(new Date(erasedAtTimestamp).toISOString())
       })
 
-      it('20. failed erasure unit rolls back atomically', async () => {
-        // Customer not found causes transaction rollback
+      it('20. failed erasure unit rolls back atomically after mid-transaction failure', async () => {
+        // Step 1: Pre-mutation fail-closed verification (nonexistent customer)
         const fakeCustId = randomUUID()
-        const { error } = await adminClient.rpc('replay_customer_erasure_maintenance', {
+        const { error: notFoundErr } = await adminClient.rpc('replay_customer_erasure_maintenance', {
           p_org_id: orgA,
           p_customer_id: fakeCustId,
           p_erased_at: new Date().toISOString(),
         })
-
-        expect(error).toBeDefined()
-        expect(error!.message).toContain('CUSTOMER_NOT_FOUND')
+        expect(notFoundErr).toBeDefined()
+        expect(notFoundErr!.message).toContain('CUSTOMER_NOT_FOUND')
 
         // Verify zero certificate created for fake customer
-        const certs = await checked(
+        const fakeCerts = await checked(
           adminClient
             .from('customer_erasure_records')
             .select('*')
             .eq('customer_id', fakeCustId)
         )
-        expect(certs.length).toBe(0)
+        expect(fakeCerts.length).toBe(0)
+
+        // Step 2: Real mid-transaction rollback proof
+        // 1. Create a synthetic customer with PII, completion event with contact & external IDs,
+        // review request with error message, and message event with sanitized error.
+        const rollbackCust = await checked(
+          adminClient
+            .from('customers')
+            .insert({
+              organization_id: orgA,
+              location_id: locA,
+              first_name: 'Alice',
+              last_name: 'Rollback',
+              email: 'alice.rollback@example.com',
+              phone: '+15551234567',
+            })
+            .select('id')
+            .single()
+        )
+        const rollbackCustId = rollbackCust.id
+
+        const rollbackSourceEventId = `rb-evt-${randomUUID().slice(0, 8)}`
+        const completion = await checked(
+          adminClient
+            .from('customer_completion_events')
+            .insert({
+              organization_id: orgA,
+              location_id: locA,
+              customer_id: rollbackCustId,
+              source: 'pos',
+              source_event_id: rollbackSourceEventId,
+              source_customer_id: 'src-cust-rollback-999',
+              source_transaction_id: 'src-tx-rollback-888',
+              contact: { email: 'alice.rollback@example.com', name: 'Alice Rollback' },
+            })
+            .select('id')
+            .single()
+        )
+
+        const rr = await checked(
+          adminClient
+            .from('review_requests')
+            .insert({
+              organization_id: orgA,
+              location_id: locA,
+              customer_id: rollbackCustId,
+              completion_event_id: completion.id,
+              token: randomUUID(),
+              token_hash: 'b'.repeat(64),
+              status: 'FAILED',
+              error_message: 'DISPATCH_ERROR: Provider timeout',
+            })
+            .select('id')
+            .single()
+        )
+
+        await checked(
+          adminClient.from('message_events').insert({
+            organization_id: orgA,
+            review_request_id: rr.id,
+            provider: 'resend',
+            status: 'FAILED',
+            event_type: 'FAILED',
+            sanitized_error: 'RATE_LIMIT_EXCEEDED',
+          })
+        )
+
+        // 2. Install a TEMPORARY TEST-ONLY failure mechanism in local PostgreSQL:
+        // A trigger on public.audit_events that raises a fixed exception only when
+        // event_type = 'privacy.restore_replay_erasure'.
+        // This causes replay_customer_erasure_maintenance to fail at step 9 (audit insert),
+        // AFTER it has already attempted:
+        // - erasure certificate insert;
+        // - customer tombstone;
+        // - completion contact/external-ID redaction;
+        // - review error scrub;
+        // - message error scrub.
+        const installTriggerSql = `
+          CREATE OR REPLACE FUNCTION public.test_fail_restore_replay_audit()
+          RETURNS trigger
+          LANGUAGE plpgsql
+          AS $$
+          BEGIN
+              IF NEW.event_type = 'privacy.restore_replay_erasure' THEN
+                  RAISE EXCEPTION 'TEST_INJECTED_AUDIT_FAILURE';
+              END IF;
+              RETURN NEW;
+          END;
+          $$;
+
+          DROP TRIGGER IF EXISTS tr_test_fail_restore_replay_audit ON public.audit_events;
+          CREATE TRIGGER tr_test_fail_restore_replay_audit
+          BEFORE INSERT ON public.audit_events
+          FOR EACH ROW
+          EXECUTE FUNCTION public.test_fail_restore_replay_audit();
+        `
+        const removeTriggerSql = `
+          DROP TRIGGER IF EXISTS tr_test_fail_restore_replay_audit ON public.audit_events;
+          DROP FUNCTION IF EXISTS public.test_fail_restore_replay_audit();
+        `
+
+        executeDirectSql(installTriggerSql)
+
+        try {
+          // 3. Call replay_customer_erasure_maintenance. Require RPC to fail.
+          const { data, error } = await adminClient.rpc('replay_customer_erasure_maintenance', {
+            p_org_id: orgA,
+            p_customer_id: rollbackCustId,
+            p_erased_at: '2026-10-01T16:00:00.000Z',
+          })
+
+          expect(error).toBeDefined()
+          expect(error!.message).toContain('TEST_INJECTED_AUDIT_FAILURE')
+          expect(data).toBeNull()
+
+          // 4. Verify PostgreSQL rolled back ALL earlier writes:
+          // - customer still has original synthetic PII
+          const custAfter = await checked(
+            adminClient.from('customers').select('*').eq('id', rollbackCustId).single()
+          )
+          expect(custAfter.first_name).toBe('Alice')
+          expect(custAfter.last_name).toBe('Rollback')
+          expect(custAfter.email).toBe('alice.rollback@example.com')
+          expect(custAfter.phone).toBe('+15551234567')
+
+          // - completion contact remains original synthetic value
+          // - source_customer_id remains original value
+          // - source_transaction_id remains original value
+          // - source_event_id remains unchanged
+          const compAfter = await checked(
+            adminClient.from('customer_completion_events').select('*').eq('id', completion.id).single()
+          )
+          expect(compAfter.contact).toEqual({ email: 'alice.rollback@example.com', name: 'Alice Rollback' })
+          expect(compAfter.source_customer_id).toBe('src-cust-rollback-999')
+          expect(compAfter.source_transaction_id).toBe('src-tx-rollback-888')
+          expect(compAfter.source_event_id).toBe(rollbackSourceEventId)
+
+          // - review_requests.error_message remains original synthetic value
+          const rrAfter = await checked(
+            adminClient.from('review_requests').select('*').eq('id', rr.id).single()
+          )
+          expect(rrAfter.error_message).toBe('DISPATCH_ERROR: Provider timeout')
+
+          // - message_events.sanitized_error remains original synthetic value
+          const meAfter = await checked(
+            adminClient.from('message_events').select('*').eq('review_request_id', rr.id).single()
+          )
+          expect(meAfter.sanitized_error).toBe('RATE_LIMIT_EXCEEDED')
+
+          // - NO customer_erasure_records certificate exists
+          const certsAfter = await checked(
+            adminClient.from('customer_erasure_records').select('*').eq('customer_id', rollbackCustId)
+          )
+          expect(certsAfter.length).toBe(0)
+
+          // - NO restore replay audit event exists
+          const auditsAfter = await checked(
+            adminClient
+              .from('audit_events')
+              .select('*')
+              .eq('organization_id', orgA)
+              .eq('entity_id', rollbackCustId)
+              .eq('event_type', 'privacy.restore_replay_erasure')
+          )
+          expect(auditsAfter.length).toBe(0)
+        } finally {
+          // 5. Remove the test trigger/function in cleanup/finally.
+          executeDirectSql(removeTriggerSql)
+        }
       })
 
       it('21. cross-tenant/mismatched customer fails closed', async () => {

@@ -188,6 +188,10 @@ BEGIN
         RAISE EXCEPTION 'DENIED: Missing required parameters';
     END IF;
 
+    IF btrim(p_reason) = '' THEN
+        RAISE EXCEPTION 'DENIED: Invalid reason';
+    END IF;
+
     IF p_channel NOT IN ('email', 'sms') THEN
         RAISE EXCEPTION 'DENIED: Invalid channel';
     END IF;

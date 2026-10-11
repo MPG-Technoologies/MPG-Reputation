@@ -251,6 +251,9 @@ function createMockSupabase(
         }
 
         // Validation
+        if (!p_reason || p_reason.trim() === '') {
+          return { data: null, error: new Error('DENIED: Invalid reason') }
+        }
         if (p_channel !== 'email' && p_channel !== 'sms') {
           return { data: null, error: new Error('DENIED: Invalid channel') }
         }
@@ -1528,5 +1531,82 @@ describe('MR-7C.5C2: Controlled Restore-Delta Replay Engine (Case A)', () => {
 
     expect(sql).toContain('IF v_existing_erased_at IS DISTINCT FROM p_erased_at THEN')
     expect(sql).toContain("RAISE EXCEPTION 'ERASURE_CERTIFICATE_MISMATCH';")
+  })
+
+  it('39. suppression maintenance RPC rejects empty and whitespace-only reasons (migration inspection)', () => {
+    const migrationPath = path.resolve(
+      process.cwd(),
+      'supabase/migrations/20261011120000_mr7c5c2_restore_delta_replay.sql'
+    )
+    const sql = fs.readFileSync(migrationPath, 'utf-8')
+
+    expect(sql).toContain("IF btrim(p_reason) = '' THEN")
+    expect(sql).toContain("RAISE EXCEPTION 'DENIED: Invalid reason';")
+  })
+
+  it('40. empty suppression reason is rejected & executes 0 RPCs', async () => {
+    const supabase = createMockSupabase({})
+    const delta = buildValidDelta({
+      erasures: [],
+      suppressions: [
+        {
+          organizationId: ORG_ID_1,
+          channel: 'email',
+          contactHash: HASH_EMAIL,
+          reason: '',
+          createdAt: '2026-10-01T14:00:00.000Z',
+        },
+      ],
+    })
+
+    const result = await replayPrivacyRestoreDelta({ supabase, delta })
+    expect(result.ok).toBe(false)
+    expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+    expect(result.reason).toBe('INVALID_DELTA_SCHEMA')
+    expect(supabase._rpcCalls.length).toBe(0)
+  })
+
+  it('41. whitespace-only suppression reason is rejected & executes 0 RPCs', async () => {
+    const supabase = createMockSupabase({})
+    const delta = buildValidDelta({
+      erasures: [],
+      suppressions: [
+        {
+          organizationId: ORG_ID_1,
+          channel: 'email',
+          contactHash: HASH_EMAIL,
+          reason: '   ',
+          createdAt: '2026-10-01T14:00:00.000Z',
+        },
+      ],
+    })
+
+    const result = await replayPrivacyRestoreDelta({ supabase, delta })
+    expect(result.ok).toBe(false)
+    expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+    expect(result.reason).toBe('INVALID_DELTA_SCHEMA')
+    expect(supabase._rpcCalls.length).toBe(0)
+  })
+
+  it('42. valid trimmed suppression reason succeeds', async () => {
+    const supabase = createMockSupabase({ suppressions: [] })
+    const delta = buildValidDelta({
+      erasures: [],
+      suppressions: [
+        {
+          organizationId: ORG_ID_1,
+          channel: 'email',
+          contactHash: HASH_EMAIL,
+          reason: 'USER_UNSUBSCRIBE',
+          createdAt: '2026-10-01T14:00:00.000Z',
+        },
+      ],
+    })
+
+    const result = await replayPrivacyRestoreDelta({ supabase, delta })
+    expect(result.ok).toBe(true)
+    expect(result.decision).toBe('PASS')
+    expect(result.suppressionsInserted).toBe(1)
+    expect(supabase._db.suppressions![0].reason).toBe('USER_UNSUBSCRIBE')
   })
 })

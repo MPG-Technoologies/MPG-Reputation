@@ -25,7 +25,7 @@ export interface PrivacyRestoreReplayResult {
     | 'REPLAY_MUTATION_FAILED'
     | 'VERIFICATION_FAILED'
     | 'DATABASE_ERROR'
-  error?: string
+    | 'ERASURE_CERTIFICATE_MISMATCH'
 }
 
 /**
@@ -90,8 +90,10 @@ export async function replayPrivacyRestoreDelta({
   let suppressionsInserted = 0
 
   let replayFailed = false
-  let failureReason: 'REPLAY_MUTATION_FAILED' | 'DATABASE_ERROR' = 'REPLAY_MUTATION_FAILED'
-  let replayErrorMsg: string | undefined
+  let failureReason:
+    | 'REPLAY_MUTATION_FAILED'
+    | 'DATABASE_ERROR'
+    | 'ERASURE_CERTIFICATE_MISMATCH' = 'REPLAY_MUTATION_FAILED'
 
   // 2. Replay customer erasures (atomic per-customer maintenance RPC)
   for (const erasure of delta.erasures) {
@@ -107,15 +109,26 @@ export async function replayPrivacyRestoreDelta({
 
       if (error) {
         replayFailed = true
-        replayErrorMsg = error.message
+        if (
+          typeof error.message === 'string' &&
+          error.message.includes('ERASURE_CERTIFICATE_MISMATCH')
+        ) {
+          failureReason = 'ERASURE_CERTIFICATE_MISMATCH'
+        } else {
+          failureReason = 'REPLAY_MUTATION_FAILED'
+        }
         break
       }
 
       erasuresReplayed++
     } catch (err) {
       replayFailed = true
-      replayErrorMsg = err instanceof Error ? err.message : 'UNEXPECTED_ERROR'
-      failureReason = 'DATABASE_ERROR'
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('ERASURE_CERTIFICATE_MISMATCH')) {
+        failureReason = 'ERASURE_CERTIFICATE_MISMATCH'
+      } else {
+        failureReason = 'DATABASE_ERROR'
+      }
       break
     }
   }
@@ -137,7 +150,7 @@ export async function replayPrivacyRestoreDelta({
 
         if (error) {
           replayFailed = true
-          replayErrorMsg = error.message
+          failureReason = 'REPLAY_MUTATION_FAILED'
           break
         }
 
@@ -145,9 +158,8 @@ export async function replayPrivacyRestoreDelta({
         if (res?.inserted) {
           suppressionsInserted++
         }
-      } catch (err) {
+      } catch {
         replayFailed = true
-        replayErrorMsg = err instanceof Error ? err.message : 'UNEXPECTED_ERROR'
         failureReason = 'DATABASE_ERROR'
         break
       }
@@ -187,7 +199,6 @@ export async function replayPrivacyRestoreDelta({
       suppressionsInserted,
       verification,
       reason: failureReason,
-      error: replayErrorMsg,
     }
   }
 

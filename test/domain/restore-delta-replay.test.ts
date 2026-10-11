@@ -83,6 +83,7 @@ function createMockSupabase(
     shouldErrorRpc?: string
     shouldThrowRpc?: boolean
     failOnCustomerRpcId?: string
+    customRpcError?: { fnName: string; error: Error }
     shouldErrorTable?: string
     shouldThrowTable?: boolean
   }
@@ -116,6 +117,9 @@ function createMockSupabase(
       if (options?.shouldErrorRpc === fnName) {
         return { data: null, error: new Error('DATABASE_RPC_ERROR') }
       }
+      if (options?.customRpcError && options.customRpcError.fnName === fnName) {
+        return { data: null, error: options.customRpcError.error }
+      }
 
       if (fnName === 'replay_customer_erasure_maintenance') {
         const { p_org_id, p_customer_id, p_erased_at } = args as {
@@ -141,6 +145,16 @@ function createMockSupabase(
           (cer) => cer.organization_id === p_org_id && cer.customer_id === p_customer_id
         )
         const alreadyErased = certIndex >= 0
+
+        if (alreadyErased) {
+          const existing = db.customer_erasure_records![certIndex]
+          if (existing.erased_at !== p_erased_at) {
+            return {
+              data: null,
+              error: new Error('ERASURE_CERTIFICATE_MISMATCH'),
+            }
+          }
+        }
 
         // Insert certificate if not present
         if (!alreadyErased) {
@@ -945,7 +959,7 @@ describe('MR-7C.5C2: Controlled Restore-Delta Replay Engine (Case A)', () => {
     expect(result.ok).toBe(false)
     expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
     expect(result.reason).toBe('REPLAY_MUTATION_FAILED')
-    expect(result.error).toContain('CUSTOMER_NOT_FOUND')
+    expect('error' in result).toBe(false)
   })
 
   it('18. database error fails closed', async () => {
@@ -1150,5 +1164,369 @@ describe('MR-7C.5C2: Controlled Restore-Delta Replay Engine (Case A)', () => {
     )
     expect(sql).toContain('SET search_path = public, pg_temp')
     expect(sql).toContain('SECURITY DEFINER')
+  })
+
+  it('26. temporal window: erasedAt equal to backupCreatedAt => invalid & 0 RPCs', async () => {
+    const supabase = createMockSupabase({})
+    const delta = buildValidDelta({
+      backupCreatedAt: '2026-10-01T00:00:00.000Z',
+      exportedAt: '2026-10-02T00:00:00.000Z',
+      erasures: [
+        {
+          organizationId: ORG_ID_1,
+          customerId: CUST_ID_1,
+          erasedAt: '2026-10-01T00:00:00.000Z', // equal to backupCreatedAt
+        },
+      ],
+      suppressions: [],
+    })
+
+    const result = await replayPrivacyRestoreDelta({ supabase, delta })
+    expect(result.ok).toBe(false)
+    expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+    expect(result.reason).toBe('INVALID_DELTA_SCHEMA')
+    expect(supabase._rpcCalls.length).toBe(0)
+  })
+
+  it('27. temporal window: erasedAt before backupCreatedAt => invalid & 0 RPCs', async () => {
+    const supabase = createMockSupabase({})
+    const delta = buildValidDelta({
+      backupCreatedAt: '2026-10-01T00:00:00.000Z',
+      exportedAt: '2026-10-02T00:00:00.000Z',
+      erasures: [
+        {
+          organizationId: ORG_ID_1,
+          customerId: CUST_ID_1,
+          erasedAt: '2026-09-30T23:59:59.999Z', // before backupCreatedAt
+        },
+      ],
+      suppressions: [],
+    })
+
+    const result = await replayPrivacyRestoreDelta({ supabase, delta })
+    expect(result.ok).toBe(false)
+    expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+    expect(result.reason).toBe('INVALID_DELTA_SCHEMA')
+    expect(supabase._rpcCalls.length).toBe(0)
+  })
+
+  it('28. temporal window: erasedAt after exportedAt => invalid & 0 RPCs', async () => {
+    const supabase = createMockSupabase({})
+    const delta = buildValidDelta({
+      backupCreatedAt: '2026-10-01T00:00:00.000Z',
+      exportedAt: '2026-10-02T00:00:00.000Z',
+      erasures: [
+        {
+          organizationId: ORG_ID_1,
+          customerId: CUST_ID_1,
+          erasedAt: '2026-10-02T00:00:00.001Z', // after exportedAt
+        },
+      ],
+      suppressions: [],
+    })
+
+    const result = await replayPrivacyRestoreDelta({ supabase, delta })
+    expect(result.ok).toBe(false)
+    expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+    expect(result.reason).toBe('INVALID_DELTA_SCHEMA')
+    expect(supabase._rpcCalls.length).toBe(0)
+  })
+
+  it('29. temporal window: suppression createdAt equal to backupCreatedAt => invalid & 0 RPCs', async () => {
+    const supabase = createMockSupabase({})
+    const delta = buildValidDelta({
+      backupCreatedAt: '2026-10-01T00:00:00.000Z',
+      exportedAt: '2026-10-02T00:00:00.000Z',
+      erasures: [],
+      suppressions: [
+        {
+          organizationId: ORG_ID_1,
+          channel: 'email',
+          contactHash: HASH_EMAIL,
+          reason: 'UNSUBSCRIBE',
+          createdAt: '2026-10-01T00:00:00.000Z', // equal to backupCreatedAt
+        },
+      ],
+    })
+
+    const result = await replayPrivacyRestoreDelta({ supabase, delta })
+    expect(result.ok).toBe(false)
+    expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+    expect(result.reason).toBe('INVALID_DELTA_SCHEMA')
+    expect(supabase._rpcCalls.length).toBe(0)
+  })
+
+  it('30. temporal window: suppression createdAt before backupCreatedAt => invalid & 0 RPCs', async () => {
+    const supabase = createMockSupabase({})
+    const delta = buildValidDelta({
+      backupCreatedAt: '2026-10-01T00:00:00.000Z',
+      exportedAt: '2026-10-02T00:00:00.000Z',
+      erasures: [],
+      suppressions: [
+        {
+          organizationId: ORG_ID_1,
+          channel: 'email',
+          contactHash: HASH_EMAIL,
+          reason: 'UNSUBSCRIBE',
+          createdAt: '2026-09-30T23:59:59.000Z', // before backupCreatedAt
+        },
+      ],
+    })
+
+    const result = await replayPrivacyRestoreDelta({ supabase, delta })
+    expect(result.ok).toBe(false)
+    expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+    expect(result.reason).toBe('INVALID_DELTA_SCHEMA')
+    expect(supabase._rpcCalls.length).toBe(0)
+  })
+
+  it('31. temporal window: suppression createdAt after exportedAt => invalid & 0 RPCs', async () => {
+    const supabase = createMockSupabase({})
+    const delta = buildValidDelta({
+      backupCreatedAt: '2026-10-01T00:00:00.000Z',
+      exportedAt: '2026-10-02T00:00:00.000Z',
+      erasures: [],
+      suppressions: [
+        {
+          organizationId: ORG_ID_1,
+          channel: 'email',
+          contactHash: HASH_EMAIL,
+          reason: 'UNSUBSCRIBE',
+          createdAt: '2026-10-02T00:00:01.000Z', // after exportedAt
+        },
+      ],
+    })
+
+    const result = await replayPrivacyRestoreDelta({ supabase, delta })
+    expect(result.ok).toBe(false)
+    expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+    expect(result.reason).toBe('INVALID_DELTA_SCHEMA')
+    expect(supabase._rpcCalls.length).toBe(0)
+  })
+
+  it('32. contradictory duplicate erasure evidence is rejected & executes 0 RPCs', async () => {
+    const supabase = createMockSupabase({})
+    const delta = buildValidDelta({
+      backupCreatedAt: '2026-10-01T00:00:00.000Z',
+      exportedAt: '2026-10-02T00:00:00.000Z',
+      erasures: [
+        {
+          organizationId: ORG_ID_1,
+          customerId: CUST_ID_1,
+          erasedAt: '2026-10-01T12:00:00.000Z',
+        },
+        {
+          organizationId: ORG_ID_1,
+          customerId: CUST_ID_1,
+          erasedAt: '2026-10-01T13:00:00.000Z', // conflicting timestamp for same customer
+        },
+      ],
+      suppressions: [],
+    })
+
+    const result = await replayPrivacyRestoreDelta({ supabase, delta })
+    expect(result.ok).toBe(false)
+    expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+    expect(result.reason).toBe('INVALID_DELTA_SCHEMA')
+    expect(supabase._rpcCalls.length).toBe(0)
+  })
+
+  it('33. contradictory duplicate suppression evidence is rejected & executes 0 RPCs', async () => {
+    const supabase = createMockSupabase({})
+    const delta = buildValidDelta({
+      backupCreatedAt: '2026-10-01T00:00:00.000Z',
+      exportedAt: '2026-10-02T00:00:00.000Z',
+      erasures: [],
+      suppressions: [
+        {
+          organizationId: ORG_ID_1,
+          channel: 'email',
+          contactHash: HASH_EMAIL,
+          reason: 'UNSUBSCRIBE',
+          createdAt: '2026-10-01T14:00:00.000Z',
+        },
+        {
+          organizationId: ORG_ID_1,
+          channel: 'email',
+          contactHash: HASH_EMAIL,
+          reason: 'BOUNCE', // conflicting reason for same channel + contactHash
+          createdAt: '2026-10-01T14:00:00.000Z',
+        },
+      ],
+    })
+
+    const result = await replayPrivacyRestoreDelta({ supabase, delta })
+    expect(result.ok).toBe(false)
+    expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+    expect(result.reason).toBe('INVALID_DELTA_SCHEMA')
+    expect(supabase._rpcCalls.length).toBe(0)
+  })
+
+  it('34. certificate exact timestamp match => idempotent success and no duplicate audit event', async () => {
+    const supabase = createMockSupabase({
+      customers: [
+        {
+          id: CUST_ID_1,
+          organization_id: ORG_ID_1,
+          first_name: '[Deleted Customer]',
+          last_name: null,
+          email: null,
+          phone: null,
+        },
+      ],
+      customer_erasure_records: [
+        {
+          id: 'cer-existing',
+          organization_id: ORG_ID_1,
+          customer_id: CUST_ID_1,
+          erased_at: '2026-10-01T12:00:00.000Z',
+          actor_type: 'maintenance',
+        },
+      ],
+      audit_events: [
+        {
+          organization_id: ORG_ID_1,
+          actor_type: 'maintenance',
+          actor_id: null,
+          event_type: 'privacy.restore_replay_erasure',
+          entity_type: 'customer',
+          entity_id: CUST_ID_1,
+          metadata: { schema_version: '1.0', decision: 'REPLAYED' },
+        },
+      ],
+    })
+
+    const delta = buildValidDelta({
+      erasures: [
+        {
+          organizationId: ORG_ID_1,
+          customerId: CUST_ID_1,
+          erasedAt: '2026-10-01T12:00:00.000Z', // identical timestamp
+        },
+      ],
+      suppressions: [],
+    })
+
+    const result = await replayPrivacyRestoreDelta({ supabase, delta })
+    expect(result.ok).toBe(true)
+    expect(result.decision).toBe('PASS')
+    expect(result.erasuresReplayed).toBe(1)
+    expect(supabase._db.customer_erasure_records!.length).toBe(1)
+    expect(supabase._db.audit_events!.length).toBe(1) // not duplicated!
+  })
+
+  it('35. certificate timestamp mismatch => fails closed with ERASURE_CERTIFICATE_MISMATCH, certificate unchanged, no duplicate audit event', async () => {
+    const supabase = createMockSupabase({
+      customers: [
+        {
+          id: CUST_ID_1,
+          organization_id: ORG_ID_1,
+          first_name: '[Deleted Customer]',
+          last_name: null,
+          email: null,
+          phone: null,
+        },
+      ],
+      customer_erasure_records: [
+        {
+          id: 'cer-existing-original',
+          organization_id: ORG_ID_1,
+          customer_id: CUST_ID_1,
+          erased_at: '2026-10-01T10:00:00.000Z', // original immutable timestamp
+          actor_type: 'owner',
+        },
+      ],
+      audit_events: [],
+    })
+
+    const delta = buildValidDelta({
+      backupCreatedAt: '2026-10-01T00:00:00.000Z',
+      exportedAt: '2026-10-02T00:00:00.000Z',
+      erasures: [
+        {
+          organizationId: ORG_ID_1,
+          customerId: CUST_ID_1,
+          erasedAt: '2026-10-01T12:00:00.000Z', // conflicting timestamp
+        },
+      ],
+      suppressions: [],
+    })
+
+    const result = await replayPrivacyRestoreDelta({ supabase, delta })
+    expect(result.ok).toBe(false)
+    expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+    expect(result.reason).toBe('ERASURE_CERTIFICATE_MISMATCH')
+    // Certificate remains strictly unchanged with original timestamp
+    expect(supabase._db.customer_erasure_records!.length).toBe(1)
+    expect(supabase._db.customer_erasure_records![0].erased_at).toBe('2026-10-01T10:00:00.000Z')
+    expect(supabase._db.customer_erasure_records![0].id).toBe('cer-existing-original')
+    // Zero audit events created
+    expect(supabase._db.audit_events!.length).toBe(0)
+  })
+
+  it('36. adversarial error messages containing tokens/emails/phones/hashes never appear in serialized replay result', async () => {
+    const adversarialError = new Error(
+      'DATABASE_PANIC: secret_key=sk_live_99999 user_email=victim@target.com phone=+15559876543 suppression_hash=486ea46224d1bb4fb680f34f7c9ad96a8f24ec88be73ea8e5a6c65260e9cb8a7'
+    )
+
+    const supabase = createMockSupabase(
+      {
+        customers: [
+          {
+            id: CUST_ID_1,
+            organization_id: ORG_ID_1,
+            first_name: 'Alice',
+            last_name: null,
+            email: null,
+            phone: null,
+          },
+        ],
+      },
+      {
+        customRpcError: {
+          fnName: 'replay_customer_erasure_maintenance',
+          error: adversarialError,
+        },
+      }
+    )
+
+    const delta = buildValidDelta({ suppressions: [] })
+    const result = await replayPrivacyRestoreDelta({ supabase, delta })
+
+    expect(result.ok).toBe(false)
+    expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+    expect(result.reason).toBe('REPLAY_MUTATION_FAILED')
+    expect('error' in result).toBe(false)
+
+    const serialized = JSON.stringify(result)
+    expect(serialized).not.toContain('victim@target.com')
+    expect(serialized).not.toContain('+15559876543')
+    expect(serialized).not.toContain('sk_live_99999')
+    expect(serialized).not.toContain('486ea46224d1bb4fb680f34f7c9ad96a8f24ec88be73ea8e5a6c65260e9cb8a7')
+    expect(serialized).not.toContain('DATABASE_PANIC')
+  })
+
+  it('37. suppression maintenance RPC declares BIGINT row count variable and evaluates v_inserted_count > 0 (migration inspection)', () => {
+    const migrationPath = path.resolve(
+      process.cwd(),
+      'supabase/migrations/20261011120000_mr7c5c2_restore_delta_replay.sql'
+    )
+    const sql = fs.readFileSync(migrationPath, 'utf-8')
+
+    expect(sql).toContain('v_inserted_count BIGINT := 0;')
+    expect(sql).toContain('GET DIAGNOSTICS v_inserted_count = ROW_COUNT;')
+    expect(sql).toContain("'inserted', v_inserted_count > 0")
+    expect(sql).not.toContain('v_inserted BOOLEAN')
+  })
+
+  it('38. erasure maintenance RPC evaluates ERASURE_CERTIFICATE_MISMATCH on timestamp mismatch (migration inspection)', () => {
+    const migrationPath = path.resolve(
+      process.cwd(),
+      'supabase/migrations/20261011120000_mr7c5c2_restore_delta_replay.sql'
+    )
+    const sql = fs.readFileSync(migrationPath, 'utf-8')
+
+    expect(sql).toContain('IF v_existing_erased_at IS DISTINCT FROM p_erased_at THEN')
+    expect(sql).toContain("RAISE EXCEPTION 'ERASURE_CERTIFICATE_MISMATCH';")
   })
 })

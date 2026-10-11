@@ -190,14 +190,19 @@ export function isPrivacyRestoreDeltaV1(delta: unknown): delta is PrivacyRestore
     return false
   }
 
+  const backupTime = Date.parse(d.backupCreatedAt)
+  const exportTime = Date.parse(d.exportedAt)
+
   // exportedAt must be strictly greater than backupCreatedAt
-  if (Date.parse(d.exportedAt) <= Date.parse(d.backupCreatedAt)) {
+  if (exportTime <= backupTime) {
     return false
   }
 
   if (!Array.isArray(d.erasures) || !Array.isArray(d.suppressions)) {
     return false
   }
+
+  const seenErasures = new Map<string, string>()
 
   for (const e of d.erasures) {
     if (!e || typeof e !== 'object' || Array.isArray(e)) {
@@ -223,7 +228,23 @@ export function isPrivacyRestoreDeltaV1(delta: unknown): delta is PrivacyRestore
     if (typeof item.erasedAt !== 'string' || Number.isNaN(Date.parse(item.erasedAt))) {
       return false
     }
+
+    const erasedTime = Date.parse(item.erasedAt)
+    // Enforce temporal window: backupCreatedAt < erasure.erasedAt <= exportedAt
+    if (erasedTime <= backupTime || erasedTime > exportTime) {
+      return false
+    }
+
+    // Reject contradictory duplicate evidence for the same (organizationId, customerId)
+    const erasureKey = `${item.organizationId}:${item.customerId}`
+    const existingErasedAt = seenErasures.get(erasureKey)
+    if (existingErasedAt !== undefined && existingErasedAt !== item.erasedAt) {
+      return false
+    }
+    seenErasures.set(erasureKey, item.erasedAt)
   }
+
+  const seenSuppressions = new Map<string, { reason: string; createdAt: string }>()
 
   for (const s of d.suppressions) {
     if (!s || typeof s !== 'object' || Array.isArray(s)) {
@@ -255,6 +276,23 @@ export function isPrivacyRestoreDeltaV1(delta: unknown): delta is PrivacyRestore
     if (typeof item.createdAt !== 'string' || Number.isNaN(Date.parse(item.createdAt))) {
       return false
     }
+
+    const createdTime = Date.parse(item.createdAt)
+    // Enforce temporal window: backupCreatedAt < suppression.createdAt <= exportedAt
+    if (createdTime <= backupTime || createdTime > exportTime) {
+      return false
+    }
+
+    // Reject contradictory duplicate evidence for the same (organizationId, channel, contactHash)
+    const suppressionKey = `${item.organizationId}:${item.channel}:${item.contactHash}`
+    const existingSuppression = seenSuppressions.get(suppressionKey)
+    if (
+      existingSuppression !== undefined &&
+      (existingSuppression.reason !== item.reason || existingSuppression.createdAt !== item.createdAt)
+    ) {
+      return false
+    }
+    seenSuppressions.set(suppressionKey, { reason: item.reason, createdAt: item.createdAt })
   }
 
   return true

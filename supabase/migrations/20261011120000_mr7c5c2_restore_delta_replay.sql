@@ -52,6 +52,9 @@ BEGIN
       AND customer_id = p_customer_id;
 
     IF FOUND THEN
+        IF v_existing_erased_at IS DISTINCT FROM p_erased_at THEN
+            RAISE EXCEPTION 'ERASURE_CERTIFICATE_MISMATCH';
+        END IF;
         v_already_erased := true;
     END IF;
 
@@ -178,7 +181,7 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
-    v_inserted BOOLEAN := false;
+    v_inserted_count BIGINT := 0;
 BEGIN
     -- 1. Input validation
     IF p_org_id IS NULL OR p_channel IS NULL OR p_contact_hash IS NULL OR p_reason IS NULL OR p_created_at IS NULL THEN
@@ -219,11 +222,11 @@ BEGIN
     )
     ON CONFLICT (organization_id, channel, contact_hash) DO NOTHING;
 
-    GET DIAGNOSTICS v_inserted = ROW_COUNT;
+    GET DIAGNOSTICS v_inserted_count = ROW_COUNT;
 
     -- 4. Return non-PII operational summary (zero contact hashes in return payload)
     RETURN jsonb_build_object(
-        'inserted', v_inserted > 0,
+        'inserted', v_inserted_count > 0,
         'organization_id', p_org_id,
         'channel', p_channel
     );

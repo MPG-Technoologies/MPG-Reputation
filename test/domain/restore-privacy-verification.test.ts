@@ -7,7 +7,9 @@ import {
   collectPrivacyRestoreDelta,
   verifyRestoredPrivacyState,
   evaluateRestoreDecision,
+  normalizePageSize,
   DEFAULT_RESTORE_VERIFICATION_PAGE_SIZE,
+  REVIEW_REQUEST_ID_CHUNK_SIZE,
   type PrivacyRestoreDeltaV1,
 } from '@/domain/privacy/restore-verification'
 import { CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME } from '@/domain/privacy/customer-erasure'
@@ -69,6 +71,9 @@ function createMockSupabase(
     shouldErrorTable?: string
     shouldThrow?: boolean
     failOnRangeFrom?: { table: string; from: number }
+    serverMaxRows?: number
+    onRequestRange?: (table: string, from: number, to: number) => void
+    onInFilter?: (table: string, col: string, vals: unknown[]) => void
   }
 ) {
   return {
@@ -119,6 +124,9 @@ function createMockSupabase(
           return builder
         },
         in: (col: string, vals: unknown[]) => {
+          if (options?.onInFilter) {
+            options.onInFilter(table, col, vals)
+          }
           rows = rows.filter((r: unknown) => {
             const item = r as Record<string, unknown>
             return vals.includes(item[col])
@@ -137,6 +145,9 @@ function createMockSupabase(
           return builder
         },
         range: (from: number, to: number) => {
+          if (options?.onRequestRange) {
+            options.onRequestRange(table, from, to)
+          }
           if (
             options?.failOnRangeFrom &&
             options.failOnRangeFrom.table === table &&
@@ -147,7 +158,12 @@ function createMockSupabase(
                 Promise.resolve({ data: null, error: new Error('PAGE_READ_ERROR') }).then(resolve),
             }
           }
-          rows = rows.slice(from, to + 1)
+          const requestedSlice = rows.slice(from, to + 1)
+          if (options?.serverMaxRows && options.serverMaxRows > 0) {
+            rows = requestedSlice.slice(0, options.serverMaxRows)
+          } else {
+            rows = requestedSlice
+          }
           return builder
         },
         maybeSingle: () => {
@@ -986,28 +1002,63 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
   })
 
   // =========================================================================
-  // CORRECTION 1: COMPLETE PAGINATION TESTS
+  // PAGE SIZE NORMALIZATION TESTS
   // =========================================================================
-  describe('Correction 1: Complete Pagination Invariants', () => {
-    it('1001+ erasure records are all collected across pages', async () => {
-      // Create 1005 erasure records
-      const totalRecords = 1005
+  describe('Page Size Normalization', () => {
+    it('normalizes valid positive integers', () => {
+      expect(normalizePageSize(100)).toBe(100)
+      expect(normalizePageSize(1)).toBe(1)
+      expect(normalizePageSize(5000)).toBe(5000)
+    })
+
+    it('normalizes fractional numbers by flooring', () => {
+      expect(normalizePageSize(10.8)).toBe(10)
+      expect(normalizePageSize(1.1)).toBe(1)
+    })
+
+    it('falls back to default on non-numbers, negative, zero, NaN, and Infinity', () => {
+      expect(normalizePageSize(undefined)).toBe(DEFAULT_RESTORE_VERIFICATION_PAGE_SIZE)
+      expect(normalizePageSize(0)).toBe(DEFAULT_RESTORE_VERIFICATION_PAGE_SIZE)
+      expect(normalizePageSize(-10)).toBe(DEFAULT_RESTORE_VERIFICATION_PAGE_SIZE)
+      expect(normalizePageSize(NaN)).toBe(DEFAULT_RESTORE_VERIFICATION_PAGE_SIZE)
+      expect(normalizePageSize(Infinity)).toBe(DEFAULT_RESTORE_VERIFICATION_PAGE_SIZE)
+      expect(normalizePageSize(-Infinity)).toBe(DEFAULT_RESTORE_VERIFICATION_PAGE_SIZE)
+    })
+  })
+
+  // =========================================================================
+  // CAP-SAFE PAGINATION & SERVER ROW-CAP INVARIANTS
+  // =========================================================================
+  describe('Cap-Safe Pagination and Server Cap Invariants', () => {
+    it('1. Collector: requested pageSize = 2000, simulated server max rows = 1000, 1500+ erasure rows -> ALL rows collected', async () => {
+      const totalRecords = 1550
       const erasureRows = Array.from({ length: totalRecords }, (_, i) => ({
         organization_id: orgA,
         customer_id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
         erased_at: new Date(Date.parse(tBackup) + (i + 1) * 1000).toISOString(),
       }))
 
-      const mockDb = createMockSupabase({
-        customer_erasure_records: erasureRows,
-        suppressions: [],
-      })
+      const requestedRanges: Array<{ from: number; to: number }> = []
+      const mockDb = createMockSupabase(
+        {
+          customer_erasure_records: erasureRows,
+          suppressions: [],
+        },
+        {
+          serverMaxRows: 1000, // Server caps each response to 1000 rows
+          onRequestRange: (table, from, to) => {
+            if (table === 'customer_erasure_records') {
+              requestedRanges.push({ from, to })
+            }
+          },
+        }
+      )
 
       const res = await collectPrivacyRestoreDelta({
         supabase: mockDb,
         backupCreatedAt: tBackup,
         exportedAt: tAfter2,
-        pageSize: DEFAULT_RESTORE_VERIFICATION_PAGE_SIZE,
+        pageSize: 2000, // Client requests 2000 rows
       })
 
       expect(res.ok).toBe(true)
@@ -1017,11 +1068,21 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
         expect(res.delta.erasures[totalRecords - 1].customerId).toBe(
           erasureRows[totalRecords - 1].customer_id
         )
+
+        // Verify exact offset progression:
+        // Request 1: 0..1999 -> server returned 1000 rows
+        // Request 2: 1000..2999 -> server returned 550 rows
+        // Request 3: 1550..3549 -> server returned 0 rows -> completed
+        expect(requestedRanges).toEqual([
+          { from: 0, to: 1999 },
+          { from: 1000, to: 2999 },
+          { from: 1550, to: 3549 },
+        ])
       }
     })
 
-    it('1001+ suppressions are all collected across pages', async () => {
-      const totalRecords = 1005
+    it('2. Collector: requested pageSize = 2000, simulated server max rows = 1000, 1500+ suppressions -> ALL rows collected', async () => {
+      const totalRecords = 1550
       const suppressionRows = Array.from({ length: totalRecords }, (_, i) => ({
         organization_id: orgA,
         channel: 'email',
@@ -1030,16 +1091,21 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
         created_at: new Date(Date.parse(tBackup) + (i + 1) * 1000).toISOString(),
       }))
 
-      const mockDb = createMockSupabase({
-        customer_erasure_records: [],
-        suppressions: suppressionRows,
-      })
+      const mockDb = createMockSupabase(
+        {
+          customer_erasure_records: [],
+          suppressions: suppressionRows,
+        },
+        {
+          serverMaxRows: 1000,
+        }
+      )
 
       const res = await collectPrivacyRestoreDelta({
         supabase: mockDb,
         backupCreatedAt: tBackup,
         exportedAt: tAfter2,
-        pageSize: DEFAULT_RESTORE_VERIFICATION_PAGE_SIZE,
+        pageSize: 2000,
       })
 
       expect(res.ok).toBe(true)
@@ -1048,13 +1114,13 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
       }
     })
 
-    it('Unsafe completion data after row 1000 is detected and blocks restore', async () => {
-      // 1002 completion events: first 1000 are valid, row 1001 contains non-empty contact
-      const completionRows = Array.from({ length: 1002 }, (_, i) => ({
-        id: `comp-${i}`,
+    it('3. Verifier: requested pageSize > simulated server cap, unsafe completion row exists after server-capped first response -> BLOCK_RESTORE_ACTIVATION', async () => {
+      // Total 1500 completion events; row 1200 has non-empty contact
+      const completionRows = Array.from({ length: 1500 }, (_, i) => ({
+        id: `comp-${String(i).padStart(5, '0')}`,
         organization_id: orgA,
         customer_id: cust1,
-        contact: i === 1001 ? { email: 'leak@example.test' } : {},
+        contact: i === 1200 ? { email: 'leak@example.test' } : {},
         source_customer_id: null,
         source_transaction_id: null,
         source_event_id: `evt-${i}`,
@@ -1068,98 +1134,6 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
         suppressions: [],
       }
 
-      const mockDb = createMockSupabase({
-        customers: [
-          {
-            id: cust1,
-            organization_id: orgA,
-            first_name: CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME,
-            last_name: null,
-            email: null,
-            phone: null,
-          },
-        ],
-        customer_erasure_records: [
-          { organization_id: orgA, customer_id: cust1, erased_at: tAfter1 },
-        ],
-        customer_completion_events: completionRows,
-      })
-
-      const result = await verifyRestoredPrivacyState({
-        supabase: mockDb,
-        delta,
-        pageSize: 1000,
-      })
-
-      expect(result.ok).toBe(false)
-      expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
-      expect(result.missingErasureProtections).toBe(1)
-    })
-
-    it('Unsafe review error after row 1000 is detected and blocks restore', async () => {
-      const reviewRows = Array.from({ length: 1002 }, (_, i) => ({
-        id: `rr-${i}`,
-        organization_id: orgA,
-        customer_id: cust1,
-        error_message: i === 1001 ? 'Unscrubbed provider error leak' : null,
-      }))
-
-      const delta: PrivacyRestoreDeltaV1 = {
-        schemaVersion: '1.0',
-        backupCreatedAt: tBackup,
-        exportedAt: tAfter2,
-        erasures: [{ organizationId: orgA, customerId: cust1, erasedAt: tAfter1 }],
-        suppressions: [],
-      }
-
-      const mockDb = createMockSupabase({
-        customers: [
-          {
-            id: cust1,
-            organization_id: orgA,
-            first_name: CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME,
-            last_name: null,
-            email: null,
-            phone: null,
-          },
-        ],
-        customer_erasure_records: [
-          { organization_id: orgA, customer_id: cust1, erased_at: tAfter1 },
-        ],
-        review_requests: reviewRows,
-      })
-
-      const result = await verifyRestoredPrivacyState({
-        supabase: mockDb,
-        delta,
-        pageSize: 1000,
-      })
-
-      expect(result.ok).toBe(false)
-      expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
-      expect(result.missingErasureProtections).toBe(1)
-    })
-
-    it('Page-two read failure blocks verification and fails closed', async () => {
-      const completionRows = Array.from({ length: 25 }, (_, i) => ({
-        id: `comp-${String(i).padStart(4, '0')}`,
-        organization_id: orgA,
-        customer_id: cust1,
-        contact: {},
-        source_customer_id: null,
-        source_transaction_id: null,
-        source_event_id: `evt-${i}`,
-      }))
-
-      const delta: PrivacyRestoreDeltaV1 = {
-        schemaVersion: '1.0',
-        backupCreatedAt: tBackup,
-        exportedAt: tAfter2,
-        erasures: [{ organizationId: orgA, customerId: cust1, erasedAt: tAfter1 }],
-        suppressions: [],
-      }
-
-      // Page size is 10, fail on range from = 10 (page 2)
       const mockDb = createMockSupabase(
         {
           customers: [
@@ -1178,20 +1152,361 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
           customer_completion_events: completionRows,
         },
         {
-          failOnRangeFrom: { table: 'customer_completion_events', from: 10 },
+          serverMaxRows: 1000, // Capped to 1000
         }
       )
 
       const result = await verifyRestoredPrivacyState({
         supabase: mockDb,
         delta,
-        pageSize: 10,
+        pageSize: 2000, // Requested 2000
       })
 
       expect(result.ok).toBe(false)
       expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
-      expect(result.reason).toBe('DATABASE_ERROR')
-      expect(result.erasureRecordsChecked).toBe(0)
+      expect(result.missingErasureProtections).toBe(1)
+    })
+
+    it('4. Verifier: unsafe review_request.error_message exists after first server-capped response -> blocks', async () => {
+      const reviewRows = Array.from({ length: 1500 }, (_, i) => ({
+        id: `rr-${String(i).padStart(5, '0')}`,
+        organization_id: orgA,
+        customer_id: cust1,
+        error_message: i === 1200 ? 'Unscrubbed provider error leak' : null,
+      }))
+
+      const delta: PrivacyRestoreDeltaV1 = {
+        schemaVersion: '1.0',
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        erasures: [{ organizationId: orgA, customerId: cust1, erasedAt: tAfter1 }],
+        suppressions: [],
+      }
+
+      const mockDb = createMockSupabase(
+        {
+          customers: [
+            {
+              id: cust1,
+              organization_id: orgA,
+              first_name: CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME,
+              last_name: null,
+              email: null,
+              phone: null,
+            },
+          ],
+          customer_erasure_records: [
+            { organization_id: orgA, customer_id: cust1, erased_at: tAfter1 },
+          ],
+          review_requests: reviewRows,
+        },
+        {
+          serverMaxRows: 1000,
+        }
+      )
+
+      const result = await verifyRestoredPrivacyState({
+        supabase: mockDb,
+        delta,
+        pageSize: 2000,
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+      expect(result.missingErasureProtections).toBe(1)
+    })
+
+    it('5. Verifier: unsafe message_events.sanitized_error exists after first server-capped response -> blocks', async () => {
+      const reviewRows = [
+        {
+          id: 'rr-00001',
+          organization_id: orgA,
+          customer_id: cust1,
+          error_message: null,
+        },
+      ]
+
+      // 1500 message events for review request rr-00001; row 1200 has sanitized_error leak
+      const messageRows = Array.from({ length: 1500 }, (_, i) => ({
+        id: `me-${String(i).padStart(5, '0')}`,
+        organization_id: orgA,
+        review_request_id: 'rr-00001',
+        sanitized_error: i === 1200 ? 'Raw provider error text leak' : null,
+      }))
+
+      const delta: PrivacyRestoreDeltaV1 = {
+        schemaVersion: '1.0',
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        erasures: [{ organizationId: orgA, customerId: cust1, erasedAt: tAfter1 }],
+        suppressions: [],
+      }
+
+      const mockDb = createMockSupabase(
+        {
+          customers: [
+            {
+              id: cust1,
+              organization_id: orgA,
+              first_name: CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME,
+              last_name: null,
+              email: null,
+              phone: null,
+            },
+          ],
+          customer_erasure_records: [
+            { organization_id: orgA, customer_id: cust1, erased_at: tAfter1 },
+          ],
+          review_requests: reviewRows,
+          message_events: messageRows,
+        },
+        {
+          serverMaxRows: 1000,
+        }
+      )
+
+      const result = await verifyRestoredPrivacyState({
+        supabase: mockDb,
+        delta,
+        pageSize: 2000,
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+      expect(result.missingErasureProtections).toBe(1)
+    })
+
+    it('6. Short non-empty page is NOT treated as exhaustion and advances offset by actual rows', async () => {
+      // 15 items in table
+      const totalRecords = 15
+      const erasureRows = Array.from({ length: totalRecords }, (_, i) => ({
+        organization_id: orgA,
+        customer_id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+        erased_at: new Date(Date.parse(tBackup) + (i + 1) * 1000).toISOString(),
+      }))
+
+      // Simulated server caps at 6 items per query
+      const requestedRanges: Array<{ from: number; to: number }> = []
+      const mockDb = createMockSupabase(
+        {
+          customer_erasure_records: erasureRows,
+          suppressions: [],
+        },
+        {
+          serverMaxRows: 6,
+          onRequestRange: (table, from, to) => {
+            if (table === 'customer_erasure_records') {
+              requestedRanges.push({ from, to })
+            }
+          },
+        }
+      )
+
+      const res = await collectPrivacyRestoreDelta({
+        supabase: mockDb,
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        pageSize: 10, // Client requested 10
+      })
+
+      expect(res.ok).toBe(true)
+      if (res.ok) {
+        expect(res.delta.erasures).toHaveLength(15)
+
+        // Request 1: 0..9 -> server returns 6 items (rows 0..5) -> offset 6
+        // Request 2: 6..15 -> server returns 6 items (rows 6..11) -> offset 12
+        // Request 3: 12..21 -> server returns 3 items (rows 12..14, a SHORT PAGE) -> offset 15
+        // Request 4: 15..24 -> server returns 0 items -> BREAK!
+        expect(requestedRanges).toEqual([
+          { from: 0, to: 9 },
+          { from: 6, to: 15 },
+          { from: 12, to: 21 },
+          { from: 15, to: 24 },
+        ])
+      }
+    })
+
+    it('7. Only an explicit empty page establishes enumeration completion', async () => {
+      // 4 items
+      const erasureRows = Array.from({ length: 4 }, (_, i) => ({
+        organization_id: orgA,
+        customer_id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+        erased_at: new Date(Date.parse(tBackup) + (i + 1) * 1000).toISOString(),
+      }))
+
+      let queriesMade = 0
+      const mockDb = createMockSupabase(
+        {
+          customer_erasure_records: erasureRows,
+          suppressions: [],
+        },
+        {
+          serverMaxRows: 4, // Exactly returns 4 items on query 1
+          onRequestRange: (table) => {
+            if (table === 'customer_erasure_records') {
+              queriesMade++
+            }
+          },
+        }
+      )
+
+      const res = await collectPrivacyRestoreDelta({
+        supabase: mockDb,
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        pageSize: 4,
+      })
+
+      expect(res.ok).toBe(true)
+      // Must have made 2 queries: first query got 4 items, second query got 0 items (explicit empty page!)
+      expect(queriesMade).toBe(2)
+    })
+
+    it('8. Page-N query failure fails closed', async () => {
+      const erasureRows = Array.from({ length: 20 }, (_, i) => ({
+        organization_id: orgA,
+        customer_id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+        erased_at: new Date(Date.parse(tBackup) + (i + 1) * 1000).toISOString(),
+      }))
+
+      // Fail on range from = 5 (page 2 when server returns 5 per page)
+      const mockDb = createMockSupabase(
+        {
+          customer_erasure_records: erasureRows,
+          suppressions: [],
+        },
+        {
+          serverMaxRows: 5,
+          failOnRangeFrom: { table: 'customer_erasure_records', from: 5 },
+        }
+      )
+
+      const res = await collectPrivacyRestoreDelta({
+        supabase: mockDb,
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        pageSize: 10,
+      })
+
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.status).toBe('UNAVAILABLE')
+        expect(res.error).toBe('DATABASE_READ_ERROR')
+      }
+    })
+
+    it('9. No duplicate or skipped rows across capped-page boundaries', async () => {
+      const totalRecords = 25
+      const suppressionRows = Array.from({ length: totalRecords }, (_, i) => ({
+        organization_id: orgA,
+        channel: 'email',
+        contact_hash: String(i).padStart(64, '0'),
+        reason: 'UNSUBSCRIBE',
+        created_at: new Date(Date.parse(tBackup) + (i + 1) * 1000).toISOString(),
+      }))
+
+      const mockDb = createMockSupabase(
+        {
+          customer_erasure_records: [],
+          suppressions: suppressionRows,
+        },
+        {
+          serverMaxRows: 7, // Weird server cap
+        }
+      )
+
+      const res = await collectPrivacyRestoreDelta({
+        supabase: mockDb,
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        pageSize: 10,
+      })
+
+      expect(res.ok).toBe(true)
+      if (res.ok) {
+        expect(res.delta.suppressions).toHaveLength(totalRecords)
+        const hashes = res.delta.suppressions.map((s) => s.contactHash)
+        const uniqueHashes = new Set(hashes)
+        expect(uniqueHashes.size).toBe(totalRecords) // Zero duplicates, zero omitted!
+      }
+    })
+
+    it('10. Large review request ID set is chunked into bounded groups for message_events verification', async () => {
+      // 250 review requests for cust1
+      const totalRequests = 250
+      const reviewRows = Array.from({ length: totalRequests }, (_, i) => ({
+        id: `rr-${String(i).padStart(5, '0')}`,
+        organization_id: orgA,
+        customer_id: cust1,
+        error_message: null,
+      }))
+
+      // Message events for the 250 requests
+      const messageRows = Array.from({ length: totalRequests }, (_, i) => ({
+        id: `me-${String(i).padStart(5, '0')}`,
+        organization_id: orgA,
+        review_request_id: `rr-${String(i).padStart(5, '0')}`,
+        sanitized_error: null,
+      }))
+
+      const delta: PrivacyRestoreDeltaV1 = {
+        schemaVersion: '1.0',
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        erasures: [{ organizationId: orgA, customerId: cust1, erasedAt: tAfter1 }],
+        suppressions: [],
+      }
+
+      const inFilterSizes: number[] = []
+      const mockDb = createMockSupabase(
+        {
+          customers: [
+            {
+              id: cust1,
+              organization_id: orgA,
+              first_name: CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME,
+              last_name: null,
+              email: null,
+              phone: null,
+            },
+          ],
+          customer_erasure_records: [
+            {
+              organization_id: orgA,
+              customer_id: cust1,
+              erased_at: tAfter1,
+            },
+          ],
+          customer_completion_events: [],
+          review_requests: reviewRows,
+          message_events: messageRows,
+          suppressions: [],
+        },
+        {
+          onInFilter: (table, _col, vals) => {
+            if (table === 'message_events') {
+              inFilterSizes.push(vals.length)
+            }
+          },
+        }
+      )
+
+      const result = await verifyRestoredPrivacyState({ supabase: mockDb, delta })
+
+      expect(result.ok).toBe(true)
+      expect(result.decision).toBe('PASS')
+      expect(result.missingErasureProtections).toBe(0)
+
+      // Verified chunk sizes: 250 requests partitioned into [100, 100, 50],
+      // with each chunk queried twice (first page of data, second explicit empty page)
+      expect(inFilterSizes).toEqual([
+        REVIEW_REQUEST_ID_CHUNK_SIZE,
+        REVIEW_REQUEST_ID_CHUNK_SIZE,
+        REVIEW_REQUEST_ID_CHUNK_SIZE,
+        REVIEW_REQUEST_ID_CHUNK_SIZE,
+        50,
+        50,
+      ])
     })
   })
 

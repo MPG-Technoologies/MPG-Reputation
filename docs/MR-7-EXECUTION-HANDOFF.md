@@ -7,8 +7,10 @@
 | Milestone | MR-7 (Trust / Security / Compliance) — ACTIVE |
 | Milestone Slices | **MR-7B.1 — OWNER ACCEPTED**<br>**MR-7B.2 — OWNER ACCEPTED**<br>**MR-7B.3 — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.1 — OWNER ACCEPTED / HOSTED VERIFIED**<br>**MR-7C.2A — OWNER ACCEPTED / PRODUCTION VERIFIED**<br>**MR-7C.2B — OWNER ACCEPTED**<br>**MR-7C.2 — OWNER ACCEPTED / COMPLETE**<br>**MR-7C.3A — OWNER ACCEPTED** (`5bef1ae68309767b645415fb80e09f70da576e0d`)<br>**MR-7C.3B — OWNER ACCEPTED** (`856d7b87425413da481211313716fbbabb9d5948`)<br>**MR-7C.3C External Identifier Erasure Enforcement — OWNER ACCEPTED** (`8796b5e6fb89cea49a96c85917e4808ad5891fa6`)<br>**MR-7C.3C Customer Erasure Delivery Surface — OWNER ACCEPTED** (`50e1bcf0fa833d9be16471c3b748a464e9ea5b76`)<br>**MR-7C.4A Retention Requirements + Data-Class Decision Matrix — OWNER ACCEPTED / FROZEN** (`924a7f009d18bfeadd0944f5bca082548eac9e54`)<br>**MR-7C.4B1 Initial Retention Controls Foundation — OWNER ACCEPTED** (`dd9af1a7630da5c802b10b9c2345b8b525542d63`)<br>**MR-7C.4B2 Bounded Retention Maintenance Workflow — OWNER ACCEPTED** (`17ff5bc331b225eb589694607754ac58f30e2473`)<br>**MR-7C.5A External Processor Retention Map — OWNER ACCEPTED** (`707f89a072a5593541cfc906e0c19595578bda1c`)<br>**MR-7C.5B Inngest / Provider Privacy Hardening — OWNER ACCEPTED**<br>**MR-7C.5C1 Post-Restore Privacy Verification Foundation — ENGINEERING COMPLETE / READY FOR OWNER REVIEW** (NOT `MR-7 — COMPLETE`) |
 | Current Bounded Slice | MR-7C.5C1 — Post-Restore Privacy Verification Foundation — ENGINEERING COMPLETE / READY FOR OWNER REVIEW |
-| Inspected Product Baseline | `45d84a3f9e3c8befac248be4e319acc2d83d6d2c` (on `main`) |
-| Feature Branch | `chatgpt/mr7c5c1-restore-privacy-verification` (active; branched from verified product main `45d84a3f9e3c8befac248be4e319acc2d83d6d2c`) |
+| Original C5C1 Baseline | `45d84a3f9e3c8befac248be4e319acc2d83d6d2c` |
+| Current Product Main (Incorporated) | `a4db0f636387bd063736e5283b4580cebbd293b9` |
+| Main-into-Branch Merge Commit | `475b14cefd6ba07bf7f3f2d1c449536a6c67d2c1` |
+| Feature Branch | `chatgpt/mr7c5c1-restore-privacy-verification` (active; branched from original baseline `45d84a3f9e3c8befac248be4e319acc2d83d6d2c`, updated with product main `a4db0f636387bd063736e5283b4580cebbd293b9` via merge commit `475b14cefd6ba07bf7f3f2d1c449536a6c67d2c1`) |
 | Public Safe | Yes; local synthetic fixtures only for verification; no real customer data used |
 
 ---
@@ -208,20 +210,21 @@
   - Verified across 19 proof integration tests and regression suite.
 - **MR-7C.5C1 — POST-RESTORE PRIVACY VERIFICATION FOUNDATION (CASE A) (ENGINEERING COMPLETE / READY FOR OWNER REVIEW)**:
   - **Versioned Restore Delta Contract**: Implemented `PrivacyRestoreDeltaV1` schema representing post-backup operational privacy evidence (`erasures`, `suppressions`) with zero raw contact PII; suppression contact hashes are retained as pseudonymous privacy evidence needed to verify suppression continuity (`src/domain/privacy/restore-verification.ts`). Strict schema allowlists on top-level keys, erasure items, and suppression items reject any unknown properties. Contact hashes strictly validated to SHA-256 format (`^[a-f0-9]{64}$`).
-  - **Deterministic Post-Backup Delta Collection**: `collectPrivacyRestoreDelta` extracts erasures from `customer_erasure_records` and suppressions from `suppressions` strictly within the frozen window `(backupCreatedAt, exportedAt]` with complete deterministic pagination until table exhaustion, server-only trusted access, and fail-closed handling on read error.
-  - **Fail-Closed Restored State Verification**: `verifyRestoredPrivacyState` and `evaluateRestoreDecision` check the restored database against post-backup privacy requirements with complete deterministic pagination across all multi-row queries:
+  - **Deterministic Post-Backup Delta Collection & Cap-Safe Pagination**: `collectPrivacyRestoreDelta` extracts erasures from `customer_erasure_records` and suppressions from `suppressions` strictly within the frozen window `(backupCreatedAt, exportedAt]`. Implements cap-safe pagination where offsets advance by actual returned rows (`nextOffset += data.length`) rather than requested `pageSize`, and enumeration terminates strictly on an explicit empty page (`data.length === 0`). A short non-empty page is never treated as exhaustion, guaranteeing complete collection even when server caps (e.g. PostgREST `max_rows = 1000`) are lower than requested `pageSize`. Fails closed on any query error or null data.
+  - **Fail-Closed Restored State Verification**: `verifyRestoredPrivacyState` and `evaluateRestoreDecision` check the restored database against post-backup privacy requirements with cap-safe pagination across all multi-row queries:
     - Verifies customer record is tombstoned (`first_name = '[Deleted Customer]'`, `last_name IS NULL`, `email IS NULL`, `phone IS NULL`).
     - Verifies durable erasure certificate exists in `customer_erasure_records` for `(organization_id, customer_id)`.
     - Verifies completion events have exact empty contact JSON (`{}`), failing closed on any non-empty JSON or non-object values.
     - Verifies external identifiers are scrubbed (`source_customer_id IS NULL`, `source_transaction_id IS NULL`), while `source_event_id` is retained as deduplication key.
-    - Verifies historical review request error text and sanitized message errors are scrubbed across paginated requests and message events.
+    - Verifies historical review request error text (`review_requests.error_message IS NULL`) across paginated requests.
+    - Hardens message events verification by chunking collected review request IDs into bounded batches (`REVIEW_REQUEST_ID_CHUNK_SIZE = 100`) to prevent query/URL limit overflows, verifying `sanitized_error IS NULL` across all chunks with cap-safe pagination.
     - Verifies corresponding suppressions are present by composite key `(organization_id, channel, contact_hash)`.
   - **Aggregate Safe Metrics & Truthful Counters**: Result contains aggregate safe metrics (`ok`, `decision: 'PASS' | 'BLOCK_RESTORE_ACTIVATION'`, `schemaVersion`, `erasureRecordsChecked`, `suppressionRecordsChecked`, `missingErasureProtections`, `missingSuppressions`, `reason`). Counters truthfully reflect only records successfully evaluated before any failure. Zero raw customer PII or raw provider errors returned or logged.
   - **Operational & Security Boundaries**:
     - Server/maintenance only (`import 'server-only'`). Zero browser UI, zero public API routes, zero tenant Server Actions, zero cron/Inngest registration.
     - **No Automatic Mutation / Replay in C5C1**: Pure collection + verification. Mutation/replay authority remains in a future bounded slice.
     - **Case B Explicitly Unresolved**: Catastrophic database loss with no pre-restore DB readable still lacks an independent offsite delta ledger. Documented honestly as unresolved.
-  - **Verification**: 64 dedicated unit and domain-level tests pass cleanly (`test/domain/restore-privacy-verification.test.ts`).
+  - **Verification**: 72 dedicated unit and domain-level tests pass cleanly (`test/domain/restore-privacy-verification.test.ts`).
 
 ---
 

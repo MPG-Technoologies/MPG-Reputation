@@ -11,6 +11,8 @@ export const SHA256_HEX_REGEX = /^[a-f0-9]{64}$/
 
 export const DEFAULT_RESTORE_VERIFICATION_PAGE_SIZE = 1000
 
+export const REVIEW_REQUEST_ID_CHUNK_SIZE = 100
+
 export const ALLOWED_DELTA_KEYS = new Set([
   'schemaVersion',
   'backupCreatedAt',
@@ -81,6 +83,17 @@ export type CollectPrivacyRestoreDeltaResult =
     }
 
 /**
+ * Normalizes a page size parameter into a safe, positive integer.
+ * Treats pageSize strictly as a performance hint rather than a server limit.
+ */
+export function normalizePageSize(pageSize?: number): number {
+  if (typeof pageSize !== 'number' || !Number.isFinite(pageSize) || pageSize < 1) {
+    return DEFAULT_RESTORE_VERIFICATION_PAGE_SIZE
+  }
+  return Math.floor(pageSize)
+}
+
+/**
  * Validates whether a value is strictly an empty JSON object ({}).
  * Rejects non-empty objects, arrays, primitives, null, undefined, or strings.
  */
@@ -89,6 +102,56 @@ export function isExactEmptyJsonObject(value: unknown): boolean {
     return false
   }
   return Object.keys(value as Record<string, unknown>).length === 0
+}
+
+/**
+ * Executes cap-safe deterministic pagination for Supabase/PostgREST queries.
+ *
+ * Invariant:
+ * 1. Requests range(nextOffset, nextOffset + requestedPageSize - 1)
+ * 2. Next offset advances by ACTUAL returned rows (nextOffset += data.length), NOT requested pageSize.
+ * 3. Enumeration terminates ONLY when data.length === 0.
+ *    A short non-empty page (data.length < requestedPageSize) is NEVER treated as exhaustion,
+ *    guaranteeing complete collection when server caps (e.g. PostgREST max_rows = 1000) are lower
+ *    than requested pageSize.
+ * 4. Fails closed on any query error, exception, or null data.
+ */
+async function paginateQuery<T>(
+  queryFactory: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  onRow: (row: T) => void,
+  requestedPageSize: number
+): Promise<{ ok: true } | { ok: false; error: unknown }> {
+  const pSize = normalizePageSize(requestedPageSize)
+  let nextOffset = 0
+
+  while (true) {
+    const from = nextOffset
+    const to = from + pSize - 1
+
+    try {
+      const { data, error } = await queryFactory(from, to)
+
+      if (error || !data) {
+        return { ok: false, error: error ?? new Error('DATABASE_READ_ERROR') }
+      }
+
+      if (data.length === 0) {
+        // Explicit empty page establishes complete enumeration
+        break
+      }
+
+      for (const row of data) {
+        onRow(row)
+      }
+
+      // Advance offset by actual returned rows, not requested pageSize
+      nextOffset += data.length
+    } catch (err) {
+      return { ok: false, error: err }
+    }
+  }
+
+  return { ok: true }
 }
 
 /**
@@ -230,7 +293,7 @@ export function deserializePrivacyRestoreDelta(raw: string): PrivacyRestoreDelta
  * For suppressions: created_at > backupCreatedAt AND created_at <= exportedAt
  *
  * Captures exportedAt before the database reads to establish an authoritative upper bound.
- * Uses complete deterministic pagination until table exhaustion.
+ * Uses complete deterministic, cap-safe pagination until table exhaustion.
  */
 export async function collectPrivacyRestoreDelta({
   supabase,
@@ -290,18 +353,13 @@ export async function collectPrivacyRestoreDelta({
     }
   }
 
-  const pSize = Math.max(1, pageSize)
+  const pSize = normalizePageSize(pageSize)
 
-  // 1. Collect customer_erasure_records in window (backupCreatedAt, exportedAt] with complete pagination
+  // 1. Collect customer_erasure_records in window (backupCreatedAt, exportedAt] with cap-safe pagination
   const collectedErasures: PrivacyRestoreErasureEvidence[] = []
-  let erasurePage = 0
-
-  while (true) {
-    const from = erasurePage * pSize
-    const to = from + pSize - 1
-
-    try {
-      const { data: erasures, error: erasuresError } = await supabase
+  const erasureRes = await paginateQuery(
+    (from, to) =>
+      supabase
         .from('customer_erasure_records')
         .select('organization_id, customer_id, erased_at')
         .gt('erased_at', backupCreatedAtIso)
@@ -309,47 +367,30 @@ export async function collectPrivacyRestoreDelta({
         .order('erased_at', { ascending: true })
         .order('organization_id', { ascending: true })
         .order('customer_id', { ascending: true })
-        .range(from, to)
+        .range(from, to),
+    (r) => {
+      collectedErasures.push({
+        organizationId: r.organization_id,
+        customerId: r.customer_id,
+        erasedAt: r.erased_at,
+      })
+    },
+    pSize
+  )
 
-      if (erasuresError || !erasures) {
-        return {
-          ok: false,
-          status: 'UNAVAILABLE',
-          error: 'DATABASE_READ_ERROR',
-        }
-      }
-
-      for (const r of erasures) {
-        collectedErasures.push({
-          organizationId: r.organization_id,
-          customerId: r.customer_id,
-          erasedAt: r.erased_at,
-        })
-      }
-
-      if (erasures.length < pSize) {
-        break
-      }
-      erasurePage++
-    } catch {
-      return {
-        ok: false,
-        status: 'UNAVAILABLE',
-        error: 'DATABASE_READ_ERROR',
-      }
+  if (!erasureRes.ok) {
+    return {
+      ok: false,
+      status: 'UNAVAILABLE',
+      error: 'DATABASE_READ_ERROR',
     }
   }
 
-  // 2. Collect suppressions in window (backupCreatedAt, exportedAt] with complete pagination
+  // 2. Collect suppressions in window (backupCreatedAt, exportedAt] with cap-safe pagination
   const collectedSuppressions: PrivacyRestoreSuppressionEvidence[] = []
-  let suppressionPage = 0
-
-  while (true) {
-    const from = suppressionPage * pSize
-    const to = from + pSize - 1
-
-    try {
-      const { data: suppressions, error: suppressionsError } = await supabase
+  const suppressionRes = await paginateQuery(
+    (from, to) =>
+      supabase
         .from('suppressions')
         .select('organization_id, channel, contact_hash, reason, created_at')
         .gt('created_at', backupCreatedAtIso)
@@ -358,36 +399,24 @@ export async function collectPrivacyRestoreDelta({
         .order('organization_id', { ascending: true })
         .order('channel', { ascending: true })
         .order('contact_hash', { ascending: true })
-        .range(from, to)
+        .range(from, to),
+    (s) => {
+      collectedSuppressions.push({
+        organizationId: s.organization_id,
+        channel: s.channel,
+        contactHash: s.contact_hash,
+        reason: s.reason,
+        createdAt: s.created_at,
+      })
+    },
+    pSize
+  )
 
-      if (suppressionsError || !suppressions) {
-        return {
-          ok: false,
-          status: 'UNAVAILABLE',
-          error: 'DATABASE_READ_ERROR',
-        }
-      }
-
-      for (const s of suppressions) {
-        collectedSuppressions.push({
-          organizationId: s.organization_id,
-          channel: s.channel,
-          contactHash: s.contact_hash,
-          reason: s.reason,
-          createdAt: s.created_at,
-        })
-      }
-
-      if (suppressions.length < pSize) {
-        break
-      }
-      suppressionPage++
-    } catch {
-      return {
-        ok: false,
-        status: 'UNAVAILABLE',
-        error: 'DATABASE_READ_ERROR',
-      }
+  if (!suppressionRes.ok) {
+    return {
+      ok: false,
+      status: 'UNAVAILABLE',
+      error: 'DATABASE_READ_ERROR',
     }
   }
 
@@ -432,7 +461,7 @@ export function evaluateRestoreDecision(
  * 4. Error scrubbing in review_requests (error_message = null) and message_events (sanitized_error = null).
  * 5. Presence of all post-backup suppressions in the restored database.
  *
- * Implements complete deterministic pagination for all multi-row queries.
+ * Implements complete deterministic, cap-safe pagination for all multi-row queries.
  * Reports truthful counters (counting only records fully and successfully evaluated before any failure).
  * Fails closed on any violation or database read failure.
  */
@@ -459,7 +488,7 @@ export async function verifyRestoredPrivacyState({
     }
   }
 
-  const pSize = Math.max(1, pageSize)
+  const pSize = normalizePageSize(pageSize)
   let erasureRecordsChecked = 0
   let suppressionRecordsChecked = 0
   let missingErasureProtections = 0
@@ -559,161 +588,99 @@ export async function verifyRestoredPrivacyState({
       }
     }
 
-    // Check customer_completion_events with complete pagination
-    let compPage = 0
-    while (true) {
-      const from = compPage * pSize
-      const to = from + pSize - 1
-
-      try {
-        const { data: completions, error: compErr } = await supabase
+    // Check customer_completion_events with cap-safe pagination
+    const compRes = await paginateQuery(
+      (from, to) =>
+        supabase
           .from('customer_completion_events')
           .select('id, contact, source_customer_id, source_transaction_id, source_event_id')
           .eq('organization_id', organizationId)
           .eq('customer_id', customerId)
           .order('id', { ascending: true })
-          .range(from, to)
-
-        if (compErr || !completions) {
-          return {
-            ok: false,
-            decision: 'BLOCK_RESTORE_ACTIVATION',
-            schemaVersion: '1.0',
-            erasureRecordsChecked,
-            suppressionRecordsChecked,
-            missingErasureProtections: missingErasureProtections + 1,
-            missingSuppressions,
-            reason: 'DATABASE_ERROR',
-          }
+          .range(from, to),
+      (c) => {
+        // MR-7C.3C Invariant: source_customer_id = NULL, source_transaction_id = NULL
+        if (c.source_customer_id !== null || c.source_transaction_id !== null) {
+          isProtected = false
         }
 
-        for (const c of completions) {
-          // MR-7C.3C Invariant: source_customer_id = NULL, source_transaction_id = NULL
-          if (c.source_customer_id !== null || c.source_transaction_id !== null) {
-            isProtected = false
-          }
+        // Contact payload must strictly equal the empty JSON object: {}
+        if (!isExactEmptyJsonObject(c.contact)) {
+          isProtected = false
+        }
+        // Note: c.source_event_id is retained as deduplication key — does NOT cause failure
+      },
+      pSize
+    )
 
-          // Contact payload must strictly equal the empty JSON object: {}
-          if (!isExactEmptyJsonObject(c.contact)) {
-            isProtected = false
-          }
-          // Note: c.source_event_id is retained as deduplication key — does NOT cause failure
-        }
-
-        if (completions.length < pSize) {
-          break
-        }
-        compPage++
-      } catch {
-        return {
-          ok: false,
-          decision: 'BLOCK_RESTORE_ACTIVATION',
-          schemaVersion: '1.0',
-          erasureRecordsChecked,
-          suppressionRecordsChecked,
-          missingErasureProtections: missingErasureProtections + 1,
-          missingSuppressions,
-          reason: 'DATABASE_ERROR',
-        }
+    if (!compRes.ok) {
+      return {
+        ok: false,
+        decision: 'BLOCK_RESTORE_ACTIVATION',
+        schemaVersion: '1.0',
+        erasureRecordsChecked,
+        suppressionRecordsChecked,
+        missingErasureProtections: missingErasureProtections + 1,
+        missingSuppressions,
+        reason: 'DATABASE_ERROR',
       }
     }
 
-    // Check review_requests with complete pagination
-    let reqPage = 0
+    // Check review_requests with cap-safe pagination
     const collectedRequestIds: string[] = []
-
-    while (true) {
-      const from = reqPage * pSize
-      const to = from + pSize - 1
-
-      try {
-        const { data: requests, error: reqErr } = await supabase
+    const reqRes = await paginateQuery(
+      (from, to) =>
+        supabase
           .from('review_requests')
           .select('id, error_message')
           .eq('organization_id', organizationId)
           .eq('customer_id', customerId)
           .order('id', { ascending: true })
-          .range(from, to)
+          .range(from, to),
+      (r) => {
+        if (r.error_message !== null) {
+          isProtected = false
+        }
+        collectedRequestIds.push(r.id)
+      },
+      pSize
+    )
 
-        if (reqErr || !requests) {
-          return {
-            ok: false,
-            decision: 'BLOCK_RESTORE_ACTIVATION',
-            schemaVersion: '1.0',
-            erasureRecordsChecked,
-            suppressionRecordsChecked,
-            missingErasureProtections: missingErasureProtections + 1,
-            missingSuppressions,
-            reason: 'DATABASE_ERROR',
-          }
-        }
-
-        for (const r of requests) {
-          if (r.error_message !== null) {
-            isProtected = false
-          }
-          collectedRequestIds.push(r.id)
-        }
-
-        if (requests.length < pSize) {
-          break
-        }
-        reqPage++
-      } catch {
-        return {
-          ok: false,
-          decision: 'BLOCK_RESTORE_ACTIVATION',
-          schemaVersion: '1.0',
-          erasureRecordsChecked,
-          suppressionRecordsChecked,
-          missingErasureProtections: missingErasureProtections + 1,
-          missingSuppressions,
-          reason: 'DATABASE_ERROR',
-        }
+    if (!reqRes.ok) {
+      return {
+        ok: false,
+        decision: 'BLOCK_RESTORE_ACTIVATION',
+        schemaVersion: '1.0',
+        erasureRecordsChecked,
+        suppressionRecordsChecked,
+        missingErasureProtections: missingErasureProtections + 1,
+        missingSuppressions,
+        reason: 'DATABASE_ERROR',
       }
     }
 
-    // Check message_events with complete pagination for collected requests
+    // Check message_events with bounded request ID chunking and cap-safe pagination
     if (collectedRequestIds.length > 0) {
-      let msgPage = 0
-
-      while (true) {
-        const from = msgPage * pSize
-        const to = from + pSize - 1
-
-        try {
-          const { data: msgEvents, error: msgErr } = await supabase
-            .from('message_events')
-            .select('id, sanitized_error')
-            .eq('organization_id', organizationId)
-            .in('review_request_id', collectedRequestIds)
-            .order('id', { ascending: true })
-            .range(from, to)
-
-          if (msgErr || !msgEvents) {
-            return {
-              ok: false,
-              decision: 'BLOCK_RESTORE_ACTIVATION',
-              schemaVersion: '1.0',
-              erasureRecordsChecked,
-              suppressionRecordsChecked,
-              missingErasureProtections: missingErasureProtections + 1,
-              missingSuppressions,
-              reason: 'DATABASE_ERROR',
-            }
-          }
-
-          for (const me of msgEvents) {
+      for (let i = 0; i < collectedRequestIds.length; i += REVIEW_REQUEST_ID_CHUNK_SIZE) {
+        const chunk = collectedRequestIds.slice(i, i + REVIEW_REQUEST_ID_CHUNK_SIZE)
+        const msgRes = await paginateQuery(
+          (from, to) =>
+            supabase
+              .from('message_events')
+              .select('id, sanitized_error')
+              .eq('organization_id', organizationId)
+              .in('review_request_id', chunk)
+              .order('id', { ascending: true })
+              .range(from, to),
+          (me) => {
             if (me.sanitized_error !== null) {
               isProtected = false
             }
-          }
+          },
+          pSize
+        )
 
-          if (msgEvents.length < pSize) {
-            break
-          }
-          msgPage++
-        } catch {
+        if (!msgRes.ok) {
           return {
             ok: false,
             decision: 'BLOCK_RESTORE_ACTIVATION',

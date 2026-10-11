@@ -207,20 +207,21 @@
   - Fail-closed production safety guard on `ConsoleEmailProvider`.
   - Verified across 19 proof integration tests and regression suite.
 - **MR-7C.5C1 — POST-RESTORE PRIVACY VERIFICATION FOUNDATION (CASE A) (ENGINEERING COMPLETE / READY FOR OWNER REVIEW)**:
-  - **Versioned Restore Delta Contract**: Implemented `PrivacyRestoreDeltaV1` schema representing post-backup operational privacy evidence (`erasures`, `suppressions`) with zero raw customer PII, zero tokens, zero hashes, and zero credentials (`src/domain/privacy/restore-verification.ts`).
-  - **Deterministic Post-Backup Delta Collection**: `collectPrivacyRestoreDelta` extracts erasures from `customer_erasure_records` and suppressions from `suppressions` strictly created after `backupCreatedAt` with deterministic ordering, server-only trusted access, and fail-closed handling on read error.
-  - **Fail-Closed Restored State Verification**: `verifyRestoredPrivacyState` and `evaluateRestoreDecision` check the restored database against post-backup privacy requirements:
+  - **Versioned Restore Delta Contract**: Implemented `PrivacyRestoreDeltaV1` schema representing post-backup operational privacy evidence (`erasures`, `suppressions`) with zero raw contact PII; suppression contact hashes are retained as pseudonymous privacy evidence needed to verify suppression continuity (`src/domain/privacy/restore-verification.ts`). Strict schema allowlists on top-level keys, erasure items, and suppression items reject any unknown properties. Contact hashes strictly validated to SHA-256 format (`^[a-f0-9]{64}$`).
+  - **Deterministic Post-Backup Delta Collection**: `collectPrivacyRestoreDelta` extracts erasures from `customer_erasure_records` and suppressions from `suppressions` strictly within the frozen window `(backupCreatedAt, exportedAt]` with complete deterministic pagination until table exhaustion, server-only trusted access, and fail-closed handling on read error.
+  - **Fail-Closed Restored State Verification**: `verifyRestoredPrivacyState` and `evaluateRestoreDecision` check the restored database against post-backup privacy requirements with complete deterministic pagination across all multi-row queries:
     - Verifies customer record is tombstoned (`first_name = '[Deleted Customer]'`, `last_name IS NULL`, `email IS NULL`, `phone IS NULL`).
+    - Verifies durable erasure certificate exists in `customer_erasure_records` for `(organization_id, customer_id)`.
+    - Verifies completion events have exact empty contact JSON (`{}`), failing closed on any non-empty JSON or non-object values.
     - Verifies external identifiers are scrubbed (`source_customer_id IS NULL`, `source_transaction_id IS NULL`), while `source_event_id` is retained as deduplication key.
-    - Verifies historical review request error text and sanitized message errors are scrubbed.
-    - Verifies completion events have empty contact JSON (`'{}'`).
+    - Verifies historical review request error text and sanitized message errors are scrubbed across paginated requests and message events.
     - Verifies corresponding suppressions are present by composite key `(organization_id, channel, contact_hash)`.
-  - **Aggregate Safe Metrics Only**: Result contains aggregate safe metrics (`ok`, `decision: 'PASS' | 'BLOCK_RESTORE_ACTIVATION'`, `schemaVersion`, `erasureRecordsChecked`, `suppressionRecordsChecked`, `missingErasureProtections`, `missingSuppressions`, `reason`). Zero customer IDs, names, emails, phones, contact hashes, or SQL errors returned or logged.
+  - **Aggregate Safe Metrics & Truthful Counters**: Result contains aggregate safe metrics (`ok`, `decision: 'PASS' | 'BLOCK_RESTORE_ACTIVATION'`, `schemaVersion`, `erasureRecordsChecked`, `suppressionRecordsChecked`, `missingErasureProtections`, `missingSuppressions`, `reason`). Counters truthfully reflect only records successfully evaluated before any failure. Zero raw customer PII or raw provider errors returned or logged.
   - **Operational & Security Boundaries**:
     - Server/maintenance only (`import 'server-only'`). Zero browser UI, zero public API routes, zero tenant Server Actions, zero cron/Inngest registration.
     - **No Automatic Mutation / Replay in C5C1**: Pure collection + verification. Mutation/replay authority remains in a future bounded slice.
     - **Case B Explicitly Unresolved**: Catastrophic database loss with no pre-restore DB readable still lacks an independent offsite delta ledger. Documented honestly as unresolved.
-  - **Verification**: 25 dedicated unit and domain-level tests pass cleanly (`test/domain/restore-privacy-verification.test.ts`).
+  - **Verification**: 64 dedicated unit and domain-level tests pass cleanly (`test/domain/restore-privacy-verification.test.ts`).
 
 ---
 

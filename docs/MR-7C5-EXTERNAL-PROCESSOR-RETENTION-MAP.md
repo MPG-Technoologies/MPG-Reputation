@@ -347,10 +347,9 @@ In planned rollbacks or non-catastrophic database rebuilds where the pre-restore
 
 > [!NOTE]
 > **MR-7C.5C1 IMPLEMENTATION FOUNDATION (CASE A)**:
-> In MR-7C.5C1, the collection and verification foundation for Case A is implemented and tested (`src/domain/privacy/restore-verification.ts`):
-> - `PrivacyRestoreDeltaV1`: Strongly typed versioned delta schema containing strictly post-backup operational evidence (erasure customer/org IDs, suppression channel/hash pairs, timestamps; zero customer PII, zero tokens, zero credentials).
-> - `collectPrivacyRestoreDelta`: Server-only collector extracting post-backup erasures and suppressions deterministically from a readable source database.
-> - `verifyRestoredPrivacyState` & `evaluateRestoreDecision`: Verifies the restored database against the delta, confirming all erased customers have tombstoned names, NULLed PII, scrubbed errors, and empty completion contact payloads, and confirming all required suppressions exist. Fails closed (`BLOCK_RESTORE_ACTIVATION`) if resurrected PII or missing suppressions are detected. Returns strictly aggregate safe metrics with zero direct PII or hashes.
+> - `PrivacyRestoreDeltaV1`: Strongly typed versioned delta schema containing strictly post-backup operational evidence (erasure customer/org IDs, suppression channel/hash pairs, timestamps; zero raw contact PII; suppression contact hashes are retained as pseudonymous privacy evidence needed to verify suppression continuity).
+> - `collectPrivacyRestoreDelta`: Server-only collector extracting post-backup erasures and suppressions deterministically from a readable source database within the frozen window (backupCreatedAt, exportedAt] with complete deterministic pagination.
+> - `verifyRestoredPrivacyState` & `evaluateRestoreDecision`: Verifies the restored database against the delta with complete pagination across all multi-row queries, confirming all erased customers have tombstoned names, NULLed PII, durable erasure certificates in customer_erasure_records, scrubbed errors, and exact empty completion contact payloads ({}), and confirming all required suppressions exist. Fails closed (`BLOCK_RESTORE_ACTIVATION`) if resurrected PII, missing certificates, or missing suppressions are detected. Returns strictly truthful aggregate safe metrics with zero direct PII.
 > - **No Automatic Mutation / Replay in C5C1**: Pure collection + verification. Mutation/replay authority remains in a future bounded slice to preserve security boundaries.
 
 #### Case B — Current DB Unavailable (Catastrophic Loss)

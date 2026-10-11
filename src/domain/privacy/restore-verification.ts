@@ -7,6 +7,32 @@ import { CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME } from './customer-erasure'
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+export const SHA256_HEX_REGEX = /^[a-f0-9]{64}$/
+
+export const DEFAULT_RESTORE_VERIFICATION_PAGE_SIZE = 1000
+
+export const ALLOWED_DELTA_KEYS = new Set([
+  'schemaVersion',
+  'backupCreatedAt',
+  'exportedAt',
+  'erasures',
+  'suppressions',
+])
+
+export const ALLOWED_ERASURE_KEYS = new Set([
+  'organizationId',
+  'customerId',
+  'erasedAt',
+])
+
+export const ALLOWED_SUPPRESSION_KEYS = new Set([
+  'organizationId',
+  'channel',
+  'contactHash',
+  'reason',
+  'createdAt',
+])
+
 export interface PrivacyRestoreErasureEvidence {
   organizationId: string
   customerId: string
@@ -55,25 +81,54 @@ export type CollectPrivacyRestoreDeltaResult =
     }
 
 /**
+ * Validates whether a value is strictly an empty JSON object ({}).
+ * Rejects non-empty objects, arrays, primitives, null, undefined, or strings.
+ */
+export function isExactEmptyJsonObject(value: unknown): boolean {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+  return Object.keys(value as Record<string, unknown>).length === 0
+}
+
+/**
  * Validates that an object conforms strictly to the PrivacyRestoreDeltaV1 contract.
- * Ensures zero forbidden PII or credential fields exist on the payload.
+ * Enforces exact property allowlists on top-level keys, erasure evidence, and suppression evidence.
+ * Validates that contactHash matches SHA-256 hex format (64 chars).
+ * Prohibits any unknown properties or forbidden raw PII.
  */
 export function isPrivacyRestoreDeltaV1(delta: unknown): delta is PrivacyRestoreDeltaV1 {
-  if (!delta || typeof delta !== 'object') {
+  if (!delta || typeof delta !== 'object' || Array.isArray(delta)) {
     return false
   }
 
   const d = delta as Record<string, unknown>
+  const topKeys = Object.keys(d)
+
+  // Enforce strict top-level property allowlist
+  if (topKeys.length !== 5) {
+    return false
+  }
+  for (const k of topKeys) {
+    if (!ALLOWED_DELTA_KEYS.has(k)) {
+      return false
+    }
+  }
 
   if (d.schemaVersion !== '1.0') {
     return false
   }
 
-  if (typeof d.backupCreatedAt !== 'string' || isNaN(Date.parse(d.backupCreatedAt))) {
+  if (typeof d.backupCreatedAt !== 'string' || Number.isNaN(Date.parse(d.backupCreatedAt))) {
     return false
   }
 
-  if (typeof d.exportedAt !== 'string' || isNaN(Date.parse(d.exportedAt))) {
+  if (typeof d.exportedAt !== 'string' || Number.isNaN(Date.parse(d.exportedAt))) {
+    return false
+  }
+
+  // exportedAt must be strictly greater than backupCreatedAt
+  if (Date.parse(d.exportedAt) <= Date.parse(d.backupCreatedAt)) {
     return false
   }
 
@@ -81,78 +136,60 @@ export function isPrivacyRestoreDeltaV1(delta: unknown): delta is PrivacyRestore
     return false
   }
 
-  // Ensure forbidden payload / PII keys are absent
-  const forbiddenTopLevelKeys = [
-    'email',
-    'phone',
-    'name',
-    'first_name',
-    'last_name',
-    'firstName',
-    'lastName',
-    'token',
-    'secret',
-    'key',
-    'password',
-    'apiKey',
-    'credentials',
-  ]
-  for (const k of forbiddenTopLevelKeys) {
-    if (k in d) {
-      return false
-    }
-  }
-
   for (const e of d.erasures) {
-    if (!e || typeof e !== 'object') {
+    if (!e || typeof e !== 'object' || Array.isArray(e)) {
       return false
     }
     const item = e as Record<string, unknown>
+    const eKeys = Object.keys(item)
+    if (eKeys.length !== 3) {
+      return false
+    }
+    for (const k of eKeys) {
+      if (!ALLOWED_ERASURE_KEYS.has(k)) {
+        return false
+      }
+    }
+
     if (typeof item.organizationId !== 'string' || !UUID_REGEX.test(item.organizationId)) {
       return false
     }
     if (typeof item.customerId !== 'string' || !UUID_REGEX.test(item.customerId)) {
       return false
     }
-    if (typeof item.erasedAt !== 'string' || isNaN(Date.parse(item.erasedAt))) {
-      return false
-    }
-
-    // Zero PII on erasure evidence
-    if (
-      'first_name' in item ||
-      'last_name' in item ||
-      'email' in item ||
-      'phone' in item ||
-      'contact' in item
-    ) {
+    if (typeof item.erasedAt !== 'string' || Number.isNaN(Date.parse(item.erasedAt))) {
       return false
     }
   }
 
   for (const s of d.suppressions) {
-    if (!s || typeof s !== 'object') {
+    if (!s || typeof s !== 'object' || Array.isArray(s)) {
       return false
     }
     const item = s as Record<string, unknown>
+    const sKeys = Object.keys(item)
+    if (sKeys.length !== 5) {
+      return false
+    }
+    for (const k of sKeys) {
+      if (!ALLOWED_SUPPRESSION_KEYS.has(k)) {
+        return false
+      }
+    }
+
     if (typeof item.organizationId !== 'string' || !UUID_REGEX.test(item.organizationId)) {
       return false
     }
     if (typeof item.channel !== 'string' || (item.channel !== 'email' && item.channel !== 'sms')) {
       return false
     }
-    if (typeof item.contactHash !== 'string' || item.contactHash.length === 0) {
+    if (typeof item.contactHash !== 'string' || !SHA256_HEX_REGEX.test(item.contactHash)) {
       return false
     }
-    if (typeof item.reason !== 'string' || item.reason.length === 0) {
+    if (typeof item.reason !== 'string' || item.reason.trim().length === 0) {
       return false
     }
-    if (typeof item.createdAt !== 'string' || isNaN(Date.parse(item.createdAt))) {
-      return false
-    }
-
-    // Zero PII on suppression evidence
-    if ('email' in item || 'phone' in item || 'name' in item || 'contact' in item) {
+    if (typeof item.createdAt !== 'string' || Number.isNaN(Date.parse(item.createdAt))) {
       return false
     }
   }
@@ -186,17 +223,25 @@ export function deserializePrivacyRestoreDelta(raw: string): PrivacyRestoreDelta
 }
 
 /**
- * Collects post-backup privacy deltas created strictly AFTER backupCreatedAt.
- * Field allowlists strictly omit raw PII, provider payloads, and arbitrary metadata.
+ * Collects post-backup privacy deltas created strictly in the frozen window:
+ * (backupCreatedAt, exportedAt]
+ *
+ * For erasures: erased_at > backupCreatedAt AND erased_at <= exportedAt
+ * For suppressions: created_at > backupCreatedAt AND created_at <= exportedAt
+ *
+ * Captures exportedAt before the database reads to establish an authoritative upper bound.
+ * Uses complete deterministic pagination until table exhaustion.
  */
 export async function collectPrivacyRestoreDelta({
   supabase,
   backupCreatedAt,
   exportedAt,
+  pageSize = DEFAULT_RESTORE_VERIFICATION_PAGE_SIZE,
 }: {
   supabase: SupabaseClient<Database>
   backupCreatedAt: string | Date
   exportedAt?: string | Date
+  pageSize?: number
 }): Promise<CollectPrivacyRestoreDeltaResult> {
   // Validate backupCreatedAt
   if (
@@ -211,7 +256,7 @@ export async function collectPrivacyRestoreDelta({
   }
 
   const backupDate = new Date(backupCreatedAt)
-  if (isNaN(backupDate.getTime())) {
+  if (Number.isNaN(backupDate.getTime())) {
     return {
       ok: false,
       status: 'INVALID_TIMESTAMP',
@@ -221,10 +266,11 @@ export async function collectPrivacyRestoreDelta({
 
   const backupCreatedAtIso = backupDate.toISOString()
 
+  // Capture exportedAt before database reads
   let exportedAtIso: string
   if (exportedAt) {
     const expDate = new Date(exportedAt)
-    if (isNaN(expDate.getTime())) {
+    if (Number.isNaN(expDate.getTime())) {
       return {
         ok: false,
         status: 'INVALID_TIMESTAMP',
@@ -236,38 +282,112 @@ export async function collectPrivacyRestoreDelta({
     exportedAtIso = new Date().toISOString()
   }
 
-  // 1. Collect customer_erasure_records created strictly AFTER backupCreatedAt
-  const { data: erasures, error: erasuresError } = await supabase
-    .from('customer_erasure_records')
-    .select('organization_id, customer_id, erased_at')
-    .gt('erased_at', backupCreatedAtIso)
-    .order('erased_at', { ascending: true })
-    .order('organization_id', { ascending: true })
-    .order('customer_id', { ascending: true })
-
-  if (erasuresError) {
+  if (Date.parse(exportedAtIso) <= Date.parse(backupCreatedAtIso)) {
     return {
       ok: false,
-      status: 'UNAVAILABLE',
-      error: 'DATABASE_READ_ERROR',
+      status: 'INVALID_TIMESTAMP',
+      error: 'Invalid export window: exportedAt must be strictly greater than backupCreatedAt',
     }
   }
 
-  // 2. Collect suppressions created strictly AFTER backupCreatedAt
-  const { data: suppressions, error: suppressionsError } = await supabase
-    .from('suppressions')
-    .select('organization_id, channel, contact_hash, reason, created_at')
-    .gt('created_at', backupCreatedAtIso)
-    .order('created_at', { ascending: true })
-    .order('organization_id', { ascending: true })
-    .order('channel', { ascending: true })
-    .order('contact_hash', { ascending: true })
+  const pSize = Math.max(1, pageSize)
 
-  if (suppressionsError) {
-    return {
-      ok: false,
-      status: 'UNAVAILABLE',
-      error: 'DATABASE_READ_ERROR',
+  // 1. Collect customer_erasure_records in window (backupCreatedAt, exportedAt] with complete pagination
+  const collectedErasures: PrivacyRestoreErasureEvidence[] = []
+  let erasurePage = 0
+
+  while (true) {
+    const from = erasurePage * pSize
+    const to = from + pSize - 1
+
+    try {
+      const { data: erasures, error: erasuresError } = await supabase
+        .from('customer_erasure_records')
+        .select('organization_id, customer_id, erased_at')
+        .gt('erased_at', backupCreatedAtIso)
+        .lte('erased_at', exportedAtIso)
+        .order('erased_at', { ascending: true })
+        .order('organization_id', { ascending: true })
+        .order('customer_id', { ascending: true })
+        .range(from, to)
+
+      if (erasuresError || !erasures) {
+        return {
+          ok: false,
+          status: 'UNAVAILABLE',
+          error: 'DATABASE_READ_ERROR',
+        }
+      }
+
+      for (const r of erasures) {
+        collectedErasures.push({
+          organizationId: r.organization_id,
+          customerId: r.customer_id,
+          erasedAt: r.erased_at,
+        })
+      }
+
+      if (erasures.length < pSize) {
+        break
+      }
+      erasurePage++
+    } catch {
+      return {
+        ok: false,
+        status: 'UNAVAILABLE',
+        error: 'DATABASE_READ_ERROR',
+      }
+    }
+  }
+
+  // 2. Collect suppressions in window (backupCreatedAt, exportedAt] with complete pagination
+  const collectedSuppressions: PrivacyRestoreSuppressionEvidence[] = []
+  let suppressionPage = 0
+
+  while (true) {
+    const from = suppressionPage * pSize
+    const to = from + pSize - 1
+
+    try {
+      const { data: suppressions, error: suppressionsError } = await supabase
+        .from('suppressions')
+        .select('organization_id, channel, contact_hash, reason, created_at')
+        .gt('created_at', backupCreatedAtIso)
+        .lte('created_at', exportedAtIso)
+        .order('created_at', { ascending: true })
+        .order('organization_id', { ascending: true })
+        .order('channel', { ascending: true })
+        .order('contact_hash', { ascending: true })
+        .range(from, to)
+
+      if (suppressionsError || !suppressions) {
+        return {
+          ok: false,
+          status: 'UNAVAILABLE',
+          error: 'DATABASE_READ_ERROR',
+        }
+      }
+
+      for (const s of suppressions) {
+        collectedSuppressions.push({
+          organizationId: s.organization_id,
+          channel: s.channel,
+          contactHash: s.contact_hash,
+          reason: s.reason,
+          createdAt: s.created_at,
+        })
+      }
+
+      if (suppressions.length < pSize) {
+        break
+      }
+      suppressionPage++
+    } catch {
+      return {
+        ok: false,
+        status: 'UNAVAILABLE',
+        error: 'DATABASE_READ_ERROR',
+      }
     }
   }
 
@@ -275,18 +395,8 @@ export async function collectPrivacyRestoreDelta({
     schemaVersion: '1.0',
     backupCreatedAt: backupCreatedAtIso,
     exportedAt: exportedAtIso,
-    erasures: (erasures || []).map((r) => ({
-      organizationId: r.organization_id,
-      customerId: r.customer_id,
-      erasedAt: r.erased_at,
-    })),
-    suppressions: (suppressions || []).map((s) => ({
-      organizationId: s.organization_id,
-      channel: s.channel,
-      contactHash: s.contact_hash,
-      reason: s.reason,
-      createdAt: s.created_at,
-    })),
+    erasures: collectedErasures,
+    suppressions: collectedSuppressions,
   }
 
   return {
@@ -315,15 +425,25 @@ export function evaluateRestoreDecision(
 
 /**
  * Verifies that a restored database satisfies the post-backup privacy invariant.
- * Checks for resurrected customer PII, unscrubbed error text, and missing suppressions.
+ * Evaluates:
+ * 1. Customer tombstone in customers table (first_name = '[Deleted Customer]', last_name/email/phone = null).
+ * 2. Durable erasure certificate in customer_erasure_records for (organization_id, customer_id).
+ * 3. Completion events contact payload exact empty object ({}) and source_customer_id / source_transaction_id erased (null).
+ * 4. Error scrubbing in review_requests (error_message = null) and message_events (sanitized_error = null).
+ * 5. Presence of all post-backup suppressions in the restored database.
+ *
+ * Implements complete deterministic pagination for all multi-row queries.
+ * Reports truthful counters (counting only records fully and successfully evaluated before any failure).
  * Fails closed on any violation or database read failure.
  */
 export async function verifyRestoredPrivacyState({
   supabase,
   delta,
+  pageSize = DEFAULT_RESTORE_VERIFICATION_PAGE_SIZE,
 }: {
   supabase: SupabaseClient<Database>
   delta: unknown
+  pageSize?: number
 }): Promise<RestorePrivacyVerificationResult> {
   // 1. Strict schema validation
   if (!isPrivacyRestoreDeltaV1(delta)) {
@@ -339,23 +459,20 @@ export async function verifyRestoredPrivacyState({
     }
   }
 
+  const pSize = Math.max(1, pageSize)
+  let erasureRecordsChecked = 0
+  let suppressionRecordsChecked = 0
   let missingErasureProtections = 0
+  let missingSuppressions = 0
 
   // 2. Verify all erasure records in delta
   for (const erasure of delta.erasures) {
     const { organizationId, customerId } = erasure
+    let isProtected = true
 
     // Check customers row
-    let customerRow: {
-      id: string
-      first_name: string | null
-      last_name: string | null
-      email: string | null
-      phone: string | null
-    } | null = null
-
     try {
-      const { data: customer, error: custErr } = await supabase
+      const { data: customerRow, error: custErr } = await supabase
         .from('customers')
         .select('id, first_name, last_name, email, phone')
         .eq('organization_id', organizationId)
@@ -367,190 +484,263 @@ export async function verifyRestoredPrivacyState({
           ok: false,
           decision: 'BLOCK_RESTORE_ACTIVATION',
           schemaVersion: '1.0',
-          erasureRecordsChecked: delta.erasures.length,
-          suppressionRecordsChecked: delta.suppressions.length,
+          erasureRecordsChecked,
+          suppressionRecordsChecked,
           missingErasureProtections: missingErasureProtections + 1,
-          missingSuppressions: 0,
+          missingSuppressions,
           reason: 'DATABASE_ERROR',
         }
       }
-      customerRow = customer
+
+      if (!customerRow) {
+        isProtected = false
+      } else {
+        if (
+          customerRow.first_name !== CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME ||
+          customerRow.last_name !== null ||
+          customerRow.email !== null ||
+          customerRow.phone !== null
+        ) {
+          isProtected = false
+        }
+      }
     } catch {
       return {
         ok: false,
         decision: 'BLOCK_RESTORE_ACTIVATION',
         schemaVersion: '1.0',
-        erasureRecordsChecked: delta.erasures.length,
-        suppressionRecordsChecked: delta.suppressions.length,
+        erasureRecordsChecked,
+        suppressionRecordsChecked,
         missingErasureProtections: missingErasureProtections + 1,
-        missingSuppressions: 0,
+        missingSuppressions,
         reason: 'DATABASE_ERROR',
       }
     }
 
-    let isProtected = true
-
-    // Erased customer row MUST exist with deterministic tombstone and zero PII
-    if (!customerRow) {
-      isProtected = false
-    } else {
-      if (
-        customerRow.first_name !== CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME ||
-        customerRow.last_name !== null ||
-        customerRow.email !== null ||
-        customerRow.phone !== null
-      ) {
-        isProtected = false
-      }
-    }
-
-    // Check customer_completion_events
+    // Verify durable erasure certificate exists in customer_erasure_records
     try {
-      const { data: completions, error: compErr } = await supabase
-        .from('customer_completion_events')
-        .select('id, contact, source_customer_id, source_transaction_id, source_event_id')
+      const { data: certRow, error: certErr } = await supabase
+        .from('customer_erasure_records')
+        .select('organization_id, customer_id')
         .eq('organization_id', organizationId)
         .eq('customer_id', customerId)
+        .maybeSingle()
 
-      if (compErr) {
+      if (certErr) {
         return {
           ok: false,
           decision: 'BLOCK_RESTORE_ACTIVATION',
           schemaVersion: '1.0',
-          erasureRecordsChecked: delta.erasures.length,
-          suppressionRecordsChecked: delta.suppressions.length,
+          erasureRecordsChecked,
+          suppressionRecordsChecked,
           missingErasureProtections: missingErasureProtections + 1,
-          missingSuppressions: 0,
+          missingSuppressions,
           reason: 'DATABASE_ERROR',
         }
       }
 
-      if (completions && completions.length > 0) {
+      if (
+        !certRow ||
+        certRow.organization_id !== organizationId ||
+        certRow.customer_id !== customerId
+      ) {
+        isProtected = false
+      }
+    } catch {
+      return {
+        ok: false,
+        decision: 'BLOCK_RESTORE_ACTIVATION',
+        schemaVersion: '1.0',
+        erasureRecordsChecked,
+        suppressionRecordsChecked,
+        missingErasureProtections: missingErasureProtections + 1,
+        missingSuppressions,
+        reason: 'DATABASE_ERROR',
+      }
+    }
+
+    // Check customer_completion_events with complete pagination
+    let compPage = 0
+    while (true) {
+      const from = compPage * pSize
+      const to = from + pSize - 1
+
+      try {
+        const { data: completions, error: compErr } = await supabase
+          .from('customer_completion_events')
+          .select('id, contact, source_customer_id, source_transaction_id, source_event_id')
+          .eq('organization_id', organizationId)
+          .eq('customer_id', customerId)
+          .order('id', { ascending: true })
+          .range(from, to)
+
+        if (compErr || !completions) {
+          return {
+            ok: false,
+            decision: 'BLOCK_RESTORE_ACTIVATION',
+            schemaVersion: '1.0',
+            erasureRecordsChecked,
+            suppressionRecordsChecked,
+            missingErasureProtections: missingErasureProtections + 1,
+            missingSuppressions,
+            reason: 'DATABASE_ERROR',
+          }
+        }
+
         for (const c of completions) {
           // MR-7C.3C Invariant: source_customer_id = NULL, source_transaction_id = NULL
           if (c.source_customer_id !== null || c.source_transaction_id !== null) {
             isProtected = false
-            break
           }
 
-          // Contact payload must not retain raw contact PII
-          if (c.contact && typeof c.contact === 'object') {
-            const contactObj = c.contact as Record<string, unknown>
-            if (
-              contactObj.email ||
-              contactObj.phone ||
-              contactObj.first_name ||
-              contactObj.last_name ||
-              contactObj.name ||
-              contactObj.firstName ||
-              contactObj.lastName
-            ) {
-              isProtected = false
-              break
-            }
+          // Contact payload must strictly equal the empty JSON object: {}
+          if (!isExactEmptyJsonObject(c.contact)) {
+            isProtected = false
           }
           // Note: c.source_event_id is retained as deduplication key — does NOT cause failure
         }
-      }
-    } catch {
-      return {
-        ok: false,
-        decision: 'BLOCK_RESTORE_ACTIVATION',
-        schemaVersion: '1.0',
-        erasureRecordsChecked: delta.erasures.length,
-        suppressionRecordsChecked: delta.suppressions.length,
-        missingErasureProtections: missingErasureProtections + 1,
-        missingSuppressions: 0,
-        reason: 'DATABASE_ERROR',
-      }
-    }
 
-    // Check review_requests & message_events error scrubbing
-    try {
-      const { data: requests, error: reqErr } = await supabase
-        .from('review_requests')
-        .select('id, error_message')
-        .eq('organization_id', organizationId)
-        .eq('customer_id', customerId)
-
-      if (reqErr) {
+        if (completions.length < pSize) {
+          break
+        }
+        compPage++
+      } catch {
         return {
           ok: false,
           decision: 'BLOCK_RESTORE_ACTIVATION',
           schemaVersion: '1.0',
-          erasureRecordsChecked: delta.erasures.length,
-          suppressionRecordsChecked: delta.suppressions.length,
+          erasureRecordsChecked,
+          suppressionRecordsChecked,
           missingErasureProtections: missingErasureProtections + 1,
-          missingSuppressions: 0,
+          missingSuppressions,
           reason: 'DATABASE_ERROR',
         }
       }
+    }
 
-      if (requests && requests.length > 0) {
-        for (const r of requests) {
-          if (r.error_message !== null) {
-            isProtected = false
-            break
+    // Check review_requests with complete pagination
+    let reqPage = 0
+    const collectedRequestIds: string[] = []
+
+    while (true) {
+      const from = reqPage * pSize
+      const to = from + pSize - 1
+
+      try {
+        const { data: requests, error: reqErr } = await supabase
+          .from('review_requests')
+          .select('id, error_message')
+          .eq('organization_id', organizationId)
+          .eq('customer_id', customerId)
+          .order('id', { ascending: true })
+          .range(from, to)
+
+        if (reqErr || !requests) {
+          return {
+            ok: false,
+            decision: 'BLOCK_RESTORE_ACTIVATION',
+            schemaVersion: '1.0',
+            erasureRecordsChecked,
+            suppressionRecordsChecked,
+            missingErasureProtections: missingErasureProtections + 1,
+            missingSuppressions,
+            reason: 'DATABASE_ERROR',
           }
         }
 
-        const requestIds = requests.map((r) => r.id)
-        if (requestIds.length > 0 && isProtected) {
+        for (const r of requests) {
+          if (r.error_message !== null) {
+            isProtected = false
+          }
+          collectedRequestIds.push(r.id)
+        }
+
+        if (requests.length < pSize) {
+          break
+        }
+        reqPage++
+      } catch {
+        return {
+          ok: false,
+          decision: 'BLOCK_RESTORE_ACTIVATION',
+          schemaVersion: '1.0',
+          erasureRecordsChecked,
+          suppressionRecordsChecked,
+          missingErasureProtections: missingErasureProtections + 1,
+          missingSuppressions,
+          reason: 'DATABASE_ERROR',
+        }
+      }
+    }
+
+    // Check message_events with complete pagination for collected requests
+    if (collectedRequestIds.length > 0) {
+      let msgPage = 0
+
+      while (true) {
+        const from = msgPage * pSize
+        const to = from + pSize - 1
+
+        try {
           const { data: msgEvents, error: msgErr } = await supabase
             .from('message_events')
             .select('id, sanitized_error')
             .eq('organization_id', organizationId)
-            .in('review_request_id', requestIds)
+            .in('review_request_id', collectedRequestIds)
+            .order('id', { ascending: true })
+            .range(from, to)
 
-          if (msgErr) {
+          if (msgErr || !msgEvents) {
             return {
               ok: false,
               decision: 'BLOCK_RESTORE_ACTIVATION',
               schemaVersion: '1.0',
-              erasureRecordsChecked: delta.erasures.length,
-              suppressionRecordsChecked: delta.suppressions.length,
+              erasureRecordsChecked,
+              suppressionRecordsChecked,
               missingErasureProtections: missingErasureProtections + 1,
-              missingSuppressions: 0,
+              missingSuppressions,
               reason: 'DATABASE_ERROR',
             }
           }
 
-          if (msgEvents && msgEvents.length > 0) {
-            for (const me of msgEvents) {
-              if (me.sanitized_error !== null) {
-                isProtected = false
-                break
-              }
+          for (const me of msgEvents) {
+            if (me.sanitized_error !== null) {
+              isProtected = false
             }
+          }
+
+          if (msgEvents.length < pSize) {
+            break
+          }
+          msgPage++
+        } catch {
+          return {
+            ok: false,
+            decision: 'BLOCK_RESTORE_ACTIVATION',
+            schemaVersion: '1.0',
+            erasureRecordsChecked,
+            suppressionRecordsChecked,
+            missingErasureProtections: missingErasureProtections + 1,
+            missingSuppressions,
+            reason: 'DATABASE_ERROR',
           }
         }
       }
-    } catch {
-      return {
-        ok: false,
-        decision: 'BLOCK_RESTORE_ACTIVATION',
-        schemaVersion: '1.0',
-        erasureRecordsChecked: delta.erasures.length,
-        suppressionRecordsChecked: delta.suppressions.length,
-        missingErasureProtections: missingErasureProtections + 1,
-        missingSuppressions: 0,
-        reason: 'DATABASE_ERROR',
-      }
     }
 
+    // Completed all checks for this erasure record without a database failure
+    erasureRecordsChecked++
     if (!isProtected) {
       missingErasureProtections++
     }
   }
 
   // 3. Verify all suppressions in delta
-  let missingSuppressions = 0
-
   for (const suppression of delta.suppressions) {
     try {
       const { data: existing, error: supErr } = await supabase
         .from('suppressions')
-        .select('id')
+        .select('id, organization_id, channel, contact_hash')
         .eq('organization_id', suppression.organizationId)
         .eq('channel', suppression.channel)
         .eq('contact_hash', suppression.contactHash)
@@ -561,14 +751,15 @@ export async function verifyRestoredPrivacyState({
           ok: false,
           decision: 'BLOCK_RESTORE_ACTIVATION',
           schemaVersion: '1.0',
-          erasureRecordsChecked: delta.erasures.length,
-          suppressionRecordsChecked: delta.suppressions.length,
+          erasureRecordsChecked,
+          suppressionRecordsChecked,
           missingErasureProtections,
           missingSuppressions: missingSuppressions + 1,
           reason: 'DATABASE_ERROR',
         }
       }
 
+      suppressionRecordsChecked++
       if (!existing) {
         missingSuppressions++
       }
@@ -577,8 +768,8 @@ export async function verifyRestoredPrivacyState({
         ok: false,
         decision: 'BLOCK_RESTORE_ACTIVATION',
         schemaVersion: '1.0',
-        erasureRecordsChecked: delta.erasures.length,
-        suppressionRecordsChecked: delta.suppressions.length,
+        erasureRecordsChecked,
+        suppressionRecordsChecked,
         missingErasureProtections,
         missingSuppressions: missingSuppressions + 1,
         reason: 'DATABASE_ERROR',
@@ -597,8 +788,8 @@ export async function verifyRestoredPrivacyState({
     ok,
     decision,
     schemaVersion: '1.0',
-    erasureRecordsChecked: delta.erasures.length,
-    suppressionRecordsChecked: delta.suppressions.length,
+    erasureRecordsChecked,
+    suppressionRecordsChecked,
     missingErasureProtections,
     missingSuppressions,
     reason: ok ? 'ALL_VERIFIED' : 'UNRECONCILED_PRIVACY_DELTA',

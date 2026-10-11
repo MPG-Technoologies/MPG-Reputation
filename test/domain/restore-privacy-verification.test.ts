@@ -1,11 +1,13 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   isPrivacyRestoreDeltaV1,
+  isExactEmptyJsonObject,
   serializePrivacyRestoreDelta,
   deserializePrivacyRestoreDelta,
   collectPrivacyRestoreDelta,
   verifyRestoredPrivacyState,
   evaluateRestoreDecision,
+  DEFAULT_RESTORE_VERIFICATION_PAGE_SIZE,
   type PrivacyRestoreDeltaV1,
 } from '@/domain/privacy/restore-verification'
 import { CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME } from '@/domain/privacy/customer-erasure'
@@ -63,7 +65,11 @@ type TableData = {
 
 function createMockSupabase(
   tables: TableData,
-  options?: { shouldErrorTable?: string; shouldThrow?: boolean }
+  options?: {
+    shouldErrorTable?: string
+    shouldThrow?: boolean
+    failOnRangeFrom?: { table: string; from: number }
+  }
 ) {
   return {
     from: (table: keyof TableData) => {
@@ -71,22 +77,20 @@ function createMockSupabase(
         throw new Error('UNEXPECTED_DATABASE_EXCEPTION')
       }
       if (options?.shouldErrorTable === table) {
-        return {
-          select: () => ({
-            gt: () => ({
-              order: () => ({
-                order: () => ({
-                  order: () => Promise.resolve({ data: null, error: new Error('DATABASE_ERROR') }),
-                }),
-              }),
-            }),
-            eq: () => ({
-              eq: () => ({
-                maybeSingle: () => Promise.resolve({ data: null, error: new Error('DATABASE_ERROR') }),
-              }),
-            }),
-          }),
-        } as unknown
+        const errorBuilder: Record<string, unknown> = {
+          select: () => errorBuilder,
+          gt: () => errorBuilder,
+          lte: () => errorBuilder,
+          eq: () => errorBuilder,
+          in: () => errorBuilder,
+          order: () => errorBuilder,
+          range: () => errorBuilder,
+          maybeSingle: () =>
+            Promise.resolve({ data: null, error: new Error('DATABASE_ERROR') }),
+          then: (resolve: (val: unknown) => unknown) =>
+            Promise.resolve({ data: null, error: new Error('DATABASE_ERROR') }).then(resolve),
+        }
+        return errorBuilder as unknown
       }
 
       let rows = [...((tables[table] as unknown[]) || [])]
@@ -97,6 +101,13 @@ function createMockSupabase(
           rows = rows.filter((r: unknown) => {
             const item = r as Record<string, unknown>
             return new Date(item[col] as string).getTime() > new Date(val).getTime()
+          })
+          return builder
+        },
+        lte: (col: string, val: string) => {
+          rows = rows.filter((r: unknown) => {
+            const item = r as Record<string, unknown>
+            return new Date(item[col] as string).getTime() <= new Date(val).getTime()
           })
           return builder
         },
@@ -125,6 +136,20 @@ function createMockSupabase(
           })
           return builder
         },
+        range: (from: number, to: number) => {
+          if (
+            options?.failOnRangeFrom &&
+            options.failOnRangeFrom.table === table &&
+            options.failOnRangeFrom.from === from
+          ) {
+            return {
+              then: (resolve: (val: unknown) => unknown) =>
+                Promise.resolve({ data: null, error: new Error('PAGE_READ_ERROR') }).then(resolve),
+            }
+          }
+          rows = rows.slice(from, to + 1)
+          return builder
+        },
         maybeSingle: () => {
           return Promise.resolve({
             data: rows.length > 0 ? rows[0] : null,
@@ -147,11 +172,17 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
   const cust1 = '33333333-3333-4333-8333-333333333333'
   const cust2 = '44444444-4444-4444-8444-444444444444'
 
+  const validHash1 = 'a'.repeat(64)
+  const validHash2 = 'b'.repeat(64)
+  const validHash3 = 'c'.repeat(64)
+  const validHash4 = 'd'.repeat(64)
+
   const tBackup = '2026-10-01T00:00:00.000Z'
   const tBefore = '2026-09-30T12:00:00.000Z'
   const tEqual = '2026-10-01T00:00:00.000Z'
   const tAfter1 = '2026-10-02T10:00:00.000Z'
   const tAfter2 = '2026-10-03T15:00:00.000Z'
+  const tAfter3 = '2026-10-04T12:00:00.000Z'
 
   // 1. Valid empty delta passes.
   it('1. Valid empty delta passes', async () => {
@@ -235,6 +266,7 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
     const res = await collectPrivacyRestoreDelta({
       supabase: mockDb,
       backupCreatedAt: tBackup,
+      exportedAt: tAfter2,
     })
 
     expect(res.ok).toBe(true)
@@ -261,6 +293,7 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
     const res = await collectPrivacyRestoreDelta({
       supabase: mockDb,
       backupCreatedAt: tBackup,
+      exportedAt: tAfter2,
     })
 
     expect(res.ok).toBe(true)
@@ -277,14 +310,14 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
         {
           organization_id: orgA,
           channel: 'email',
-          contact_hash: 'hash_after_1',
+          contact_hash: validHash1,
           reason: 'UNSUBSCRIBE',
           created_at: tAfter1,
         },
         {
           organization_id: orgA,
           channel: 'email',
-          contact_hash: 'hash_before',
+          contact_hash: validHash2,
           reason: 'UNSUBSCRIBE',
           created_at: tBefore,
         },
@@ -294,17 +327,18 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
     const res = await collectPrivacyRestoreDelta({
       supabase: mockDb,
       backupCreatedAt: tBackup,
+      exportedAt: tAfter2,
     })
 
     expect(res.ok).toBe(true)
     if (res.ok) {
       expect(res.delta.suppressions).toHaveLength(1)
-      expect(res.delta.suppressions[0].contactHash).toBe('hash_after_1')
+      expect(res.delta.suppressions[0].contactHash).toBe(validHash1)
     }
   })
 
-  // 7. Collector contains zero direct PII.
-  it('7. Collector contains zero direct PII', async () => {
+  // 7. Collector contains zero raw contact PII; pseudonymous suppression hashes retained.
+  it('7. Collector contains zero raw contact PII; pseudonymous suppression hashes retained', async () => {
     const mockDb = createMockSupabase({
       customer_erasure_records: [
         { organization_id: orgA, customer_id: cust1, erased_at: tAfter1 },
@@ -313,7 +347,7 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
         {
           organization_id: orgA,
           channel: 'email',
-          contact_hash: 'hash123',
+          contact_hash: validHash1,
           reason: 'UNSUBSCRIBE',
           created_at: tAfter1,
         },
@@ -323,6 +357,7 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
     const res = await collectPrivacyRestoreDelta({
       supabase: mockDb,
       backupCreatedAt: tBackup,
+      exportedAt: tAfter2,
     })
 
     expect(res.ok).toBe(true)
@@ -335,6 +370,7 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
       expect(serialized).not.toContain('password')
       expect(serialized).not.toContain('token')
       expect(serialized).not.toContain('secret')
+      expect(serialized).toContain(validHash1) // Retained as pseudonymous suppression continuity evidence
     }
   })
 
@@ -349,14 +385,14 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
         {
           organization_id: orgB,
           channel: 'email',
-          contact_hash: 'hash_z',
+          contact_hash: validHash2,
           reason: 'BOUNCE',
           created_at: tAfter2,
         },
         {
           organization_id: orgA,
           channel: 'email',
-          contact_hash: 'hash_a',
+          contact_hash: validHash1,
           reason: 'UNSUBSCRIBE',
           created_at: tAfter1,
         },
@@ -366,6 +402,7 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
     const res = await collectPrivacyRestoreDelta({
       supabase: mockDb,
       backupCreatedAt: tBackup,
+      exportedAt: tAfter3,
     })
 
     expect(res.ok).toBe(true)
@@ -385,6 +422,7 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
     const res = await collectPrivacyRestoreDelta({
       supabase: errorDb,
       backupCreatedAt: tBackup,
+      exportedAt: tAfter2,
     })
 
     expect(res.ok).toBe(false)
@@ -394,8 +432,8 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
     }
   })
 
-  // 10. Correctly erased customer passes verification.
-  it('10. Correctly erased customer passes verification', async () => {
+  // 10. Correctly erased customer with certificate and empty contact passes verification.
+  it('10. Correctly erased customer with certificate and empty contact passes verification', async () => {
     const delta: PrivacyRestoreDeltaV1 = {
       schemaVersion: '1.0',
       backupCreatedAt: tBackup,
@@ -413,6 +451,13 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
           last_name: null,
           email: null,
           phone: null,
+        },
+      ],
+      customer_erasure_records: [
+        {
+          organization_id: orgA,
+          customer_id: cust1,
+          erased_at: tAfter1,
         },
       ],
       customer_completion_events: [
@@ -462,6 +507,9 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
           phone: null,
         },
       ],
+      customer_erasure_records: [
+        { organization_id: orgA, customer_id: cust1, erased_at: tAfter1 },
+      ],
     })
 
     const result = await verifyRestoredPrivacyState({ supabase: mockDb, delta })
@@ -492,6 +540,9 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
           phone: '+15551234567',
         },
       ],
+      customer_erasure_records: [
+        { organization_id: orgA, customer_id: cust1, erased_at: tAfter1 },
+      ],
     })
 
     const result = await verifyRestoredPrivacyState({ supabase: mockDb, delta })
@@ -521,6 +572,9 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
           phone: null,
         },
       ],
+      customer_erasure_records: [
+        { organization_id: orgA, customer_id: cust1, erased_at: tAfter1 },
+      ],
     })
     const res1 = await verifyRestoredPrivacyState({ supabase: mockDbFirstName, delta })
     expect(res1.ok).toBe(false)
@@ -536,6 +590,9 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
           email: null,
           phone: null,
         },
+      ],
+      customer_erasure_records: [
+        { organization_id: orgA, customer_id: cust1, erased_at: tAfter1 },
       ],
     })
     const res2 = await verifyRestoredPrivacyState({ supabase: mockDbLastName, delta })
@@ -563,6 +620,9 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
           email: null,
           phone: null,
         },
+      ],
+      customer_erasure_records: [
+        { organization_id: orgA, customer_id: cust1, erased_at: tAfter1 },
       ],
       customer_completion_events: [
         {
@@ -603,6 +663,9 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
           phone: null,
         },
       ],
+      customer_erasure_records: [
+        { organization_id: orgA, customer_id: cust1, erased_at: tAfter1 },
+      ],
       customer_completion_events: [
         {
           id: 'comp1',
@@ -642,6 +705,9 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
           phone: null,
         },
       ],
+      customer_erasure_records: [
+        { organization_id: orgA, customer_id: cust1, erased_at: tAfter1 },
+      ],
       customer_completion_events: [
         {
           id: 'comp1',
@@ -671,7 +737,7 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
         {
           organizationId: orgA,
           channel: 'email',
-          contactHash: 'unrestored_suppression_hash',
+          contactHash: validHash1,
           reason: 'UNSUBSCRIBE',
           createdAt: tAfter1,
         },
@@ -697,7 +763,7 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
         {
           organizationId: orgA,
           channel: 'email',
-          contactHash: 'active_suppression_hash',
+          contactHash: validHash1,
           reason: 'UNSUBSCRIBE',
           createdAt: tAfter1,
         },
@@ -709,7 +775,7 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
         {
           organization_id: orgA,
           channel: 'email',
-          contact_hash: 'active_suppression_hash',
+          contact_hash: validHash1,
           reason: 'UNSUBSCRIBE',
           created_at: tAfter1,
         },
@@ -733,7 +799,7 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
         {
           organizationId: orgA,
           channel: 'email',
-          contactHash: 'sensitive_contact_hash_445566778899',
+          contactHash: validHash1,
           reason: 'BOUNCE',
           createdAt: tAfter1,
         },
@@ -744,8 +810,7 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
     const result = await verifyRestoredPrivacyState({ supabase: mockDb, delta })
 
     const serializedResult = JSON.stringify(result)
-    expect(serializedResult).not.toContain('sensitive_contact_hash_445566778899')
-    expect(serializedResult).not.toContain('445566778899')
+    expect(serializedResult).not.toContain(validHash1)
   })
 
   // 20. Multiple organizations remain correctly scoped.
@@ -759,7 +824,7 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
         {
           organizationId: orgA,
           channel: 'email',
-          contactHash: 'hash_org_a',
+          contactHash: validHash1,
           reason: 'UNSUBSCRIBE',
           createdAt: tAfter1,
         },
@@ -778,11 +843,18 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
           phone: null,
         },
       ],
+      customer_erasure_records: [
+        {
+          organization_id: orgB,
+          customer_id: cust1,
+          erased_at: tAfter1,
+        },
+      ],
       suppressions: [
         {
           organization_id: orgB,
           channel: 'email',
-          contact_hash: 'hash_org_a',
+          contact_hash: validHash1,
           reason: 'UNSUBSCRIBE',
           created_at: tAfter1,
         },
@@ -796,9 +868,9 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
     expect(result.missingSuppressions).toBe(1)
   })
 
-  // 21. No browser/client import path exposes the verifier.
-  it('21. No browser/client import path exposes the verifier', () => {
-    const filePath = path.resolve('E:/MPG-Reputation/src/domain/privacy/restore-verification.ts')
+  // 21. No browser/client import path exposes the verifier (Portable Path).
+  it('21. No browser/client import path exposes the verifier (Portable Path)', () => {
+    const filePath = path.resolve(process.cwd(), 'src/domain/privacy/restore-verification.ts')
     const content = fs.readFileSync(filePath, 'utf-8')
     const firstLine = content.split('\n')[0].trim()
     expect(firstLine).toBe("import 'server-only'")
@@ -815,7 +887,7 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
         {
           organizationId: orgA,
           channel: 'email',
-          contactHash: 'safe_hash',
+          contactHash: validHash1,
           reason: 'UNSUBSCRIBE',
           createdAt: tAfter1,
         },
@@ -833,11 +905,18 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
           phone: null,
         },
       ],
+      customer_erasure_records: [
+        {
+          organization_id: orgA,
+          customer_id: cust1,
+          erased_at: tAfter1,
+        },
+      ],
       suppressions: [
         {
           organization_id: orgA,
           channel: 'email',
-          contact_hash: 'safe_hash',
+          contact_hash: validHash1,
           reason: 'UNSUBSCRIBE',
           created_at: tAfter1,
         },
@@ -874,14 +953,15 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
     expect(result.ok).toBe(false)
     expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
     expect(result.reason).toBe('DATABASE_ERROR')
+    expect(result.erasureRecordsChecked).toBe(0)
   })
 
-  // 24. Existing customer erasure tests contract parity.
+  // 24. Existing customer erasure constant parity.
   it('24. Existing customer erasure constant parity', () => {
     expect(CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME).toBe('[Deleted Customer]')
   })
 
-  // 25. Existing suppression serialization / deserialization integrity.
+  // 25. Delta serialization / deserialization roundtrip.
   it('25. Delta serialization / deserialization roundtrip', () => {
     const delta: PrivacyRestoreDeltaV1 = {
       schemaVersion: '1.0',
@@ -892,7 +972,7 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
         {
           organizationId: orgA,
           channel: 'email',
-          contactHash: 'hash123',
+          contactHash: validHash1,
           reason: 'UNSUBSCRIBE',
           createdAt: tAfter1,
         },
@@ -903,5 +983,685 @@ describe('MR-7C.5C1 Post-Restore Privacy Verification Foundation', () => {
     const deserialized = deserializePrivacyRestoreDelta(serialized)
     expect(deserialized).toEqual(delta)
     expect(deserializePrivacyRestoreDelta('{ invalid: json }')).toBeNull()
+  })
+
+  // =========================================================================
+  // CORRECTION 1: COMPLETE PAGINATION TESTS
+  // =========================================================================
+  describe('Correction 1: Complete Pagination Invariants', () => {
+    it('1001+ erasure records are all collected across pages', async () => {
+      // Create 1005 erasure records
+      const totalRecords = 1005
+      const erasureRows = Array.from({ length: totalRecords }, (_, i) => ({
+        organization_id: orgA,
+        customer_id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+        erased_at: new Date(Date.parse(tBackup) + (i + 1) * 1000).toISOString(),
+      }))
+
+      const mockDb = createMockSupabase({
+        customer_erasure_records: erasureRows,
+        suppressions: [],
+      })
+
+      const res = await collectPrivacyRestoreDelta({
+        supabase: mockDb,
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        pageSize: DEFAULT_RESTORE_VERIFICATION_PAGE_SIZE,
+      })
+
+      expect(res.ok).toBe(true)
+      if (res.ok) {
+        expect(res.delta.erasures).toHaveLength(totalRecords)
+        expect(res.delta.erasures[0].customerId).toBe(erasureRows[0].customer_id)
+        expect(res.delta.erasures[totalRecords - 1].customerId).toBe(
+          erasureRows[totalRecords - 1].customer_id
+        )
+      }
+    })
+
+    it('1001+ suppressions are all collected across pages', async () => {
+      const totalRecords = 1005
+      const suppressionRows = Array.from({ length: totalRecords }, (_, i) => ({
+        organization_id: orgA,
+        channel: 'email',
+        contact_hash: String(i).padStart(64, '0'),
+        reason: 'UNSUBSCRIBE',
+        created_at: new Date(Date.parse(tBackup) + (i + 1) * 1000).toISOString(),
+      }))
+
+      const mockDb = createMockSupabase({
+        customer_erasure_records: [],
+        suppressions: suppressionRows,
+      })
+
+      const res = await collectPrivacyRestoreDelta({
+        supabase: mockDb,
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        pageSize: DEFAULT_RESTORE_VERIFICATION_PAGE_SIZE,
+      })
+
+      expect(res.ok).toBe(true)
+      if (res.ok) {
+        expect(res.delta.suppressions).toHaveLength(totalRecords)
+      }
+    })
+
+    it('Unsafe completion data after row 1000 is detected and blocks restore', async () => {
+      // 1002 completion events: first 1000 are valid, row 1001 contains non-empty contact
+      const completionRows = Array.from({ length: 1002 }, (_, i) => ({
+        id: `comp-${i}`,
+        organization_id: orgA,
+        customer_id: cust1,
+        contact: i === 1001 ? { email: 'leak@example.test' } : {},
+        source_customer_id: null,
+        source_transaction_id: null,
+        source_event_id: `evt-${i}`,
+      }))
+
+      const delta: PrivacyRestoreDeltaV1 = {
+        schemaVersion: '1.0',
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        erasures: [{ organizationId: orgA, customerId: cust1, erasedAt: tAfter1 }],
+        suppressions: [],
+      }
+
+      const mockDb = createMockSupabase({
+        customers: [
+          {
+            id: cust1,
+            organization_id: orgA,
+            first_name: CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME,
+            last_name: null,
+            email: null,
+            phone: null,
+          },
+        ],
+        customer_erasure_records: [
+          { organization_id: orgA, customer_id: cust1, erased_at: tAfter1 },
+        ],
+        customer_completion_events: completionRows,
+      })
+
+      const result = await verifyRestoredPrivacyState({
+        supabase: mockDb,
+        delta,
+        pageSize: 1000,
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+      expect(result.missingErasureProtections).toBe(1)
+    })
+
+    it('Unsafe review error after row 1000 is detected and blocks restore', async () => {
+      const reviewRows = Array.from({ length: 1002 }, (_, i) => ({
+        id: `rr-${i}`,
+        organization_id: orgA,
+        customer_id: cust1,
+        error_message: i === 1001 ? 'Unscrubbed provider error leak' : null,
+      }))
+
+      const delta: PrivacyRestoreDeltaV1 = {
+        schemaVersion: '1.0',
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        erasures: [{ organizationId: orgA, customerId: cust1, erasedAt: tAfter1 }],
+        suppressions: [],
+      }
+
+      const mockDb = createMockSupabase({
+        customers: [
+          {
+            id: cust1,
+            organization_id: orgA,
+            first_name: CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME,
+            last_name: null,
+            email: null,
+            phone: null,
+          },
+        ],
+        customer_erasure_records: [
+          { organization_id: orgA, customer_id: cust1, erased_at: tAfter1 },
+        ],
+        review_requests: reviewRows,
+      })
+
+      const result = await verifyRestoredPrivacyState({
+        supabase: mockDb,
+        delta,
+        pageSize: 1000,
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+      expect(result.missingErasureProtections).toBe(1)
+    })
+
+    it('Page-two read failure blocks verification and fails closed', async () => {
+      const completionRows = Array.from({ length: 25 }, (_, i) => ({
+        id: `comp-${String(i).padStart(4, '0')}`,
+        organization_id: orgA,
+        customer_id: cust1,
+        contact: {},
+        source_customer_id: null,
+        source_transaction_id: null,
+        source_event_id: `evt-${i}`,
+      }))
+
+      const delta: PrivacyRestoreDeltaV1 = {
+        schemaVersion: '1.0',
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        erasures: [{ organizationId: orgA, customerId: cust1, erasedAt: tAfter1 }],
+        suppressions: [],
+      }
+
+      // Page size is 10, fail on range from = 10 (page 2)
+      const mockDb = createMockSupabase(
+        {
+          customers: [
+            {
+              id: cust1,
+              organization_id: orgA,
+              first_name: CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME,
+              last_name: null,
+              email: null,
+              phone: null,
+            },
+          ],
+          customer_erasure_records: [
+            { organization_id: orgA, customer_id: cust1, erased_at: tAfter1 },
+          ],
+          customer_completion_events: completionRows,
+        },
+        {
+          failOnRangeFrom: { table: 'customer_completion_events', from: 10 },
+        }
+      )
+
+      const result = await verifyRestoredPrivacyState({
+        supabase: mockDb,
+        delta,
+        pageSize: 10,
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+      expect(result.reason).toBe('DATABASE_ERROR')
+      expect(result.erasureRecordsChecked).toBe(0)
+    })
+  })
+
+  // =========================================================================
+  // CORRECTION 2: DURABLE ERASURE CERTIFICATE VERIFICATION
+  // =========================================================================
+  describe('Correction 2: Durable Erasure Certificate Invariants', () => {
+    it('Certificate present -> passes', async () => {
+      const delta: PrivacyRestoreDeltaV1 = {
+        schemaVersion: '1.0',
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        erasures: [{ organizationId: orgA, customerId: cust1, erasedAt: tAfter1 }],
+        suppressions: [],
+      }
+
+      const mockDb = createMockSupabase({
+        customers: [
+          {
+            id: cust1,
+            organization_id: orgA,
+            first_name: CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME,
+            last_name: null,
+            email: null,
+            phone: null,
+          },
+        ],
+        customer_erasure_records: [
+          { organization_id: orgA, customer_id: cust1, erased_at: tAfter1 },
+        ],
+      })
+
+      const result = await verifyRestoredPrivacyState({ supabase: mockDb, delta })
+      expect(result.ok).toBe(true)
+      expect(result.decision).toBe('PASS')
+      expect(result.missingErasureProtections).toBe(0)
+    })
+
+    it('Missing erasure certificate -> BLOCK_RESTORE_ACTIVATION even if customer row looks erased', async () => {
+      const delta: PrivacyRestoreDeltaV1 = {
+        schemaVersion: '1.0',
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        erasures: [{ organizationId: orgA, customerId: cust1, erasedAt: tAfter1 }],
+        suppressions: [],
+      }
+
+      // Customer looks erased, but customer_erasure_records is empty!
+      const mockDb = createMockSupabase({
+        customers: [
+          {
+            id: cust1,
+            organization_id: orgA,
+            first_name: CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME,
+            last_name: null,
+            email: null,
+            phone: null,
+          },
+        ],
+        customer_erasure_records: [], // MISSING CERTIFICATE
+      })
+
+      const result = await verifyRestoredPrivacyState({ supabase: mockDb, delta })
+      expect(result.ok).toBe(false)
+      expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+      expect(result.missingErasureProtections).toBe(1)
+    })
+
+    it('Erasure certificate from wrong organization -> blocks restore', async () => {
+      const delta: PrivacyRestoreDeltaV1 = {
+        schemaVersion: '1.0',
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        erasures: [{ organizationId: orgA, customerId: cust1, erasedAt: tAfter1 }],
+        suppressions: [],
+      }
+
+      const mockDb = createMockSupabase({
+        customers: [
+          {
+            id: cust1,
+            organization_id: orgA,
+            first_name: CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME,
+            last_name: null,
+            email: null,
+            phone: null,
+          },
+        ],
+        customer_erasure_records: [
+          // Certificate belongs to orgB, not orgA
+          { organization_id: orgB, customer_id: cust1, erased_at: tAfter1 },
+        ],
+      })
+
+      const result = await verifyRestoredPrivacyState({ supabase: mockDb, delta })
+      expect(result.ok).toBe(false)
+      expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+      expect(result.missingErasureProtections).toBe(1)
+    })
+
+    it('Certificate DB read failure -> fails closed with DATABASE_ERROR', async () => {
+      const delta: PrivacyRestoreDeltaV1 = {
+        schemaVersion: '1.0',
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        erasures: [{ organizationId: orgA, customerId: cust1, erasedAt: tAfter1 }],
+        suppressions: [],
+      }
+
+      const mockDb = createMockSupabase(
+        {
+          customers: [
+            {
+              id: cust1,
+              organization_id: orgA,
+              first_name: CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME,
+              last_name: null,
+              email: null,
+              phone: null,
+            },
+          ],
+        },
+        { shouldErrorTable: 'customer_erasure_records' }
+      )
+
+      const result = await verifyRestoredPrivacyState({ supabase: mockDb, delta })
+      expect(result.ok).toBe(false)
+      expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+      expect(result.reason).toBe('DATABASE_ERROR')
+      expect(result.erasureRecordsChecked).toBe(0)
+    })
+  })
+
+  // =========================================================================
+  // CORRECTION 3: EXACT COMPLETION CONTACT REDACTION
+  // =========================================================================
+  describe('Correction 3: Exact Completion Contact Redaction Invariants', () => {
+    it('isExactEmptyJsonObject helper behavior', () => {
+      expect(isExactEmptyJsonObject({})).toBe(true)
+
+      // These MUST FAIL:
+      expect(isExactEmptyJsonObject({ email: 'x@example.com' })).toBe(false)
+      expect(isExactEmptyJsonObject({ customerEmail: 'x@example.com' })).toBe(false)
+      expect(isExactEmptyJsonObject({ foo: 'bar' })).toBe(false)
+      expect(isExactEmptyJsonObject({ nested: { email: 'x@example.com' } })).toBe(false)
+      expect(isExactEmptyJsonObject([])).toBe(false)
+      expect(isExactEmptyJsonObject(null)).toBe(false)
+      expect(isExactEmptyJsonObject(undefined)).toBe(false)
+      expect(isExactEmptyJsonObject('')).toBe(false)
+      expect(isExactEmptyJsonObject('{}')).toBe(false)
+      expect(isExactEmptyJsonObject(123)).toBe(false)
+      expect(isExactEmptyJsonObject(true)).toBe(false)
+    })
+
+    it.each([
+      ['non-empty with email', { email: 'x@example.com' }],
+      ['non-empty with customerEmail', { customerEmail: 'x@example.com' }],
+      ['non-empty with arbitrary key foo', { foo: 'bar' }],
+      ['nested object', { nested: { email: 'x@example.com' } }],
+      ['array', ['email@example.com']],
+      ['null', null],
+      ['string', 'some-string'],
+    ])('Non-empty or non-object contact payload (%s) blocks restore', async (_, badContact) => {
+      const delta: PrivacyRestoreDeltaV1 = {
+        schemaVersion: '1.0',
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        erasures: [{ organizationId: orgA, customerId: cust1, erasedAt: tAfter1 }],
+        suppressions: [],
+      }
+
+      const mockDb = createMockSupabase({
+        customers: [
+          {
+            id: cust1,
+            organization_id: orgA,
+            first_name: CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME,
+            last_name: null,
+            email: null,
+            phone: null,
+          },
+        ],
+        customer_erasure_records: [
+          { organization_id: orgA, customer_id: cust1, erased_at: tAfter1 },
+        ],
+        customer_completion_events: [
+          {
+            id: 'comp1',
+            organization_id: orgA,
+            customer_id: cust1,
+            contact: badContact,
+            source_customer_id: null,
+            source_transaction_id: null,
+            source_event_id: 'evt_123',
+          },
+        ],
+      })
+
+      const result = await verifyRestoredPrivacyState({ supabase: mockDb, delta })
+      expect(result.ok).toBe(false)
+      expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+      expect(result.missingErasureProtections).toBe(1)
+    })
+  })
+
+  // =========================================================================
+  // CORRECTION 4: STRICT DELTA SCHEMA & SUPPRESSION HASH VALIDATION
+  // =========================================================================
+  describe('Correction 4: Strict Delta Schema & Suppression Hash Validation', () => {
+    it.each([
+      'email',
+      'phone',
+      'secretEmail',
+      'rawContact',
+      'metadata',
+      'providerPayload',
+      'token',
+      'apiKey',
+      'foo',
+    ])('Unknown top-level property %s invalidates the delta artifact', (forbiddenKey) => {
+      const invalidDelta = {
+        schemaVersion: '1.0',
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        erasures: [],
+        suppressions: [],
+        [forbiddenKey]: 'forbidden-value',
+      }
+
+      expect(isPrivacyRestoreDeltaV1(invalidDelta)).toBe(false)
+    })
+
+    it('Unknown property on erasure evidence invalidates the delta artifact', () => {
+      const invalidDelta = {
+        schemaVersion: '1.0',
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        erasures: [
+          {
+            organizationId: orgA,
+            customerId: cust1,
+            erasedAt: tAfter1,
+            extraField: 'not-allowed',
+          },
+        ],
+        suppressions: [],
+      }
+
+      expect(isPrivacyRestoreDeltaV1(invalidDelta)).toBe(false)
+    })
+
+    it('Unknown property on suppression evidence invalidates the delta artifact', () => {
+      const invalidDelta = {
+        schemaVersion: '1.0',
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        erasures: [],
+        suppressions: [
+          {
+            organizationId: orgA,
+            channel: 'email',
+            contactHash: validHash1,
+            reason: 'UNSUBSCRIBE',
+            createdAt: tAfter1,
+            metadata: 'not-allowed',
+          },
+        ],
+      }
+
+      expect(isPrivacyRestoreDeltaV1(invalidDelta)).toBe(false)
+    })
+
+    it('Valid SHA-256 (64 hex characters) passes validation', () => {
+      const validDelta: PrivacyRestoreDeltaV1 = {
+        schemaVersion: '1.0',
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        erasures: [],
+        suppressions: [
+          {
+            organizationId: orgA,
+            channel: 'email',
+            contactHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+            reason: 'UNSUBSCRIBE',
+            createdAt: tAfter1,
+          },
+        ],
+      }
+
+      expect(isPrivacyRestoreDeltaV1(validDelta)).toBe(true)
+    })
+
+    it.each([
+      'short_hash',
+      'hash123',
+      'G'.repeat(64), // uppercase or non-hex
+      'a'.repeat(63), // 63 chars
+      'a'.repeat(65), // 65 chars
+      'arbitrary_string',
+      '',
+    ])('Malformed contactHash (%s) fails validation', (badHash) => {
+      const invalidDelta = {
+        schemaVersion: '1.0',
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        erasures: [],
+        suppressions: [
+          {
+            organizationId: orgA,
+            channel: 'email',
+            contactHash: badHash,
+            reason: 'UNSUBSCRIBE',
+            createdAt: tAfter1,
+          },
+        ],
+      }
+
+      expect(isPrivacyRestoreDeltaV1(invalidDelta)).toBe(false)
+    })
+  })
+
+  // =========================================================================
+  // CORRECTION 5: FIXED EXPORT WINDOW (backupCreatedAt, exportedAt]
+  // =========================================================================
+  describe('Correction 5: Fixed Export Window Invariants', () => {
+    it('Window boundaries: timestamp == backupCreatedAt is excluded, timestamp == exportedAt is included', async () => {
+      const tWindowStart = '2026-10-01T00:00:00.000Z'
+      const tJustAfter = '2026-10-01T00:00:00.001Z'
+      const tWindowEnd = '2026-10-02T00:00:00.000Z'
+      const tAfterWindow = '2026-10-02T00:00:00.001Z'
+
+      const mockDb = createMockSupabase({
+        customer_erasure_records: [
+          { organization_id: orgA, customer_id: '00000000-0000-4000-8000-000000000001', erased_at: tWindowStart }, // == backupCreatedAt -> EXCLUDED
+          { organization_id: orgA, customer_id: '00000000-0000-4000-8000-000000000002', erased_at: tJustAfter },   // > backupCreatedAt -> INCLUDED
+          { organization_id: orgA, customer_id: '00000000-0000-4000-8000-000000000003', erased_at: tWindowEnd },    // == exportedAt -> INCLUDED
+          { organization_id: orgA, customer_id: '00000000-0000-4000-8000-000000000004', erased_at: tAfterWindow },  // > exportedAt -> EXCLUDED
+        ],
+        suppressions: [
+          { organization_id: orgA, channel: 'email', contact_hash: validHash1, reason: 'UNSUB', created_at: tWindowStart }, // EXCLUDED
+          { organization_id: orgA, channel: 'email', contact_hash: validHash2, reason: 'UNSUB', created_at: tJustAfter },   // INCLUDED
+          { organization_id: orgA, channel: 'email', contact_hash: validHash3, reason: 'UNSUB', created_at: tWindowEnd },    // INCLUDED
+          { organization_id: orgA, channel: 'email', contact_hash: validHash4, reason: 'UNSUB', created_at: tAfterWindow },  // EXCLUDED
+        ],
+      })
+
+      const res = await collectPrivacyRestoreDelta({
+        supabase: mockDb,
+        backupCreatedAt: tWindowStart,
+        exportedAt: tWindowEnd,
+      })
+
+      expect(res.ok).toBe(true)
+      if (res.ok) {
+        expect(res.delta.erasures).toHaveLength(2)
+        expect(res.delta.erasures.map((e) => e.erasedAt)).toEqual([tJustAfter, tWindowEnd])
+
+        expect(res.delta.suppressions).toHaveLength(2)
+        expect(res.delta.suppressions.map((s) => s.createdAt)).toEqual([tJustAfter, tWindowEnd])
+      }
+    })
+
+    it('exportedAt <= backupCreatedAt fails closed with INVALID_TIMESTAMP', async () => {
+      const mockDb = createMockSupabase({})
+
+      const res = await collectPrivacyRestoreDelta({
+        supabase: mockDb,
+        backupCreatedAt: '2026-10-05T00:00:00.000Z',
+        exportedAt: '2026-10-04T00:00:00.000Z', // Before backupCreatedAt
+      })
+
+      expect(res.ok).toBe(false)
+      if (!res.ok) {
+        expect(res.status).toBe('INVALID_TIMESTAMP')
+      }
+    })
+  })
+
+  // =========================================================================
+  // CORRECTION 7: TRUTHFUL CHECK COUNTERS
+  // =========================================================================
+  describe('Correction 7: Truthful Check Counters Invariants', () => {
+    it('3 erasures verified, 4th DB query fails -> erasureRecordsChecked = 3', async () => {
+      const custIds = [
+        '10000000-0000-4000-8000-000000000001',
+        '10000000-0000-4000-8000-000000000002',
+        '10000000-0000-4000-8000-000000000003',
+        '10000000-0000-4000-8000-000000000004',
+      ]
+
+      const delta: PrivacyRestoreDeltaV1 = {
+        schemaVersion: '1.0',
+        backupCreatedAt: tBackup,
+        exportedAt: tAfter2,
+        erasures: custIds.map((id) => ({
+          organizationId: orgA,
+          customerId: id,
+          erasedAt: tAfter1,
+        })),
+        suppressions: [],
+      }
+
+      // First 3 customers exist and are protected; 4th customer triggers DB error
+      let queryCount = 0
+      const mockDb = {
+        from: (table: string) => {
+          if (table === 'customers') {
+            queryCount++
+            if (queryCount === 4) {
+              return {
+                select: () => ({
+                  eq: () => ({
+                    eq: () => ({
+                      maybeSingle: () =>
+                        Promise.resolve({ data: null, error: new Error('DATABASE_ERROR') }),
+                    }),
+                  }),
+                }),
+              }
+            }
+          }
+
+          // Return valid responses for first 3 customers
+          return {
+            select: () => ({
+              eq: () => ({
+                eq: () => ({
+                  order: () => ({
+                    range: () => Promise.resolve({ data: [], error: null }),
+                  }),
+                  maybeSingle: () => {
+                    if (table === 'customers') {
+                      return Promise.resolve({
+                        data: {
+                          id: custIds[queryCount - 1],
+                          organization_id: orgA,
+                          first_name: CUSTOMER_ERASURE_TOMBSTONE_FIRST_NAME,
+                          last_name: null,
+                          email: null,
+                          phone: null,
+                        },
+                        error: null,
+                      })
+                    }
+                    if (table === 'customer_erasure_records') {
+                      return Promise.resolve({
+                        data: {
+                          organization_id: orgA,
+                          customer_id: custIds[queryCount - 1],
+                        },
+                        error: null,
+                      })
+                    }
+                    return Promise.resolve({ data: null, error: null })
+                  },
+                }),
+              }),
+            }),
+          }
+        },
+      } as unknown as SupabaseClient<Database>
+
+      const result = await verifyRestoredPrivacyState({ supabase: mockDb, delta })
+
+      expect(result.ok).toBe(false)
+      expect(result.decision).toBe('BLOCK_RESTORE_ACTIVATION')
+      expect(result.reason).toBe('DATABASE_ERROR')
+      // Exactly 3 verified before the 4th failed!
+      expect(result.erasureRecordsChecked).toBe(3)
+      expect(result.suppressionRecordsChecked).toBe(0)
+    })
   })
 })

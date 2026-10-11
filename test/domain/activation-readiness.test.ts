@@ -15,7 +15,7 @@ describe('MR-2 activation readiness', () => {
     expect(
       deriveDashboardSystemStatus({
         readiness,
-        failedCount: 0,
+        recentFailedRequestCount: 0,
         outboxFailedCount: 0,
         sentCount: 0,
       }).systemStatus
@@ -201,7 +201,7 @@ describe('MR-2 activation readiness', () => {
     expect(
       deriveDashboardSystemStatus({
         readiness,
-        failedCount: 1,
+        recentFailedRequestCount: 1,
         outboxFailedCount: 0,
         sentCount: 4,
       }).systemStatus
@@ -210,7 +210,7 @@ describe('MR-2 activation readiness', () => {
     expect(
       deriveDashboardSystemStatus({
         readiness,
-        failedCount: 0,
+        recentFailedRequestCount: 0,
         outboxFailedCount: 0,
         sentCount: 0,
       }).systemStatus

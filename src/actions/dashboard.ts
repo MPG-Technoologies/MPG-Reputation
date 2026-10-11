@@ -1,7 +1,12 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { deriveActivationReadiness, deriveDashboardSystemStatus } from '@/domain/activation'
+import {
+  deriveActivationReadiness,
+  deriveDashboardSystemStatus,
+  DASHBOARD_OPERATIONAL_WINDOW_HOURS,
+  getOperationalWindowStartIso,
+} from '@/domain/activation'
 import { formatPolicyReason } from '@/domain/eligibility'
 import { deriveLiveActivity } from '@/lib/dashboard/live-activity-projection'
 import type {
@@ -35,6 +40,8 @@ export async function getDashboardSnapshot(
     return null
   }
 
+  const operationalWindowStart = getOperationalWindowStartIso()
+
   const [
     { count: completedCount },
     { count: eligibleCount },
@@ -42,6 +49,7 @@ export async function getDashboardSnapshot(
     { count: sentCount },
     { count: clickedCount },
     { count: failedCount },
+    { count: recentFailedCount },
     { count: outboxFailedCount },
     { count: ineligibleCount },
     { data: locations, error: locationsError },
@@ -78,6 +86,14 @@ export async function getDashboardSnapshot(
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', organizationId)
       .eq('status', 'FAILED'),
+    supabase
+      .from('review_requests')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', organizationId)
+      .eq('status', 'FAILED')
+      .or(
+        `failed_at.gte.${operationalWindowStart},and(failed_at.is.null,updated_at.gte.${operationalWindowStart})`
+      ),
     supabase
       .from('domain_event_outbox')
       .select('id', { count: 'exact', head: true })
@@ -129,10 +145,12 @@ export async function getDashboardSnapshot(
     (loc) => loc.status !== 'ACTIVE'
   )
 
+  const recentFailedRequestCount = recentFailedCount ?? 0
+
   const { systemStatus, statusDescription } =
     deriveDashboardSystemStatus({
       readiness,
-      failedCount: failedCount ?? 0,
+      recentFailedRequestCount,
       outboxFailedCount: outboxFailedCount ?? 0,
       sentCount: sentCount ?? 0,
     })
@@ -171,12 +189,12 @@ export async function getDashboardSnapshot(
     })
   }
 
-  if (failedCount && failedCount > 0) {
+  if (recentFailedRequestCount > 0) {
     attentionItems.push({
       id: 'failed-requests',
       severity: 'error',
       title: 'Workflow Dispatch Failed',
-      description: `${failedCount} review request dispatch(es) recorded delivery failures. Please check email provider logs.`,
+      description: `${recentFailedRequestCount} review request dispatch(es) recorded delivery failures in the last ${DASHBOARD_OPERATIONAL_WINDOW_HOURS} hours. Please check email provider logs.`,
     })
   }
 
@@ -186,15 +204,6 @@ export async function getDashboardSnapshot(
       severity: 'error',
       title: 'Background Events Awaiting Recovery',
       description: `${outboxFailedCount} background event(s) encountered errors and are awaiting automated recovery.`,
-    })
-  }
-
-  if (ineligibleCount && ineligibleCount > 0) {
-    attentionItems.push({
-      id: 'ineligible-suppressed',
-      severity: 'info',
-      title: 'Completions Bypassed by Policy',
-      description: `${ineligibleCount} customer completion(s) were safely bypassed due to missing customer consent, recent request cooldown, or suppression.`,
     })
   }
 
@@ -264,6 +273,7 @@ export async function getDashboardSnapshot(
       sentCount: sentCount ?? 0,
       clickedCount: clickedCount ?? 0,
       failedCount: failedCount ?? 0,
+      recentFailedRequestCount,
       outboxFailedCount: outboxFailedCount ?? 0,
       ineligibleCount: ineligibleCount ?? 0,
     },

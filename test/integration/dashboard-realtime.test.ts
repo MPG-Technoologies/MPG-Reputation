@@ -564,19 +564,11 @@ describe('Dashboard Realtime Synchronization Engine (Hardening Pass)', () => {
     })
   })
   describe('H. Policy Bypass / Ineligible Completion Realtime Synchronization', () => {
-    it('1. increments ineligibleCount from 2 to 3 and updates existing attention item description', () => {
+    it('1. increments ineligibleCount from 2 to 3 and safe policy bypass does NOT add to or retain attentionItems', () => {
       const stateWithTwo = createInitialState(orgId, {
         ...dummySnapshot,
         kpis: { ...dummySnapshot.kpis, ineligibleCount: 2 },
-        attentionItems: [
-          {
-            id: 'ineligible-suppressed',
-            severity: 'info',
-            title: 'Completions Bypassed by Policy',
-            description:
-              '2 customer completion(s) were safely bypassed due to missing customer consent, recent request cooldown, or suppression.',
-          },
-        ],
+        attentionItems: [],
       })
 
       const event: ReviewRequestIneligibleEvent = {
@@ -592,13 +584,12 @@ describe('Dashboard Realtime Synchronization Engine (Hardening Pass)', () => {
 
       expect(next.kpis.ineligibleCount).toBe(3)
       const item = next.attentionItems.find((i) => i.id === 'ineligible-suppressed')
-      expect(item).toBeDefined()
-      expect(item?.severity).toBe('info')
-      expect(item?.description).toContain('3 customer completion(s) were safely bypassed')
+      expect(item).toBeUndefined()
+      expect(next.attentionItems.length).toBe(0)
       expect(next.announcement).toContain('Completions bypassed by policy increased to 3.')
     })
 
-    it('2. creates the informational attention item when starting from ineligibleCount = 0', () => {
+    it('2. does NOT create an attention item when starting from ineligibleCount = 0 (issue badge remains 0)', () => {
       const stateZero = createInitialState(orgId, {
         ...dummySnapshot,
         kpis: { ...dummySnapshot.kpis, ineligibleCount: 0 },
@@ -618,11 +609,8 @@ describe('Dashboard Realtime Synchronization Engine (Hardening Pass)', () => {
 
       expect(next.kpis.ineligibleCount).toBe(1)
       const item = next.attentionItems.find((i) => i.id === 'ineligible-suppressed')
-      expect(item).toBeDefined()
-      expect(item?.id).toBe('ineligible-suppressed')
-      expect(item?.severity).toBe('info')
-      expect(item?.title).toBe('Completions Bypassed by Policy')
-      expect(item?.description).toContain('1 customer completion(s) were safely bypassed')
+      expect(item).toBeUndefined()
+      expect(next.attentionItems.length).toBe(0)
     })
 
     it('3. duplicate eventId does not increment twice (idempotency)', () => {

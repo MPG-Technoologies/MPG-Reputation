@@ -114,6 +114,7 @@ export interface DashboardKpis {
   sentCount: number
   clickedCount: number
   failedCount: number
+  recentFailedRequestCount?: number
   outboxFailedCount?: number
   ineligibleCount?: number
 }

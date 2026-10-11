@@ -11,6 +11,12 @@ import {
   type LiveActivityItem,
   type LiveActivityStage,
 } from './realtime-types'
+import {
+  DASHBOARD_OPERATIONAL_WINDOW_HOURS,
+  isRecentFailureTimestamp,
+} from '../../domain/activation'
+
+export { isRecentFailureTimestamp }
 
 export type DashboardAction =
   | { type: 'EVENT_RECEIVED'; event: DashboardRealtimeEvent }
@@ -181,13 +187,18 @@ export function createInitialState(
 ): DashboardState {
   return {
     organizationId,
-    kpis: { ...snapshot.kpis },
+    kpis: {
+      ...snapshot.kpis,
+      recentFailedRequestCount: snapshot.kpis.recentFailedRequestCount ?? 0,
+    },
     recentRequests: snapshot.recentRequests.map((r) => ({ ...r })),
     liveActivity: (snapshot.liveActivity ?? []).map((a) => ({ ...a })),
 
     systemStatus: snapshot.systemStatus,
     statusDescription: snapshot.statusDescription,
-    attentionItems: snapshot.attentionItems.map((i) => ({ ...i })),
+    attentionItems: snapshot.attentionItems
+      .filter((i) => i.id !== 'ineligible-suppressed')
+      .map((i) => ({ ...i })),
     setupChecklist: (snapshot.setupChecklist ?? []).map((i) => ({ ...i })),
     locationsNeedingDestinationCount:
       snapshot.locationsNeedingDestinationCount,
@@ -280,12 +291,17 @@ export function dashboardReducer(
 
       return {
         ...state,
-        kpis: { ...action.snapshot.kpis },
+        kpis: {
+          ...action.snapshot.kpis,
+          recentFailedRequestCount: action.snapshot.kpis.recentFailedRequestCount ?? 0,
+        },
         recentRequests: action.snapshot.recentRequests.map((r) => ({ ...r })),
         liveActivity: mergedLiveActivity,
         systemStatus: action.snapshot.systemStatus,
         statusDescription: action.snapshot.statusDescription,
-        attentionItems: action.snapshot.attentionItems.map((i) => ({ ...i })),
+        attentionItems: action.snapshot.attentionItems
+          .filter((i) => i.id !== 'ineligible-suppressed')
+          .map((i) => ({ ...i })),
         setupChecklist: (action.snapshot.setupChecklist ?? []).map((i) => ({ ...i })),
         locationsNeedingDestinationCount:
           action.snapshot.locationsNeedingDestinationCount,
@@ -460,6 +476,28 @@ export function dashboardReducer(
           }
         }
 
+        // Failure recency accounting:
+        // failedCount tracks all current FAILED requests (generic transition).
+        // recentFailedRequestCount tracks ONLY failures inside the 24h operational window.
+        const wasFailed = FAILED_SET.has(prev)
+        const isFailed = FAILED_SET.has(next)
+        const currentRecentFailed = state.kpis.recentFailedRequestCount ?? 0
+        let nextRecentFailed = currentRecentFailed
+
+        if (!wasFailed && isFailed) {
+          // Newly observed transition into FAILED: current operational failure occurring now
+          nextRecentFailed = currentRecentFailed + 1
+        } else if (wasFailed && !isFailed) {
+          // Recovery from FAILED:
+          // Decrement recentFailedRequestCount ONLY if the recovered request's
+          // failure belonged to the 24-hour operational window.
+          // Fails conservatively: if failedAt is null/missing/unparseable/historical,
+          // do NOT decrement in realtime.
+          if (isRecentFailureTimestamp(event.failedAt, DASHBOARD_OPERATIONAL_WINDOW_HOURS)) {
+            nextRecentFailed = Math.max(0, currentRecentFailed - 1)
+          }
+        }
+
         // Generic transition model
         const newKpis: DashboardKpis = {
           ...state.kpis,
@@ -467,6 +505,7 @@ export function dashboardReducer(
           sentCount: transitionCount(state.kpis.sentCount, prev, next, SENT_SET),
           clickedCount: transitionCount(state.kpis.clickedCount, prev, next, CLICKED_SET),
           failedCount: transitionCount(state.kpis.failedCount, prev, next, FAILED_SET),
+          recentFailedRequestCount: nextRecentFailed,
         }
 
         let highlightedKpiKey: keyof DashboardKpis | null = null
@@ -507,16 +546,15 @@ export function dashboardReducer(
         let nextStatusDescription = state.statusDescription
         let nextAttentionItems: AttentionItem[] = [...state.attentionItems]
 
-        if (newKpis.failedCount > 0) {
-          nextSystemStatus = 'NEEDS_ATTENTION'
-          nextStatusDescription = 'Operational issues detected in recent dispatches or outbox.'
+        const recentFailed = newKpis.recentFailedRequestCount ?? 0
 
+        if (recentFailed > 0) {
           const failedIdx = nextAttentionItems.findIndex((i) => i.id === 'failed-requests')
           const failedItem: AttentionItem = {
             id: 'failed-requests',
             severity: 'error',
             title: 'Workflow Dispatch Failed',
-            description: `${newKpis.failedCount} review request dispatch(es) recorded delivery failures. Please check email provider logs.`,
+            description: `${recentFailed} review request dispatch(es) recorded delivery failures in the last ${DASHBOARD_OPERATIONAL_WINDOW_HOURS} hours. Please check email provider logs.`,
           }
           if (failedIdx >= 0) {
             nextAttentionItems[failedIdx] = failedItem
@@ -524,27 +562,31 @@ export function dashboardReducer(
             nextAttentionItems = [failedItem, ...nextAttentionItems]
           }
         } else {
-          // failedCount === 0: remove failed-requests attention item
+          // recentFailed === 0: remove failed-requests attention item
           nextAttentionItems = nextAttentionItems.filter((i) => i.id !== 'failed-requests')
+        }
 
-          const hasErrors = nextAttentionItems.some((i) => i.severity === 'error')
-          if (hasErrors || (newKpis.outboxFailedCount ?? 0) > 0) {
-            nextSystemStatus = 'NEEDS_ATTENTION'
-            nextStatusDescription = 'Operational issues detected in recent dispatches or outbox.'
-          } else {
-            // No failure conditions: return to authoritative status
-            if (nextAttentionItems.some((i) => i.id === 'missing-location' || i.id === 'missing-destination')) {
-              nextSystemStatus = 'SETUP_REQUIRED'
-              nextStatusDescription = 'Initial setup required before requests can be dispatched.'
-            } else if (newKpis.sentCount > 0) {
-              nextSystemStatus = 'RUNNING'
-              nextStatusDescription = 'Review request workflow actively processing completions.'
-            } else {
-              nextSystemStatus = 'READY_FOR_SYNTHETIC_TEST'
-              nextStatusDescription =
-                'All locations configured with confirmed review destinations. Ready for synthetic validation.'
-            }
-          }
+        const hasSetupIssues = nextAttentionItems.some(
+          (i) => i.id === 'missing-location' || i.id === 'missing-destination'
+        )
+
+        if (hasSetupIssues) {
+          nextSystemStatus = 'SETUP_REQUIRED'
+          nextStatusDescription = 'Initial setup required before requests can be dispatched.'
+        } else if (
+          recentFailed > 0 ||
+          (newKpis.outboxFailedCount ?? 0) > 0 ||
+          nextAttentionItems.some((i) => i.severity === 'error')
+        ) {
+          nextSystemStatus = 'NEEDS_ATTENTION'
+          nextStatusDescription = 'Operational issues detected in recent dispatches or outbox.'
+        } else if (newKpis.sentCount > 0) {
+          nextSystemStatus = 'RUNNING'
+          nextStatusDescription = 'Review request workflow actively processing completions.'
+        } else {
+          nextSystemStatus = 'READY_FOR_SYNTHETIC_TEST'
+          nextStatusDescription =
+            'All locations configured with confirmed review destinations. Ready for synthetic validation.'
         }
 
         return {
@@ -590,20 +632,12 @@ export function dashboardReducer(
           ineligibleCount: nextIneligibleCount,
         }
 
-        let nextAttentionItems: AttentionItem[] = [...state.attentionItems]
-        const ineligibleIdx = nextAttentionItems.findIndex((i) => i.id === 'ineligible-suppressed')
-        const ineligibleItem: AttentionItem = {
-          id: 'ineligible-suppressed',
-          severity: 'info',
-          title: 'Completions Bypassed by Policy',
-          description: `${nextIneligibleCount} customer completion(s) were safely bypassed due to missing customer consent, recent request cooldown, or suppression.`,
-        }
-
-        if (ineligibleIdx >= 0) {
-          nextAttentionItems[ineligibleIdx] = ineligibleItem
-        } else {
-          nextAttentionItems = [...nextAttentionItems, ineligibleItem]
-        }
+        // Policy bypasses are safe decisions by the eligibility engine,
+        // not system operational faults. They do NOT add to attentionItems
+        // or force NEEDS_ATTENTION. Filter out any legacy item if present.
+        const nextAttentionItems = state.attentionItems.filter(
+          (i) => i.id !== 'ineligible-suppressed'
+        )
 
         // Live Activity transitions to BYPASSED
         const formattedReason =

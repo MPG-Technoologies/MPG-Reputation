@@ -156,13 +156,11 @@ export function getOperationalWindowStartIso(
 export function deriveDashboardSystemStatus({
   readiness,
   recentFailedRequestCount,
-  failedCount,
   outboxFailedCount,
   sentCount,
 }: {
   readiness: ActivationReadiness
-  recentFailedRequestCount?: number
-  failedCount?: number
+  recentFailedRequestCount: number
   outboxFailedCount: number
   sentCount: number
 }): {
@@ -185,12 +183,7 @@ export function deriveDashboardSystemStatus({
     }
   }
 
-  const effectiveRecentFailedCount =
-    recentFailedRequestCount !== undefined
-      ? recentFailedRequestCount
-      : (failedCount ?? 0)
-
-  if (effectiveRecentFailedCount > 0 || outboxFailedCount > 0) {
+  if (recentFailedRequestCount > 0 || outboxFailedCount > 0) {
     return {
       systemStatus: 'NEEDS_ATTENTION',
       statusDescription:

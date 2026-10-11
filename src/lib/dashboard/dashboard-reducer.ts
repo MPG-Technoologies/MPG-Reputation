@@ -11,6 +11,7 @@ import {
   type LiveActivityItem,
   type LiveActivityStage,
 } from './realtime-types'
+import { DASHBOARD_OPERATIONAL_WINDOW_HOURS } from '../../domain/activation'
 
 export type DashboardAction =
   | { type: 'EVENT_RECEIVED'; event: DashboardRealtimeEvent }
@@ -181,7 +182,10 @@ export function createInitialState(
 ): DashboardState {
   return {
     organizationId,
-    kpis: { ...snapshot.kpis },
+    kpis: {
+      ...snapshot.kpis,
+      recentFailedRequestCount: snapshot.kpis.recentFailedRequestCount ?? 0,
+    },
     recentRequests: snapshot.recentRequests.map((r) => ({ ...r })),
     liveActivity: (snapshot.liveActivity ?? []).map((a) => ({ ...a })),
 
@@ -282,7 +286,10 @@ export function dashboardReducer(
 
       return {
         ...state,
-        kpis: { ...action.snapshot.kpis },
+        kpis: {
+          ...action.snapshot.kpis,
+          recentFailedRequestCount: action.snapshot.kpis.recentFailedRequestCount ?? 0,
+        },
         recentRequests: action.snapshot.recentRequests.map((r) => ({ ...r })),
         liveActivity: mergedLiveActivity,
         systemStatus: action.snapshot.systemStatus,
@@ -471,6 +478,12 @@ export function dashboardReducer(
           sentCount: transitionCount(state.kpis.sentCount, prev, next, SENT_SET),
           clickedCount: transitionCount(state.kpis.clickedCount, prev, next, CLICKED_SET),
           failedCount: transitionCount(state.kpis.failedCount, prev, next, FAILED_SET),
+          recentFailedRequestCount: transitionCount(
+            state.kpis.recentFailedRequestCount ?? 0,
+            prev,
+            next,
+            FAILED_SET
+          ),
         }
 
         let highlightedKpiKey: keyof DashboardKpis | null = null
@@ -511,16 +524,15 @@ export function dashboardReducer(
         let nextStatusDescription = state.statusDescription
         let nextAttentionItems: AttentionItem[] = [...state.attentionItems]
 
-        if (newKpis.failedCount > 0) {
-          nextSystemStatus = 'NEEDS_ATTENTION'
-          nextStatusDescription = 'Operational issues detected in recent dispatches or outbox.'
+        const recentFailed = newKpis.recentFailedRequestCount ?? 0
 
+        if (recentFailed > 0) {
           const failedIdx = nextAttentionItems.findIndex((i) => i.id === 'failed-requests')
           const failedItem: AttentionItem = {
             id: 'failed-requests',
             severity: 'error',
             title: 'Workflow Dispatch Failed',
-            description: `${newKpis.failedCount} review request dispatch(es) recorded delivery failures. Please check email provider logs.`,
+            description: `${recentFailed} review request dispatch(es) recorded delivery failures in the last ${DASHBOARD_OPERATIONAL_WINDOW_HOURS} hours. Please check email provider logs.`,
           }
           if (failedIdx >= 0) {
             nextAttentionItems[failedIdx] = failedItem
@@ -528,27 +540,31 @@ export function dashboardReducer(
             nextAttentionItems = [failedItem, ...nextAttentionItems]
           }
         } else {
-          // failedCount === 0: remove failed-requests attention item
+          // recentFailed === 0: remove failed-requests attention item
           nextAttentionItems = nextAttentionItems.filter((i) => i.id !== 'failed-requests')
+        }
 
-          const hasErrors = nextAttentionItems.some((i) => i.severity === 'error')
-          if (hasErrors || (newKpis.outboxFailedCount ?? 0) > 0) {
-            nextSystemStatus = 'NEEDS_ATTENTION'
-            nextStatusDescription = 'Operational issues detected in recent dispatches or outbox.'
-          } else {
-            // No failure conditions: return to authoritative status
-            if (nextAttentionItems.some((i) => i.id === 'missing-location' || i.id === 'missing-destination')) {
-              nextSystemStatus = 'SETUP_REQUIRED'
-              nextStatusDescription = 'Initial setup required before requests can be dispatched.'
-            } else if (newKpis.sentCount > 0) {
-              nextSystemStatus = 'RUNNING'
-              nextStatusDescription = 'Review request workflow actively processing completions.'
-            } else {
-              nextSystemStatus = 'READY_FOR_SYNTHETIC_TEST'
-              nextStatusDescription =
-                'All locations configured with confirmed review destinations. Ready for synthetic validation.'
-            }
-          }
+        const hasSetupIssues = nextAttentionItems.some(
+          (i) => i.id === 'missing-location' || i.id === 'missing-destination'
+        )
+
+        if (hasSetupIssues) {
+          nextSystemStatus = 'SETUP_REQUIRED'
+          nextStatusDescription = 'Initial setup required before requests can be dispatched.'
+        } else if (
+          recentFailed > 0 ||
+          (newKpis.outboxFailedCount ?? 0) > 0 ||
+          nextAttentionItems.some((i) => i.severity === 'error')
+        ) {
+          nextSystemStatus = 'NEEDS_ATTENTION'
+          nextStatusDescription = 'Operational issues detected in recent dispatches or outbox.'
+        } else if (newKpis.sentCount > 0) {
+          nextSystemStatus = 'RUNNING'
+          nextStatusDescription = 'Review request workflow actively processing completions.'
+        } else {
+          nextSystemStatus = 'READY_FOR_SYNTHETIC_TEST'
+          nextStatusDescription =
+            'All locations configured with confirmed review destinations. Ready for synthetic validation.'
         }
 
         return {

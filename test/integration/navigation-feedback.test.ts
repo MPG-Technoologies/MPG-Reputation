@@ -30,11 +30,18 @@ import ReviewDestinationLoading from '../../src/app/app/settings/review-destinat
 
 describe('Navigation Feedback, Loading Skeletons & Transitions (Section 10)', () => {
   describe('0. Business operational navigation', () => {
-    it('exposes the existing Customers workspace on both desktop and mobile', () => {
+    it('uses one Customers entry shared by desktop and conditional mobile navigation', () => {
       const html = renderToString(React.createElement(AppNav))
-      const customersLinks = html.match(/href="\/app\/customers"/g) ?? []
-      expect(customersLinks).toHaveLength(2)
+      // The mobile drawer is closed by default, so only desktop links SSR.
+      expect(html).toContain('href="/app/customers"')
       expect(html).toContain('Customers')
+
+      const navSource = fs.readFileSync(
+        path.resolve(__dirname, '../../src/app/app/nav.tsx'),
+        'utf8'
+      )
+      expect(navSource).toContain("{ href: '/app/customers', label: 'Customers' }")
+      expect(navSource.match(/navItems\.map\(/g)).toHaveLength(2)
     })
   })
 

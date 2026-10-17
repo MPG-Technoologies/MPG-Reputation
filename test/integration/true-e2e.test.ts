@@ -38,9 +38,6 @@ describe("Runtime Integration Acceptance Harness (Prompt Requirements 4 & 9)", (
       auth: { autoRefreshToken: false, persistSession: false },
     })
 
-    // Clean up any residual pending outbox records from prior test runs
-    await adminClient.from("domain_event_outbox").delete().neq("id", "00000000-0000-0000-0000-000000000000")
-
     const userEmail = `e2e_owner_${timestamp}@test.local`
     const { data: u, error: uErr } = await adminClient.auth.admin.createUser({
       email: userEmail,
@@ -160,7 +157,13 @@ describe("Runtime Integration Acceptance Harness (Prompt Requirements 4 & 9)", (
       },
     } as unknown as import('inngest').Inngest
 
-    const dispatchSummary = await dispatchPendingOutboxEvents(adminClient, inngestHarness, { organizationId: orgId, batchSize: 10 })
+    // Dispatch only the outbox event created by this test; never clear or
+    // process unrelated synthetic tenants' pending events on the hosted test DB.
+    const dispatchSummary = await dispatchPendingOutboxEvents(adminClient, inngestHarness, {
+      organizationId: orgId,
+      eventId: outboxId,
+      batchSize: 10,
+    })
     expect(dispatchSummary.dispatched).toBeGreaterThanOrEqual(1)
     expect(inngestDispatchedPayload).toBeDefined()
     const dispatchedEvent = inngestDispatchedPayload!

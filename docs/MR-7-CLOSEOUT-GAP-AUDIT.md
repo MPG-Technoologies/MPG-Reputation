@@ -2,35 +2,35 @@
 
 | Metadata | Value |
 |---|---|
-| Date | 2026-10-11 |
+| Date | 2026-10-17 |
 | Milestone | MR-7 — Trust / Security / Compliance |
-| Audit Slice | MR-7 Remaining Gap / Closeout Audit |
+| Audit Slice | MR-7 Remaining Gap / Closeout Audit — reconciled after C5C2-H |
 | Slice Status | ENGINEERING COMPLETE / READY FOR OWNER REVIEW |
-| Product Baseline | `d7e58efee9c72eb379a461f51749f35d3954c75d` |
+| Product Baseline | `29fe5527113e7d3a82c16899e2cc2f940846ea22` |
 | Company OS Baseline | `b62a7fea72c30eb8e768511815816b4de1ed1a3e` |
 | Hosted Supabase Project | `awvqtwkzprygsoyfspuz` (`mpg-reputation`) |
 | Scope | Planning / evidence only; no product implementation code, schema mutation, deployment, live messaging, billing, pilot activation, or Case B implementation |
-| Owner Boundary | Do not implement Case B |
+| Owner Boundary | Do not implement Case B; do not activate MR-8; do not enable live messaging or billing |
 
 ## 1. Purpose
 
-This audit determines what remains before MR-7 can be considered technically closed, while preserving the Owner instruction not to begin Case B.
+This audit records the truthful remaining MR-7 closeout state after completion and owner acceptance of MR-7C.5C2-H.
 
 It separates:
 
 1. accepted MR-7 engineering evidence;
-2. hosted verification debt;
-3. remaining engineering that is safe to execute without Case B;
-4. external/legal/provider dependencies;
+2. resolved hosted-verification debt;
+3. remaining documentation / legal-review preparation;
+4. external legal/compliance dependencies;
 5. items that belong to later milestones and must not be pulled forward.
 
 This document is an engineering/readiness audit, not legal advice or a compliance certification.
 
 ## 2. Current MR-7 State
 
-MR-7 remains **ACTIVE / IN PROGRESS**.
+MR-7 remains **IN PROGRESS**.
 
-Accepted technical work recorded in the authoritative MR-7 execution handoff includes:
+Accepted technical work includes:
 
 - MR-7B.1 — messaging authority evidence and suppression hardening;
 - MR-7B.2 — sender identity enforcement;
@@ -42,62 +42,82 @@ Accepted technical work recorded in the authoritative MR-7 execution handoff inc
 - MR-7C.5A — external processor retention map;
 - MR-7C.5B — Inngest/provider privacy hardening;
 - MR-7C.5C1 — Case A post-restore privacy verification foundation;
-- MR-7C.5C2 — Case A controlled restore-delta replay engine.
+- MR-7C.5C2 — Case A controlled restore-delta replay engine;
+- MR-7C.5C2-H — hosted Case A migration and bounded synthetic verification.
 
-MR-7C.5C2 is owner accepted and merged. Its migration is present in the repository, but the hosted engineering/test database has not yet received it.
+MR-7C.5C2-H is **OWNER ACCEPTED / MERGED** on product `main` at
+`29fe5527113e7d3a82c16899e2cc2f940846ea22`.
 
-Case B remains explicitly unresolved and is excluded from this audit's implementation scope.
+Case B remains explicitly owner-excluded and must not be implemented.
 
 ## 3. MR-7 Roadmap Exit-Criteria Mapping
 
-The original MR-7 roadmap requires:
-
 | Roadmap Requirement | Current Evidence | Audit Classification |
 |---|---|---|
-| Comprehensive PostgreSQL RLS audit and cross-tenant negative testing | Existing `real-rls`, `tenant-isolation`, support-access, privacy/export/erasure, completion-platform, and security-definer test suites; accepted hosted privacy-trigger hardening; current hosted privilege inspection | SUBSTANTIALLY SATISFIED by accepted evidence; fresh closeout regression remains advisable after final hosted migration |
-| Customer retention/export/deletion lifecycle | C2 export, C3 erasure/anonymization, C4 retention controls, C5 processor map, restore verification/replay | SATISFIED for accepted Case A scope |
-| Durable suppression preventing prohibited re-contact | Durable `suppressions`, recipient evidence, unsubscribe hardening, final dispatch authority checks, permanent retention guards | SATISFIED by accepted evidence |
-| US/Canada messaging technical controls | Sender identity, postal-address requirement, permission-state fail-closed behavior, suppression/unsubscribe, RFC 8058 work from MR-1, neutral templates | PARTIALLY SATISFIED technically; final jurisdiction/use-case interpretation remains qualified-legal-review gated |
-| Product Terms / Privacy Policy technical enforcement | No final legal text or final policy-acceptance contract is frozen; public `/terms` and `/privacy` pages belong to MR-9 | GATED / NOT SAFE TO INVENT before qualified review and owner policy |
-| Technical controls audit prepared for qualified legal review | MR-7 execution handoff + privacy lifecycle + retention matrix + processor map provide substantial evidence | NEEDS CLOSEOUT PACKAGING / reconciliation before legal handoff |
-| End-to-end privacy restore safety | Case A collection, replay, and verification accepted | PARTIAL: Case A accepted; Case B deliberately unresolved |
+| Comprehensive PostgreSQL RLS audit and cross-tenant negative testing | Existing real-RLS, tenant-isolation, support-access, privacy/export/erasure, completion-platform, and security-definer suites; hosted privilege inspection and security-advisor reconciliation | SUBSTANTIALLY SATISFIED by accepted technical evidence |
+| Customer retention/export/deletion lifecycle | C2 export, C3 erasure/anonymization, C4 retention controls, C5 processor map, Case A restore verification/replay | SATISFIED for current owner-authorized scope |
+| Durable suppression preventing prohibited re-contact | Durable suppressions, recipient evidence, unsubscribe hardening, final dispatch authority checks, permanent retention guards | SATISFIED by accepted evidence |
+| US/Canada messaging technical controls | Sender identity, postal-address enforcement, permission fail-closed behavior, suppression/unsubscribe, RFC 8058 work, neutral templates | TECHNICAL CONTROLS IMPLEMENTED; legal sufficiency remains qualified-review gated |
+| Product Terms / Privacy Policy technical enforcement | No final legal text or frozen acceptance/versioning contract; public Terms/Privacy surfaces belong to MR-9 | GATED BY QUALIFIED REVIEW / OWNER POLICY |
+| Technical controls audit prepared for qualified legal review | Execution handoff, privacy lifecycle contract, retention matrix, processor map, hosted security evidence, this reconciled closeout audit | NEEDS CONSOLIDATED LEGAL-REVIEW PACKET |
+| End-to-end privacy restore safety | Case A collection, replay, verification and hosted proof accepted | SATISFIED FOR CASE A; Case B owner-excluded |
 
-## 4. Hosted Supabase Verification Findings
+## 4. Hosted Supabase Reconciliation
 
-The hosted MPG Reputation Supabase project was inspected directly during this audit.
+The hosted MPG Reputation Supabase environment is an engineering/test database containing synthetic/seed state and zero real customer data.
 
-### 4.1 Migration State
+### 4.1 Migration State — Resolved
 
-Repository migration count on product `main`: **26**.
+Repository migration count: **26**.
 
-Hosted Supabase migration count: **25**.
+Hosted migration history after C5C2-H: **26/26**.
 
-Latest hosted migration:
+The C5C2 migration is present and applied under its canonical repository version:
 
-`20261010010000_privacy_trigger_function_hardening`
+`20261011120000_mr7c5c2_restore_delta_replay`
 
-Repository-only migration:
+The earlier audit finding that hosted Supabase was 25/26 is obsolete and is superseded by the accepted C5C2-H evidence.
 
-`20261011120000_mr7c5c2_restore_delta_replay.sql`
+### 4.2 Replay Function State — Resolved
 
-Therefore the historical C5C2 statement is still accurate: the C5C2 migration has **not** been applied to hosted Supabase.
+Hosted verification confirmed both maintenance functions exist:
 
-### 4.2 C5C2 Hosted Function State
+- `public.replay_customer_erasure_maintenance(uuid, uuid, timestamptz)`;
+- `public.replay_suppression_maintenance(uuid, text, text, text, timestamptz)`.
 
-The hosted database currently reports:
+Privilege verification confirmed:
 
-- `public.replay_customer_erasure_maintenance(uuid, uuid, timestamptz)`: absent;
-- `public.replay_suppression_maintenance(uuid, text, text, text, timestamptz)`: absent.
+- `PUBLIC`: no execute;
+- `anon`: no execute;
+- `authenticated`: no execute;
+- intended elevated server role: execute allowed.
 
-This confirms C5C2 is merged and locally/integration validated, but is not yet hosted-database verified.
+Both functions remain `SECURITY DEFINER` with fixed
+`search_path=public, pg_temp`.
+
+### 4.3 Hosted Case A Proof — Resolved
+
+C5C2-H bounded synthetic hosted verification established:
+
+1. unreconciled restored privacy state remains BLOCK;
+2. valid customer-erasure replay restores the accepted anonymized state;
+3. valid suppression replay preserves historical reason and timestamp;
+4. post-replay persisted-state predicates PASS;
+5. exact replay is idempotent;
+6. conflicting erasure certificate timestamps fail closed;
+7. cross-tenant replay attempts fail closed;
+8. malformed suppression replay inputs are denied;
+9. incomplete/unreconciled state remains BLOCK;
+10. injected audit-write failure proves atomic rollback;
+11. temporary test objects and synthetic fixtures were cleaned up.
+
+The hosted proof exercised the exact persisted-state predicates used by the accepted C5C1 verifier. It did not claim that the TypeScript verifier itself was re-executed through a hosted application runtime.
 
 ## 5. Hosted Security Advisor Reconciliation
 
-The current hosted Supabase Security Advisor was reviewed.
-
 ### 5.1 RLS Enabled / No Policy Findings
 
-Seven server-owned tables are reported as RLS-enabled with no policies:
+Seven intentionally server-owned tables remain reported as RLS-enabled with no user-facing policies:
 
 - `billing_webhook_events`;
 - `completion_api_credentials`;
@@ -107,21 +127,18 @@ Seven server-owned tables are reported as RLS-enabled with no policies:
 - `messaging_authority_evidence`;
 - `review_request_recipient_evidence`.
 
-Direct hosted privilege inspection confirms:
+Hosted privilege inspection confirmed no SELECT/INSERT/UPDATE/DELETE for `anon` or `authenticated` on these tables.
 
-- `anon`: no SELECT/INSERT/UPDATE/DELETE on all seven;
-- `authenticated`: no SELECT/INSERT/UPDATE/DELETE on all seven.
-
-This means the advisor signal is expected for these intentionally server-owned tables and is **not evidence of a tenant exposure by itself**.
-
-The append-only controls on privacy evidence remain present:
+Append-only privacy evidence controls remain intact:
 
 - `customer_erasure_records`: service role SELECT + INSERT; UPDATE/DELETE denied;
 - `review_request_recipient_evidence`: service role SELECT + INSERT; UPDATE/DELETE denied.
 
-### 5.2 SECURITY DEFINER Advisor Findings
+Classification: **REVIEWED / NO TENANT EXPOSURE DEMONSTRATED BY THESE ADVISORIES**.
 
-The advisor reports authenticated execution on:
+### 5.2 Authenticated SECURITY DEFINER Advisor Findings
+
+Existing advisor warnings remain on:
 
 - `create_org_with_owner_and_location`;
 - `submit_quick_complete_atomic`;
@@ -129,109 +146,91 @@ The advisor reports authenticated execution on:
 - `user_org_ids`;
 - `user_role`.
 
-Hosted definitions were inspected.
+Prior hosted definition inspection confirmed:
 
-Observed controls:
+- anonymous execution denied;
+- authenticated execution is constrained by `auth.uid()` and/or tenant role/location checks;
+- fixed `public, pg_temp` search paths;
+- no demonstrated authorization bypass in the accepted audit.
 
-- anonymous execution is denied;
-- onboarding requires `auth.uid()`;
-- Quick Complete requires `auth.uid()`, tenant role membership, and organization/location ownership checks;
-- RLS helpers derive membership/role results using the current `auth.uid()`;
-- all functions use an explicit `public, pg_temp` search path.
+The new C5C2 replay functions are not in the authenticated warning set because authenticated execution is revoked.
 
-Audit classification: **REVIEWED HARDENING ADVISORY / NO PROVEN AUTHORIZATION BYPASS FOUND IN THIS AUDIT**.
-
-No privilege broadening or function rewrite is authorized by this audit.
+Classification: **REVIEWED HARDENING ADVISORY / NO PROVEN AUTHORIZATION BYPASS**.
 
 ### 5.3 Leaked Password Protection
 
-Supabase Security Advisor reports leaked-password protection disabled.
+Leaked-password protection remains disabled on the current Supabase plan.
 
-Current Supabase documentation states leaked-password protection is available on **Pro Plan and above**. The current hosted MPG Reputation project is on **Free**.
+Classification: **PLATFORM / PLAN HARDENING DEPENDENCY**, not a repository implementation defect.
 
-Audit classification: **PLATFORM / PLAN HARDENING DEPENDENCY**, not a repository code defect. This requires an explicit plan/risk decision before it can be treated as a mandatory closure item.
+No plan upgrade or commercial/infrastructure change is authorized by this audit.
 
 ## 6. Remaining MR-7 Gaps
 
-### GAP-1 — C5C2 Hosted Migration & Case A Hosted Verification
-
-**Status:** IMPLEMENTABLE / NOT STARTED
-
-This is the clearest bounded engineering gap that does not enter Case B.
-
-Required next slice:
-
-1. apply repository migration `20261011120000_mr7c5c2_restore_delta_replay.sql` to the hosted engineering/test Supabase database;
-2. verify migration history becomes 26/26;
-3. verify both replay maintenance functions exist;
-4. verify execution remains denied to PUBLIC / anon / authenticated and allowed only to the intended elevated server role;
-5. run bounded synthetic Case A replay verification against hosted test fixtures;
-6. prove fail-closed behavior and post-replay verifier PASS/BLOCK behavior;
-7. run Supabase security advisors after the DDL application;
-8. update MR-7 evidence truthfully.
-
-This slice must use synthetic/seed data only.
-
-### GAP-2 — MR-7 Closeout Technical-Control Packet for Qualified Review
+### GAP-1 — MR-7 Technical-Control Packet for Qualified Review
 
 **Status:** IMPLEMENTABLE AS DOCUMENTATION / NOT LEGAL SIGN-OFF
 
-The current evidence is spread across several documents. Before qualified review, consolidate:
+The accepted evidence is distributed across multiple engineering documents.
 
-- messaging permission/authority controls;
-- sender identity/postal-address controls;
+The next safe internal slice is to consolidate a qualified-review packet covering:
+
+- messaging authority / permission controls;
+- sender identity and physical-address controls;
 - unsubscribe and suppression behavior;
-- retention and erasure controls;
-- processor retention/deletion behavior;
-- restoration privacy guarantees and known gaps;
-- current unresolved jurisdiction-specific questions;
-- current Terms/Privacy technical-enforcement questions.
+- retention, export and erasure controls;
+- external processor retention/deletion behavior;
+- Case A restoration privacy guarantees;
+- hosted security-advisor reconciliation;
+- known platform hardening advisories;
+- unresolved jurisdiction-specific questions;
+- Terms / Privacy technical-enforcement questions that require legal/policy decisions.
 
-The packet must not claim statutory compliance or invent policy/legal text.
+The packet must not claim statutory compliance or invent legal conclusions.
 
-### GAP-3 — Qualified US/Canada Legal / Compliance Review
+### GAP-2 — Qualified US/Canada Legal / Compliance Review
 
 **Status:** GATED / EXTERNAL DEPENDENCY
 
-Still required before real-customer messaging/public release as recorded in Company OS.
+Qualified review is still required before external customer data, live customer messaging, pilot activation, or public/commercial release.
 
-Legal review must resolve or validate, as applicable:
+Review must resolve or validate, as applicable:
 
 - US/Canada message classification and consent/permission treatment;
 - sender identification and physical-address requirements;
 - unsubscribe/opt-out requirements;
-- quiet-hours requirements where applicable;
+- quiet-hours obligations where applicable;
 - retention-policy legal sufficiency;
-- Terms of Service;
-- Privacy Policy;
+- Terms of Service requirements;
+- Privacy Policy requirements;
 - processor/data-processing obligations;
-- Google policy review where applicable.
+- Google/platform policy obligations where applicable.
 
 Engineering must not invent these conclusions.
 
-### GAP-4 — Terms / Privacy Technical Enforcement
+### GAP-3 — Terms / Privacy Technical Enforcement
 
-**Status:** GATED BY GAP-3 / MR-9 SURFACE DEPENDENCY
+**Status:** GATED BY GAP-2 / OWNER POLICY / MR-9 SURFACE DEPENDENCY
 
-The MR-7 roadmap names Terms of Service and Privacy Policy technical enforcement controls, but no final legal text or accepted acknowledgement/versioning policy exists.
+MR-7 names Terms of Service and Privacy Policy technical enforcement controls, but final legal text and a frozen acceptance/versioning policy do not yet exist.
 
 Do not implement a fabricated acceptance contract.
 
-Public `/terms` and `/privacy` pages remain MR-9 work.
+Public `/terms` and `/privacy` pages remain MR-9 surfaces.
 
-### GAP-5 — Case B Disaster-Recovery Privacy Ledger
+### GAP-4 — Case B Disaster-Recovery Privacy Ledger
 
-**Status:** UNRESOLVED / OWNER-EXCLUDED FROM CURRENT WORK
+**Status:** OWNER-EXCLUDED / DO NOT IMPLEMENT
 
-Catastrophic primary-database loss with no readable pre-restore database still lacks an independent authoritative offsite privacy delta source.
+Case B covers catastrophic primary-database loss where no readable pre-restore source remains.
 
-No storage/provider/ledger architecture is selected.
+No independent durable offsite privacy-delta source is selected.
 
-Per current owner instruction, **do not implement Case B**.
+Per current owner direction, **Case B is excluded from current work and is not a basis for starting new architecture during MR-7 closeout**.
 
 ## 7. Items That Are Not MR-7 Closeout Work
 
-The following remain important program gates but must not be pulled into this MR-7 audit slice:
+Do not pull these items into MR-7 closeout:
 
 - MR-5 billing completion;
 - MR-1B-H hosted domain validation;
@@ -243,66 +242,66 @@ The following remain important program gates but must not be pulled into this MR
 - commercial launch;
 - Company Stage 2 activation.
 
-They remain separately gated by Company OS.
+They remain separately gated by Company OS and explicit owner decisions.
 
 ## 8. Closeout Decision
 
-MR-7 **cannot currently be marked ENGINEERING COMPLETE** because:
+The earlier engineering gap for C5C2 hosted application/verification is **RESOLVED / OWNER ACCEPTED**.
 
-1. C5C2 has not been applied/verified on the hosted engineering/test database;
-2. qualified legal/compliance review remains external and incomplete;
-3. Terms/Privacy technical enforcement cannot be finalized safely before that review;
-4. Case B remains unresolved and is explicitly excluded by current Owner direction.
+MR-7 nevertheless remains **IN PROGRESS** because:
 
-The first item is directly implementable without violating the Case B boundary.
+1. the technical-control evidence still needs consolidated packaging for qualified review;
+2. qualified US/Canada legal/compliance review remains incomplete;
+3. final Terms / Privacy technical-enforcement requirements depend on that review and owner policy.
+
+Case B is not to be implemented and must not be used to expand the current engineering scope.
+
+This audit therefore does **not** mark MR-7 complete, does **not** activate MR-8, and does **not** authorize live messaging, live billing, pilot use, external customer data, or commercial release.
 
 ## 9. Recommended Next Slice
 
-### MR-7C.5C2-H — Hosted Case A Migration & Verification
+### MR-7 Closeout Technical-Control Packet
 
-**Objective:** Move the already-accepted C5C2 Case A replay engine from repository-only/local PostgreSQL evidence to hosted engineering/test Supabase verification.
+**Objective:** Consolidate the accepted technical controls and unresolved legal/policy questions into a review-ready engineering packet for qualified US/Canada legal/compliance review.
 
 **Allowed:**
 
-- apply the existing version-controlled C5C2 migration;
-- create/use bounded synthetic fixtures;
-- verify function privileges and tenant/privacy invariants;
-- exercise Case A replay only;
-- run hosted RLS/security/integration verification;
-- clean up synthetic test state;
-- update documentation/evidence.
+- documentation/evidence reconciliation;
+- trace accepted controls to repository/migration/test evidence;
+- document hosted security-advisor findings and classifications;
+- list unresolved legal/policy questions;
+- identify which future technical controls depend on qualified review.
 
 **Not allowed:**
 
-- Case B architecture or implementation;
-- real customer data;
-- live messaging;
+- legal certification or statutory-compliance claims;
+- invented Terms of Service or Privacy Policy text;
+- Case B implementation;
+- MR-8 activation;
+- live customer messaging;
 - live billing;
-- production customer pilot;
-- public launch;
-- weakening RLS/authentication/authorization/tenant isolation;
-- unrelated database changes;
-- broad hosted database reset.
+- production/customer pilot;
+- unrelated schema or application changes.
 
 ### Exit Evidence
 
-The slice is complete only when:
+The slice is complete when one consolidated packet truthfully records:
 
-- hosted migration history reports 26/26 including C5C2;
-- replay functions exist with the intended restricted privileges;
-- synthetic Case A replay succeeds when valid;
-- malformed/unauthorized/contradictory replay attempts fail closed;
-- post-replay C5C1 verifier returns truthful PASS/BLOCK results;
-- Supabase security advisors are reviewed after migration;
-- no unrelated hosted state or repository code is changed;
-- evidence is recorded in the MR-7 execution handoff.
+- implemented messaging/permission controls;
+- implemented suppression/unsubscribe controls;
+- implemented retention/export/erasure controls;
+- implemented Case A restore controls and hosted evidence;
+- current security-advisor reconciliation;
+- external/platform dependencies;
+- exact questions requiring qualified review;
+- explicit non-authorization of Case B, MR-8, messaging, billing, pilot and launch.
 
 ## 10. Owner Gate
 
-**Audit slice:** ENGINEERING COMPLETE / READY FOR OWNER REVIEW.
+**Audit reconciliation:** ENGINEERING COMPLETE / READY FOR OWNER REVIEW.
 
 Recommended next action:
 
-**Approve MR-7C.5C2-H — Hosted Case A Migration & Verification.**
+**Review this reconciled closeout audit, then authorize/continue the MR-7 Closeout Technical-Control Packet.**
 
 This recommendation does not activate Case B, MR-8, messaging, billing, pilot operation, or commercial release.

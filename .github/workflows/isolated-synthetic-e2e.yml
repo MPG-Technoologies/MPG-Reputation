@@ -1,0 +1,94 @@
+# Disposable, repository-local Supabase stack for the database-backed synthetic
+# E2E harness. Never connect this job to hosted Supabase or customer accounts.
+name: Isolated Synthetic E2E
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: isolated-e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  synthetic-e2e:
+    name: Synthetic Quick Complete / Outbox / Redirect
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      CI: 'true'
+      EMAIL_PROVIDER: console
+      ENABLE_LIVE_EMAIL: 'false'
+      ENABLE_SYNTHETIC_EMAIL_VALIDATION: 'false'
+      ENABLE_RETENTION_MAINTENANCE: 'false'
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54331
+
+    steps:
+      - name: Checkout (read-only)
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+
+      - name: Verify isolated-only settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$EMAIL_PROVIDER" = "console"
+          test "$ENABLE_LIVE_EMAIL" = "false"
+          test "$ENABLE_RETENTION_MAINTENANCE" = "false"
+          test "$NEXT_PUBLIC_SUPABASE_URL" = "http://127.0.0.1:54331"
+          if [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] || [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || [ -n "${RESEND_API_KEY:-}" ] || [ -n "${STRIPE_SECRET_KEY:-}" ]; then
+            echo "Unexpected hosted database or external provider credential in CI"
+            exit 1
+          fi
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Runner-owned ephemeral Docker network/database. The CLI uses the
+      # repository's migrations and seed fixtures; no project linking, db push,
+      # remote reset, hosted account, or provider credential is used.
+      - name: Start disposable local Supabase
+        timeout-minutes: 25
+        run: |
+          pnpm dlx supabase@2.117.0 start \
+            -x studio,imgproxy,edge-runtime,logflare,vector,realtime,storage-api,postgres-meta,supavisor,mailpit
+
+      - name: Load ephemeral local API credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm dlx supabase@2.117.0 status -o env > "$RUNNER_TEMP/mpg-synthetic-supabase.env"
+          source "$RUNNER_TEMP/mpg-synthetic-supabase.env"
+          test "$API_URL" = "http://127.0.0.1:54331"
+          test -n "$ANON_KEY"
+          test -n "$SERVICE_ROLE_KEY"
+          echo "::add-mask::$ANON_KEY"
+          echo "::add-mask::$SERVICE_ROLE_KEY"
+          {
+            echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL"
+            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+          } >> "$GITHUB_ENV"
+
+      - name: Run scoped synthetic database-backed E2E test
+        run: pnpm exec vitest run test/integration/true-e2e.test.ts
+
+      - name: Stop and erase disposable local Supabase containers
+        if: always()
+        continue-on-error: true
+        run: pnpm dlx supabase@2.117.0 stop --no-backup

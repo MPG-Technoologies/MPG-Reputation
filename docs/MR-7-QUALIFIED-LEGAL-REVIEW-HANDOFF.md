@@ -57,7 +57,7 @@ The reviewer cannot reach defensible jurisdiction-specific conclusions without a
 | Intake fact | Current known position | Needed before legal conclusion |
 |---|---|---|
 | Markets | United States and Canada initially; Australia later, not this review | Specific states/provinces, launch order, and whether all jurisdictions are in scope |
-| Business verticals | Final market vertical not frozen | Initial businesses and completed-transaction/service scenarios |
+| Business verticals | **Owner-confirmed intake scope (2026-10-17): general service businesses, industry-agnostic.** This is a legal-review scoping choice, not a frozen go-to-market vertical or permission to serve every regulated industry. | Identify illustrative completed-service scenarios and sector-specific exceptions or obligations requiring separate fact gathering/review. |
 | Recipients | End consumers of MPG business tenants | Consumer/business distinction, collection source, any minors/sensitive segments |
 | Message channel | Email in current implemented provider; SMS gated | Real intended send/reminder practices and any future channels that require separate review |
 | Permission basis | Product stores permission state and authority evidence | Factual acquisition/capture process, actual consent/relationship evidence, notices and timestamps |
@@ -66,6 +66,8 @@ The reviewer cannot reach defensible jurisdiction-specific conclusions without a
 | Organizational/legal parties | MPG master brand and MPG Reputation working product identity | Actual contracting entity, country of establishment, data-processing roles, contact channels |
 | International processing | Supabase project/processor map contains infrastructure details | Actual intended customer location, processor/subprocessor and cross-border transfer facts |
 | Commercial terms | MR-5 paused; pricing unapproved | No invented plan/refund/renewal terms; identify future commercial terms only when owner adopts them |
+
+**Recorded owner intake response — 2026-10-17:** Use **general service businesses (industry-agnostic)** for the initial US/Canada qualified legal-review scope. Product positioning remains broadly service-business-oriented; this does **not** approve a first commercial vertical, resolve all state/provincial requirements, authorize handling regulated or sensitive-sector records, or activate real-customer processing. Actual customer/source/consent collection facts and jurisdiction coverage remain unconfirmed. Where industry-specific privacy, health, finance, child-related, or other special obligations are potentially relevant, the qualified reviewer must identify whether a separate scoped assessment is required.
 
 **Owner task:** Confirm factual intake answers and authorized scope. Do not use real customer records, contact details, credentials, or private contracts in this public repository. Convey confidential facts via an owner-approved private channel with qualified counsel.
 

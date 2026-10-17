@@ -4,17 +4,17 @@
 |---|---|
 | Date | 2026-10-17 |
 | Milestone | MR-7 — Trust / Security / Compliance |
-| Audit Slice | MR-7 Remaining Gap / Closeout Audit — reconciled after C5C2-H |
+| Audit Slice | MR-7 Remaining Gap / Closeout Audit — reconciled after C5C2-H and Technical-Control Packet |
 | Slice Status | ENGINEERING COMPLETE / READY FOR OWNER REVIEW |
-| Product Baseline | `29fe5527113e7d3a82c16899e2cc2f940846ea22` |
-| Company OS Baseline | `b62a7fea72c30eb8e768511815816b4de1ed1a3e` |
+| Product Baseline | `3c3fea462056eedcd57e658a48af06d9d5bba29f` |
+| Company OS Baseline | `03a48a34481f1952a31cd5c4fb980bc381432d8d` (`MPG-DEC-051`) |
 | Hosted Supabase Project | `awvqtwkzprygsoyfspuz` (`mpg-reputation`) |
 | Scope | Planning / evidence only; no product implementation code, schema mutation, deployment, live messaging, billing, pilot activation, or Case B implementation |
 | Owner Boundary | Do not implement Case B; do not activate MR-8; do not enable live messaging or billing |
 
 ## 1. Purpose
 
-This audit records the truthful remaining MR-7 closeout state after completion and owner acceptance of MR-7C.5C2-H.
+This audit records the remaining MR-7 closeout state after owner acceptance/merge of MR-7C.5C2-H, the Technical-Control Packet (Product PR #4), and Company OS decision `MPG-DEC-051`.
 
 It separates:
 
@@ -48,6 +48,8 @@ Accepted technical work includes:
 MR-7C.5C2-H is **OWNER ACCEPTED / MERGED** on product `main` at
 `29fe5527113e7d3a82c16899e2cc2f940846ea22`.
 
+The technical-control packet (`docs/MR-7-TECHNICAL-CONTROL-PACKET.md`) is **OWNER ACCEPTED / MERGED** via Product PR #4 at `3c3fea462056eedcd57e658a48af06d9d5bba29f`. The Company OS MR-7 reconciliation (`MPG-DEC-051`) is **OWNER ACCEPTED / MERGED** via Company OS PR #2 at `03a48a34481f1952a31cd5c4fb980bc381432d8d`.
+
 Case B remains explicitly owner-excluded and must not be implemented.
 
 ## 3. MR-7 Roadmap Exit-Criteria Mapping
@@ -59,7 +61,7 @@ Case B remains explicitly owner-excluded and must not be implemented.
 | Durable suppression preventing prohibited re-contact | Durable suppressions, recipient evidence, unsubscribe hardening, final dispatch authority checks, permanent retention guards | SATISFIED by accepted evidence |
 | US/Canada messaging technical controls | Sender identity, postal-address enforcement, permission fail-closed behavior, suppression/unsubscribe, RFC 8058 work, neutral templates | TECHNICAL CONTROLS IMPLEMENTED; legal sufficiency remains qualified-review gated |
 | Product Terms / Privacy Policy technical enforcement | No final legal text or frozen acceptance/versioning contract; public Terms/Privacy surfaces belong to MR-9 | GATED BY QUALIFIED REVIEW / OWNER POLICY |
-| Technical controls audit prepared for qualified legal review | Execution handoff, privacy lifecycle contract, retention matrix, processor map, hosted security evidence, this reconciled closeout audit | NEEDS CONSOLIDATED LEGAL-REVIEW PACKET |
+| Technical controls audit prepared for qualified legal review | Accepted `docs/MR-7-TECHNICAL-CONTROL-PACKET.md`, execution handoff, privacy lifecycle contract, retention matrix, processor map, hosted security evidence, this reconciled closeout audit | SATISFIED — CONSOLIDATED PACKET OWNER ACCEPTED / MERGED |
 | End-to-end privacy restore safety | Case A collection, replay, verification and hosted proof accepted | SATISFIED FOR CASE A; Case B owner-excluded |
 
 ## 4. Hosted Supabase Reconciliation
@@ -169,24 +171,13 @@ No plan upgrade or commercial/infrastructure change is authorized by this audit.
 
 ### GAP-1 — MR-7 Technical-Control Packet for Qualified Review
 
-**Status:** IMPLEMENTABLE AS DOCUMENTATION / NOT LEGAL SIGN-OFF
+**Status:** RESOLVED / OWNER ACCEPTED / MERGED.
 
-The accepted evidence is distributed across multiple engineering documents.
+The consolidated engineering evidence packet is available at `docs/MR-7-TECHNICAL-CONTROL-PACKET.md`, merged through Product PR #4 at `3c3fea462056eedcd57e658a48af06d9d5bba29f`.
 
-The next safe internal slice is to consolidate a qualified-review packet covering:
+It consolidates messaging permission and sender identity, suppression/unsubscribe, privacy export/erasure, frozen retention, external processor boundaries, Case A restore evidence, RLS/security-advisor inspection, platform hardening gaps, and explicit legal/policy questions.
 
-- messaging authority / permission controls;
-- sender identity and physical-address controls;
-- unsubscribe and suppression behavior;
-- retention, export and erasure controls;
-- external processor retention/deletion behavior;
-- Case A restoration privacy guarantees;
-- hosted security-advisor reconciliation;
-- known platform hardening advisories;
-- unresolved jurisdiction-specific questions;
-- Terms / Privacy technical-enforcement questions that require legal/policy decisions.
-
-The packet must not claim statutory compliance or invent legal conclusions.
+**This closure covers preparation of engineering evidence only.** It does not assert regulatory compliance or mean qualified counsel has reviewed or approved the product.
 
 ### GAP-2 — Qualified US/Canada Legal / Compliance Review
 
@@ -250,8 +241,8 @@ The earlier engineering gap for C5C2 hosted application/verification is **RESOLV
 
 MR-7 nevertheless remains **IN PROGRESS** because:
 
-1. the technical-control evidence still needs consolidated packaging for qualified review;
-2. qualified US/Canada legal/compliance review remains incomplete;
+1. qualified US/Canada legal/compliance review remains incomplete;
+2. provider/account evidence may need to be supplied to that reviewer;
 3. final Terms / Privacy technical-enforcement requirements depend on that review and owner policy.
 
 Case B is not to be implemented and must not be used to expand the current engineering scope.
@@ -260,41 +251,28 @@ This audit therefore does **not** mark MR-7 complete, does **not** activate MR-8
 
 ## 9. Recommended Next Slice
 
-### MR-7 Closeout Technical-Control Packet
+### MR-7 Qualified-Review Submission Handoff
 
-**Objective:** Consolidate the accepted technical controls and unresolved legal/policy questions into a review-ready engineering packet for qualified US/Canada legal/compliance review.
+**Objective:** Prepare a concise reviewer-facing submission index and response matrix using the already owner-accepted Technical-Control Packet, for transmission to a qualified US/Canada legal/compliance professional through an owner-approved channel.
 
 **Allowed:**
 
-- documentation/evidence reconciliation;
-- trace accepted controls to repository/migration/test evidence;
-- document hosted security-advisor findings and classifications;
-- list unresolved legal/policy questions;
-- identify which future technical controls depend on qualified review.
+- documentation/evidence indexing, including verified product/governance commit references;
+- scoped review questions and requested written findings;
+- neutral descriptions of current engineering implementation and gates;
+- provider/account items that require owner or provider verification;
+- review-output format defining legal/policy decisions and consequential blockers.
 
 **Not allowed:**
 
-- legal certification or statutory-compliance claims;
-- invented Terms of Service or Privacy Policy text;
+- claiming or substituting for qualified legal review;
+- presenting unknown legal requirements as determined;
+- inventing Terms/Privacy or policy-acceptance contracts;
+- changing product implementation or schema;
 - Case B implementation;
-- MR-8 activation;
-- live customer messaging;
-- live billing;
-- production/customer pilot;
-- unrelated schema or application changes.
+- MR-8/pilot/messaging/billing/commercial activation.
 
-### Exit Evidence
-
-The slice is complete when one consolidated packet truthfully records:
-
-- implemented messaging/permission controls;
-- implemented suppression/unsubscribe controls;
-- implemented retention/export/erasure controls;
-- implemented Case A restore controls and hosted evidence;
-- current security-advisor reconciliation;
-- external/platform dependencies;
-- exact questions requiring qualified review;
-- explicit non-authorization of Case B, MR-8, messaging, billing, pilot and launch.
+**Exit evidence:** A reviewer-ready submission and findings template exists on a separately scoped branch for owner review. Actual legal conclusions and real customer processing remain gated.
 
 ## 10. Owner Gate
 
@@ -302,6 +280,6 @@ The slice is complete when one consolidated packet truthfully records:
 
 Recommended next action:
 
-**Review this reconciled closeout audit, then authorize/continue the MR-7 Closeout Technical-Control Packet.**
+**Review this updated audit as complementary engineering evidence; continue with the qualified-review submission handoff using the already accepted and merged Technical-Control Packet.**
 
 This recommendation does not activate Case B, MR-8, messaging, billing, pilot operation, or commercial release.

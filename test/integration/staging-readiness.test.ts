@@ -44,6 +44,8 @@ class Query implements PromiseLike<Result> {
   constructor(readonly table: string) { queries.push(this) }
   select() { return this }
   eq(column: string, value: unknown) { this.filters.push([column, value]); return this }
+  // Keep the mock chainable when dashboard health queries use PostgREST .or().
+  or(filter: string) { this.filters.push(['or', filter]); return this }
   in() { return this }
   order() { return this }
   limit() { return this }

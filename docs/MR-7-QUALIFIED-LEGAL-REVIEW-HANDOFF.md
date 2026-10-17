@@ -56,7 +56,7 @@ The reviewer cannot reach defensible jurisdiction-specific conclusions without a
 
 | Intake fact | Current known position | Needed before legal conclusion |
 |---|---|---|
-| Markets | United States and Canada initially; Australia later, not this review | Specific states/provinces, launch order, and whether all jurisdictions are in scope |
+| Markets | **Owner-confirmed requested review coverage (2026-10-17): all 50 US states and Washington, DC, plus all 10 Canadian provinces and 3 territories.** Australia remains outside the initial scope. | Full jurisdiction-by-jurisdiction assessment and written coverage exceptions; rollout order is not approved or assumed. US territories require a separate explicit scoping decision. |
 | Business verticals | **Owner-confirmed intake scope (2026-10-17): general service businesses, industry-agnostic.** This is a legal-review scoping choice, not a frozen go-to-market vertical or permission to serve every regulated industry. | Identify illustrative completed-service scenarios and sector-specific exceptions or obligations requiring separate fact gathering/review. |
 | Recipients | End consumers of MPG business tenants | Consumer/business distinction, collection source, any minors/sensitive segments |
 | Message channel | Email in current implemented provider; SMS gated | Real intended send/reminder practices and any future channels that require separate review |
@@ -67,9 +67,23 @@ The reviewer cannot reach defensible jurisdiction-specific conclusions without a
 | International processing | Supabase project/processor map contains infrastructure details | Actual intended customer location, processor/subprocessor and cross-border transfer facts |
 | Commercial terms | MR-5 paused; pricing unapproved | No invented plan/refund/renewal terms; identify future commercial terms only when owner adopts them |
 
-**Recorded owner intake response — 2026-10-17:** Use **general service businesses (industry-agnostic)** for the initial US/Canada qualified legal-review scope. Product positioning remains broadly service-business-oriented; this does **not** approve a first commercial vertical, resolve all state/provincial requirements, authorize handling regulated or sensitive-sector records, or activate real-customer processing. Actual customer/source/consent collection facts and jurisdiction coverage remain unconfirmed. Where industry-specific privacy, health, finance, child-related, or other special obligations are potentially relevant, the qualified reviewer must identify whether a separate scoped assessment is required.
+**Recorded owner intake response — 2026-10-17:** Use **general service businesses (industry-agnostic)** for the initial US/Canada qualified legal-review scope. Product positioning remains broadly service-business-oriented; this does **not** approve a first commercial vertical, authorize handling regulated or sensitive-sector records, or activate real-customer processing. Where industry-specific privacy, health, finance, child-related, or other special obligations are potentially relevant, the qualified reviewer must identify whether a separately scoped assessment is required.
+
+**Recorded owner jurisdiction-scope response — 2026-10-17:** Request **broad legal-review coverage across all 50 US states plus Washington, DC, and all 10 Canadian provinces and 3 territories**. This is a **request for comprehensive counsel assessment**, not evidence any requirement has been evaluated, a commitment to launch simultaneously in every jurisdiction, or an authorization to sell or process real customer data. US territories are **not included by implication** and require separate Owner confirmation if desired; Australia remains deferred. Counsel must explicitly report any incomplete jurisdictions or topics and any specialist/local counsel dependency. Actual transaction, recipient and permission/consent-capture facts and intended rollout order remain unconfirmed.
 
 **Owner task:** Confirm factual intake answers and authorized scope. Do not use real customer records, contact details, credentials, or private contracts in this public repository. Convey confidential facts via an owner-approved private channel with qualified counsel.
+
+### Broad jurisdiction coverage and reviewer deliverable
+
+The Owner requests broad rather than prioritized local coverage. Request a **traceable jurisdiction matrix** with one entry for each of the 50 US states, Washington, DC, and Canada's 10 provinces and 3 territories. The matrix should distinguish:
+
+- **national/federal baseline** from additional state/provincial/territorial requirements;
+- **applicability to the actual approved service-business/recipient/message scenarios** versus inapplicable or undetermined obligations;
+- consent and message classification; sender identification; unsubscribe/suppression; timing/frequency; privacy notice and subject rights; retention; data transfers/processors; recordkeeping; and any legally relevant restrictions on review solicitation;
+- substantive differences requiring a **technical control, policy/Terms/Privacy change, business operation, provider setting, or gate**;
+- written legal authority and an explicit **review status** for each jurisdiction, including *REVIEWED*, *NEEDS SPECIALIST / LOCAL COUNSEL*, *INSUFFICIENT FACTS*, or *NOT YET REVIEWED*.
+
+A national-level summary alone does **not** satisfy the requested broad-coverage deliverable. Counsel should identify engagement limits and any need to coordinate specialists instead of implying blanket nationwide or Canada-wide legal sign-off. The Owner has **not approved review fees, retained counsel, finalized rollout jurisdictions, or authorized production launch** merely by requesting broad scope.
 
 ## 4. Required review questions / engineering traceability
 
@@ -156,4 +170,4 @@ For each change request, identify the **specific behavior** required; the corres
 
 **Actual legal review:** NOT STARTED / AWAITING EXTERNAL REVIEWER AND FACTUAL INTAKE.
 
-**Next owner action:** Approve this submission handoff for use, identify the qualified reviewer and intended states/provinces/verticals, and provide factual provider/account evidence through an approved private channel. No merger, deployment, pilot, live messaging, billing or legal sufficiency claim is implied by preparation of this handoff.
+**Next owner action:** Review and accept the proposed comprehensive jurisdiction scope (all 50 US states, Washington, DC, 10 Canadian provinces and 3 territories), identify appropriately qualified reviewer(s), and confirm actual recipient/permission capture and provider/account facts privately before requesting legal findings. No merger, deployment, pilot, live messaging, billing or legal sufficiency claim is implied by preparation of this handoff.

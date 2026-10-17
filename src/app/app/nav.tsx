@@ -14,6 +14,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { href: '/app/dashboard', label: 'Dashboard' },
   { href: '/app/quick-complete', label: 'Quick Complete' },
+  { href: '/app/customers', label: 'Customers' },
   { href: '/app/settings/location', label: 'Locations' },
   { href: '/app/settings/review-destination', label: 'Google Destination' },
   { href: '/app/settings/integrations', label: 'API & Webhooks' },

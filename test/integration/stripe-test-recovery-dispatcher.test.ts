@@ -176,6 +176,9 @@ describe('MR-5C3C1 TEST recovery queue and controlled batch (disposable database
     expect(JSON.stringify(inventory)).not.toContain('cus_')
     expect(await lease(aged.id)).toEqual({ outcome: 'NO_WORK' })
     expect(await lease(exhausted.id)).toEqual({ outcome: 'NO_WORK' })
+    // Keep dispatcher test independent of inventory fixtures.
+    checked(await admin.from('billing_webhook_events').delete()
+      .in('id', [ready.id, cool.id, busy.id, exhausted.id, aged.id]))
   })
 
   it('is disabled by default and cannot query or call a provider without an explicit flag', async () => {

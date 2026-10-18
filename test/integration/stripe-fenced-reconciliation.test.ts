@@ -89,9 +89,12 @@ async function fetchEvent(id:string) {
 }
 
 async function fetchSubscription(subId:string) {
-  return requireData(await admin.from('organization_subscriptions')
+  const { data, error } = await admin.from('organization_subscriptions')
     .select('normalized_status,provider_status,organization_id,provider_subscription_id')
-    .eq('provider_subscription_id',subId).maybeSingle())
+    .eq('provider_subscription_id',subId).maybeSingle()
+  if (error) throw new Error('Synthetic subscription lookup failed', { cause: error })
+  // No row is an expected, safe outcome in every rejected-commit test.
+  return data
 }
 
 describe('MR-5C3B2 fenced TEST subscription reconciliation (disposable DB)',()=>{

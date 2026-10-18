@@ -1142,6 +1142,41 @@ export interface Database {
           }
         ]
       }
+      stripe_subscription_reconciliation_leases: {
+        Row: {
+          provider_subscription_id: string
+          event_id: string
+          event_lease_token: string
+          lease_token: string | null
+          lease_expires_at: string
+          updated_at: string
+        }
+        Insert: {
+          provider_subscription_id: string
+          event_id: string
+          event_lease_token: string
+          lease_token?: string | null
+          lease_expires_at: string
+          updated_at?: string
+        }
+        Update: {
+          provider_subscription_id?: string
+          event_id?: string
+          event_lease_token?: string
+          lease_token?: string | null
+          lease_expires_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_subscription_reconciliation_leases_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "billing_webhook_events"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       billing_webhook_events: {
         Row: {
           id: string
@@ -1210,6 +1245,41 @@ export interface Database {
     }
     Views: Record<string, never>
     Functions: {
+      lease_stripe_subscription_reconciliation: {
+        Args: {
+          p_event_id: string
+          p_event_lease_token: string
+          p_subscription_id: string
+        }
+        Returns: Json
+      }
+      release_stripe_subscription_reconciliation: {
+        Args: {
+          p_subscription_id: string
+          p_lease_token: string
+        }
+        Returns: Json
+      }
+      commit_stripe_subscription_reconciliation: {
+        Args: {
+          p_event_id: string
+          p_event_lease_token: string
+          p_subscription_lease_token: string
+          p_org_id: string
+          p_billing_account_id: string
+          p_provider_customer_id: string
+          p_environment: 'TEST' | 'LIVE'
+          p_provider_subscription_id: string
+          p_provider_price_id: string
+          p_provider_status: string
+          p_normalized_status: string
+          p_current_period_start: string | null
+          p_current_period_end: string | null
+          p_cancel_at_period_end: boolean
+          p_canceled_at: string | null
+        }
+        Returns: Json
+      }
       lease_stripe_webhook_processing: {
         Args: { p_event_id: string }
         Returns: Json

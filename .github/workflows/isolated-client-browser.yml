@@ -37,7 +37,7 @@ jobs:
       CI: 'true'
       MPG_BROWSER_E2E: disposable-only
       MPG_BROWSER_ARTIFACT_DIR: test-artifacts/browser
-      MPG_PLAYWRIGHT_PACKAGE_ROOT: ${{ runner.temp }}/mpg-playwright
+      MPG_PLAYWRIGHT_PACKAGE_ROOT: /tmp/mpg-playwright-browser
       EMAIL_PROVIDER: console
       ENABLE_LIVE_EMAIL: 'false'
       ENABLE_SYNTHETIC_EMAIL_VALIDATION: 'false'

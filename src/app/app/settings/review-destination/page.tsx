@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { deriveActivationReadiness } from '@/domain/activation'
+import { deriveTrialLifecycle, type TrialStatus } from '@/domain/entitlement'
 import { PageShell, PageHeader } from '@/components/layout/page-shell'
 import { DestinationReadyBanner } from './ready-banner'
 import { DestinationForm } from './form'
@@ -50,6 +51,21 @@ export default async function ReviewDestinationPage() {
     destinations || []
   )
 
+  // Google destination readiness and review-request entitlement are separate.
+  // Query only when ready; failed reads must never imply that the trial is active.
+  const trialResult = readiness.ready
+    ? await supabase
+        .from('organization_entitlements')
+        .select('status, allocated_requests, consumed_requests, expires_at')
+        .eq('organization_id', orgId)
+        .maybeSingle()
+    : null
+
+  const trialStatus: TrialStatus | 'UNKNOWN' =
+    !trialResult || trialResult.error
+      ? 'UNKNOWN'
+      : deriveTrialLifecycle(trialResult.data).effectiveStatus
+
   return (
     <PageShell>
       <PageHeader
@@ -65,7 +81,7 @@ export default async function ReviewDestinationPage() {
       {/* Focused Form Container (max-w-3xl) to maintain optimal readability */}
       <div className="max-w-3xl space-y-6">
         {readiness.ready ? (
-          <DestinationReadyBanner />
+          <DestinationReadyBanner trialStatus={trialStatus} />
         ) : (
           <section
             aria-labelledby="google-link-setup-title"

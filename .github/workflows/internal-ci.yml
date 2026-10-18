@@ -84,6 +84,7 @@ jobs:
             test/domain/billing-catalog.test.ts \
             test/domain/billing-configuration.test.ts \
             test/domain/stripe-test-checkout-preflight.test.ts \
+            test/domain/stripe-test-checkout-start.test.ts \
             test/domain/completion-api.test.ts \
             test/domain/completion-ingestion-schema.test.ts \
             test/domain/completion.test.ts \

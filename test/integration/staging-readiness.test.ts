@@ -122,6 +122,31 @@ describe('Locations distinguish query failures from empty results', () => {
   })
 })
 
+describe('Google review link onboarding guidance', () => {
+  it('guides a new business with no destination through setup step two', async () => {
+    rows.review_destinations = []
+    const html = renderToString(await DestinationPage())
+
+    expect(html).toContain('Setup · Step 2 of 2')
+    expect(html).toContain('Add and confirm your Google review link')
+    expect(html).toContain('Get more reviews')
+    expect(html).toContain('Save Destination')
+    expect(html).toContain('Test Link')
+    expect(html).toContain('https://business.google.com/')
+    expect(html).toContain('https://support.google.com/business/answer/16816815?hl=en')
+    expect(html).not.toContain('Customer activation setup complete')
+  })
+
+  it('continues to show guidance when a link is saved but unconfirmed', async () => {
+    rows.review_destinations[0].status = 'PENDING_CONFIRMATION'
+    const html = renderToString(await DestinationPage())
+
+    expect(html).toContain('Setup · Step 2 of 2')
+    expect(html).toContain('Get more reviews')
+    expect(html).not.toContain('Customer activation setup complete')
+  })
+})
+
 describe('Related readiness consumers do not invent missing setup on query failure', () => {
   for (const [name, page] of [['dashboard', DashboardPage], ['destination', DestinationPage], ['quick complete', QuickCompletePage]] as const) {
     it.each(['locations', 'review_destinations'])(`${name} shows a safe error for failed %s reads`, async table => {

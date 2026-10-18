@@ -33,8 +33,10 @@ export default async function OnboardingPage(props: {
           Welcome to MPG Reputation
         </h2>
         <p className="mt-2 text-center text-sm text-slate-400">
-          Create your business workspace and primary location. Next,
-          you’ll test and confirm its Google review destination.
+          Create your business workspace and primary location. In step 2,
+          you’ll add, test, and confirm the Google review link for your business.
+          Don’t have the link yet? We’ll show you how to find it.
+          Review-request automation stays blocked until the link is confirmed.
         </p>
       </div>
 

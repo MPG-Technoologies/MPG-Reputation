@@ -82,6 +82,7 @@ jobs:
             test/domain/activation-readiness.test.ts \
             test/domain/billing.test.ts \
             test/domain/stripe-subscription-candidate.test.ts \
+            test/domain/stripe-recovery-preflight.test.ts \
             test/domain/completion-api.test.ts \
             test/domain/completion-ingestion-schema.test.ts \
             test/domain/completion.test.ts \

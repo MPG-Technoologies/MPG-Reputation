@@ -91,7 +91,8 @@ jobs:
             test/integration/true-e2e.test.ts \
             test/integration/stripe-test-checkout-preflight.test.ts \
             test/integration/stripe-test-checkout-reservations.test.ts \
-            test/integration/stripe-test-customer-provisioning.test.ts
+            test/integration/stripe-test-customer-provisioning.test.ts \
+            test/integration/stripe-test-customer-portal.test.ts
 
       - name: Stop and erase disposable local Supabase containers
         if: always()

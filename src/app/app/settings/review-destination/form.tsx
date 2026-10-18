@@ -43,20 +43,29 @@ export function DestinationForm({
   const [confirming, setConfirming] = useState(false)
   const [pausing, setPausing] = useState(false)
   const [tested, setTested] = useState(false)
+  const [testedCanonicalUrl, setTestedCanonicalUrl] = useState<string | null>(null)
   const [result, setResult] = useState<DestinationResult | null>(null)
 
   const activeDestination = destinations.find(
     (destination) => destination.location_id === selectedLocationId
   )
 
-  const testUrl =
-    inputUrl.trim() || activeDestination?.canonical_url || ''
-
   function handleTestUrl() {
-    const validation = validateGoogleReviewUrl(testUrl)
+    if (inputUrl.trim()) {
+      setTested(false)
+      setTestedCanonicalUrl(null)
+      setResult({
+        success: false,
+        error: 'Save the entered Google review link before testing it. Only the saved link can be confirmed.',
+      })
+      return
+    }
+
+    const validation = validateGoogleReviewUrl(activeDestination?.canonical_url || '')
 
     if (!validation.valid || !validation.canonicalUrl) {
       setTested(false)
+      setTestedCanonicalUrl(null)
       setResult({
         success: false,
         error:
@@ -72,7 +81,8 @@ export function DestinationForm({
       'noopener,noreferrer'
     )
 
-    setTested(true)
+    setTested(false)
+    setTestedCanonicalUrl(validation.canonicalUrl)
     setResult({
       success: true,
       canonicalUrl: validation.canonicalUrl,
@@ -88,6 +98,7 @@ export function DestinationForm({
     setLoading(true)
     setResult(null)
     setTested(false)
+    setTestedCanonicalUrl(null)
 
     const formData = new FormData(event.currentTarget)
 
@@ -113,6 +124,7 @@ export function DestinationForm({
     setPausing(true)
     setResult(null)
     setTested(false)
+    setTestedCanonicalUrl(null)
 
     const formData = new FormData()
     formData.set('organizationId', organizationId)
@@ -137,7 +149,7 @@ export function DestinationForm({
   }
 
   async function handleConfirm() {
-    if (!tested) {
+    if (!tested || inputUrl.trim() || testedCanonicalUrl !== activeDestination?.canonical_url) {
       setResult({
         success: false,
         error:
@@ -153,6 +165,7 @@ export function DestinationForm({
     formData.set('organizationId', organizationId)
     formData.set('locationId', selectedLocationId)
     formData.set('explicitlyTested', 'true')
+    formData.set('testedCanonicalUrl', testedCanonicalUrl!)
 
     try {
       const response = await confirmDestination(formData)
@@ -223,6 +236,7 @@ export function DestinationForm({
               setSelectedLocationId(event.target.value)
               setInputUrl('')
               setTested(false)
+              setTestedCanonicalUrl(null)
               setResult(null)
             }}
             className="mt-1 block w-full px-3 py-2 border border-[#1C2846] bg-[#0A1020] text-slate-100 rounded-lg shadow-sm focus:outline-none focus:border-blue-500 text-xs"
@@ -294,13 +308,14 @@ export function DestinationForm({
             onChange={(event) => {
               setInputUrl(event.target.value)
               setTested(false)
+              setTestedCanonicalUrl(null)
             }}
             className="mt-1 block w-full px-3 py-2 border border-[#1C2846] bg-[#0A1020] text-slate-100 rounded-lg shadow-sm focus:outline-none focus:border-blue-500 font-mono text-xs"
           />
 
           <p className="mt-1 text-[11px] text-slate-500">
-            Saving a URL does not activate it. Every changed destination must
-            be tested and explicitly confirmed.
+            Save your Google review link first. Test Link opens the saved link,
+            which you must check and explicitly confirm before activation.
           </p>
 
           <p className="mt-2 text-[11px] text-amber-400/80">
@@ -335,8 +350,9 @@ export function DestinationForm({
                 <input
                   type="checkbox"
                   checked={tested}
+                  disabled={!testedCanonicalUrl || testedCanonicalUrl !== activeDestination.canonical_url || Boolean(inputUrl.trim())}
                   onChange={(event) =>
-                    setTested(event.target.checked)
+                    setTested(event.target.checked && testedCanonicalUrl === activeDestination.canonical_url && !inputUrl.trim())
                   }
                   className="mt-0.5 rounded border-[#1C2846] bg-[#0A1020] text-blue-600 focus:ring-0"
                 />

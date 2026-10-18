@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { validateGoogleReviewUrl } from '@/domain/destination'
+import { validateGoogleReviewUrl, matchesTestedSavedDestination } from '@/domain/destination'
 
 export interface DestinationResult {
   success: boolean
@@ -288,6 +288,7 @@ export async function confirmDestination(
   const organizationId = formData.get('organizationId') as string
   const locationId = formData.get('locationId') as string
   const explicitlyTested = formData.get('explicitlyTested') === 'true'
+  const testedCanonicalUrl = formData.get('testedCanonicalUrl')
 
   if (!organizationId || !locationId) {
     return {
@@ -338,6 +339,18 @@ export async function confirmDestination(
     }
   }
 
+  if (
+    !matchesTestedSavedDestination(
+      typeof testedCanonicalUrl === 'string' ? testedCanonicalUrl : null,
+      destination.canonical_url
+    )
+  ) {
+    return {
+      success: false,
+      error: 'The saved Google review link was not the one tested. Test the saved link again before confirming it.',
+    }
+  }
+
   const { data: confirmed, error: confirmError } = await supabase
     .from('review_destinations')
     .update({
@@ -349,15 +362,16 @@ export async function confirmDestination(
     })
     .eq('id', destination.id)
     .eq('organization_id', organizationId)
+    .eq('canonical_url', destination.canonical_url)
     .select('id')
-    .single()
+    .maybeSingle()
 
   if (confirmError || !confirmed) {
     return {
       success: false,
-      error: `Failed to confirm destination: ${
-        confirmError?.message || 'unknown'
-      }`,
+      error: confirmError
+        ? 'Unable to confirm the Google review destination. Try again.'
+        : 'The saved Google review link changed. Test it again before confirming.',
     }
   }
 

@@ -99,6 +99,10 @@ jobs:
       - name: Verify TEST-only retry scheduling and queue dispatch
         run: pnpm exec vitest run test/integration/stripe-test-recovery-dispatcher.test.ts
 
+      # Explicit synthetic-local operator boundary proof. No hosted keys.
+      - name: Verify sealed recovery operator against disposable Supabase
+        run: pnpm exec vitest run test/integration/stripe-recovery-operator.test.ts
+
       - name: Stop and erase disposable local Supabase containers
         if: always()
         continue-on-error: true

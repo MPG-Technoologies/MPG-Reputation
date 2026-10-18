@@ -1201,6 +1201,23 @@ export interface Database {
     }
     Views: Record<string, never>
     Functions: {
+      reconcile_stripe_subscription_projection: {
+        Args: {
+          p_org_id: string
+          p_billing_account_id: string
+          p_provider_customer_id: string
+          p_environment: 'TEST' | 'LIVE'
+          p_provider_subscription_id: string
+          p_provider_price_id: string
+          p_provider_status: string
+          p_normalized_status: string
+          p_current_period_start: string | null
+          p_current_period_end: string | null
+          p_cancel_at_period_end: boolean
+          p_canceled_at: string | null
+        }
+        Returns: Json
+      }
       create_org_with_owner_and_location: {
         Args: {
           p_org_name: string

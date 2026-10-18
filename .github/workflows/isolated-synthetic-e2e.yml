@@ -89,7 +89,8 @@ jobs:
         run: |
           pnpm exec vitest run \
             test/integration/true-e2e.test.ts \
-            test/integration/stripe-test-checkout-preflight.test.ts
+            test/integration/stripe-test-checkout-preflight.test.ts \
+            test/integration/stripe-test-checkout-reservations.test.ts
 
       - name: Stop and erase disposable local Supabase containers
         if: always()

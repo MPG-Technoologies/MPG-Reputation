@@ -35,7 +35,11 @@ export function hashStripeWebhookPayload(
 }
 
 function classifyExistingClaim(
-  row: Database['public']['Tables']['billing_webhook_events']['Row'],
+  row: Pick<
+    Database['public']['Tables']['billing_webhook_events']['Row'],
+    'id' | 'environment' | 'payload_hash' | 'processing_status' |
+      'organization_id' | 'processed_at'
+  >,
   payloadHash: string
 ): StripeWebhookClaimResult {
   const base: StripeWebhookClaimRecord = {

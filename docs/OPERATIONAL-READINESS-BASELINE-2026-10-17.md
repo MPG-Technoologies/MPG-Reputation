@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Audit date | 2026-10-17 |
+| Audit date | 2026-10-17; corrected after active-layout re-review on 2026-10-18 |
 | Status | INVESTIGATING — source-level audit; not an owner acceptance or pilot gate |
 | Product inspected | `MPG-Technoologies/MPG-Reputation` `main` at `dc3a05fd59368fd496a5cc8c17599b558e0351da` |
 | Governance inspected | `techwithmpg/mpg-company-os` `main` at `03a48a34481f1952a31cd5c4fb980bc381432d8d` |
@@ -48,7 +48,7 @@ Existing automated evidence: Internal CI on combined main `39030374306` passed *
 | Automation/delivery | `src/inngest/functions/review-request.ts`, outbox dispatcher, console/Resend email providers | Domain code and synthetic E2E verified; **LIVE GATED** | Active external sender/domain configuration and real provider acceptance/deliverability not verified; MR-1B-H deferred |
 | SMS | No Twilio library, route, provider adapter or SMS worker in current source tree | **NOT IMPLEMENTED / CHANNEL GATED** | Owner-approved channel scope, legal consent/opt-out review, provider account, tests and architecture slice; do not turn on ad hoc |
 | Customer message experience | `src/domain/email/*`, `src/app/r/[token]/route.ts`, `src/app/unsubscribe/[token]/route.ts` | Source present, synthetic link/opt-out tests | Inbox/device rendering, accessibility, expired/unsubscribe user journeys **NOT VISUALLY ACCEPTED**; click does not prove a Google review was published |
-| Business dashboard/customers | `src/app/app/dashboard`, `src/app/app/customers/page.tsx`, usage and integration pages | SOURCE PRESENT | Cross-screen browser verification, truthful loading/error/empty states, performance, staff navigation; **Customers omitted from primary nav** on audited main |
+| Business dashboard/customers | `src/app/app/dashboard`, `src/app/app/customers/page.tsx`, usage and integration pages; `src/components/ui/app-shell.tsx` already includes Customers in active primary navigation | SOURCE PRESENT | Cross-screen browser verification, truthful loading/error/empty states, performance and staff permissions **NOT VISUALLY ACCEPTED** |
 | Tenant staff/team operations | Roles OWNER, ADMIN, OPERATOR, VIEWER in membership model | Role enforcement in code/tests | No business-facing invite/role-administration route found in route inventory; staff provisioning journey **NOT IMPLEMENTED / UNVERIFIED** |
 | MPG operator console | `src/app/admin/organizations/[organizationId]/{inspection,health,exceptions}`, support grants and audited bounded retries | Scoped support features implemented/accepted in MR-6 | No global tenant directory, search, aggregate owner overview, provider/account configuration or B2B lifecycle console found in current route tree; privilege boundaries must be preserved |
 | Billing/subscriptions | `src/lib/billing` and signed Stripe webhook intake | **PARTIAL / MR-5 PAUSED** | Processor projection, recovery, checkout, customer portal, provider/account verification, authorized pricing; no live charging |
@@ -61,7 +61,7 @@ Existing automated evidence: Internal CI on combined main `39030374306` passed *
 
 | ID | Priority | Actor / problem | Confidence | Smallest safe next action | Scope / authorization |
 |---|---|---|---|---|---|
-| OR-001 | P2 | Business customers screen exists at `/app/customers` but not in desktop/mobile `src/app/app/nav.tsx` | CONFIRMED source defect | Link existing Customers screen in shared nav and test both layouts | **BOUNDED FIX IN THIS SLICE**; no API/auth changes |
+| OR-001 | CLOSED (audit correction) | Initial audit inspected unused `src/app/app/nav.tsx` and incorrectly classified Customers navigation as missing. Active `src/app/app/layout.tsx` uses `src/components/ui/app-shell.tsx`, which already links Customers in primary navigation. | **NOT A DEFECT** | Do not change navigation; verify the real AppShell in a future browser walkthrough. | Documentation corrected; previously proposed code/test changes reverted before merge. |
 | OR-002 | P1 | Multiple business memberships are commonly resolved using first `organization_users` row; no explicit active-tenant picker found in UI | CONFIRMED code pattern; real multi-tenant usage unverified | Design scope/select/reset model; regression tests for tenant consistency and isolation | **OWNER UX/ARCHITECTURE DECISION BEFORE IMPLEMENTATION** |
 | OR-003 | P1 | MPG internal support pages require a known organization ID and explicit access grant; no global owner directory / lifecycle controls | CONFIRMED route inventory | Specify limited operator tenant list/selection and account health navigation without weakening support grants | **NEW SCOPED INTERNAL OPERATIONS SLICE; APPROVAL REQUIRED IF AUTH MODEL CHANGES** |
 | OR-004 | P1 | End-to-end signup/onboarding/Quick Complete/customer message flow is not browser-accepted | EVIDENCE GAP | Synthetic-only desktop/mobile visual script; verify success/error/permission/opt-out/expired states | Internal validation; no real customer data or external delivery |
@@ -90,7 +90,7 @@ For each acceptance item record: tested branch/SHA, fixture ID (not raw PII), us
 
 ## 6. Near-term execution, not a roadmap reset
 
-1. **This slice:** fix OR-001 (existing Customers navigation) with a regression test; preserve exact RLS and authorization behavior.
+1. **This slice:** document the source-based operating-readiness matrix and correct the false-positive OR-001 navigation finding. No navigation or authorization code changes.
 2. **Next internal readiness slice:** synthetic browser-based acceptance for login → onboarding → Quick Complete → customer link/unsubscribe, with screenshots and negative cases. Do not interpret synthetic test success as a customer pilot.
 3. **Owner product decision:** choose how multi-tenant business membership and MPG's internal tenant-directory access should work (OR-002, OR-003), keeping distinct MPG staff grants.
 4. **External dependency track:** qualified US/Canada legal review; sender-domain/provider evidence (MR-1B-H); billing-provider situation (MR-5). Do not run these as if approved engineering fixes.
@@ -100,4 +100,4 @@ For each acceptance item record: tested branch/SHA, fixture ID (not raw PII), us
 
 ## 7. Disposition / owner checkpoint
 
-Audit status: **INVESTIGATING / SOURCE BASELINE DOCUMENTED**. OR-001 is the first narrow engineering correction; other gaps remain deliberately OPEN, GATED or UNVERIFIED. This document does not change milestone states. Only the accepted Company OS and explicit Owner decisions govern activation and scope.
+Audit status: **INVESTIGATING / SOURCE BASELINE DOCUMENTED**. OR-001 is CLOSED as a false positive after verifying the active AppShell navigation. All other gaps remain OPEN, GATED or UNVERIFIED as documented. This report is a source-level inventory, not visual acceptance, and does not change milestone states. Only the accepted Company OS and explicit Owner decisions govern activation and scope.

@@ -66,7 +66,7 @@ BEGIN
     VALUES (
         p_subscription_id, p_event_id, p_event_lease_token,
         pg_catalog.gen_random_uuid(),
-        pg_catalog.least(
+        LEAST(
             pg_catalog.clock_timestamp() + INTERVAL '120 seconds',
             v_event.processing_lease_expires_at
         )

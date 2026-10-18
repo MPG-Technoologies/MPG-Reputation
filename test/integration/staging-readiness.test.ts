@@ -10,6 +10,7 @@ vi.mock('@/actions/locations', () => ({ createLocation: vi.fn() }))
 vi.mock('@/components/ui/app-shell', () => ({ AppShell: ({ children }: { children: React.ReactNode }) => children }))
 vi.mock('@/components/ui/modal-system', () => ({
   ModalProvider: (props: Record<string, unknown>) => { harness.modalProps = props; return props.children },
+  useModal: () => ({ openQuickComplete: vi.fn() }),
 }))
 vi.mock('@/app/app/nav-context', () => ({ NavigationProvider: ({ children }: { children: React.ReactNode }) => children }))
 vi.mock('@/app/app/progress-bar', () => ({ TopProgressBar: () => null }))
@@ -144,6 +145,45 @@ describe('Google review link onboarding guidance', () => {
     expect(html).toContain('Setup · Step 2 of 2')
     expect(html).toContain('Get more reviews')
     expect(html).not.toContain('Customer activation setup complete')
+  })
+})
+
+describe('MPG client next step after confirming the Google review link', () => {
+  it('directs clients with a confirmed link to start their not-yet-active trial', async () => {
+    rows.organization_entitlements = [{
+      status: 'NOT_STARTED',
+      allocated_requests: 30,
+      consumed_requests: 0,
+      expires_at: null,
+    }]
+    const html = renderToString(await DestinationPage())
+    expect(html).toContain('Google review link confirmed')
+    expect(html).toContain('Next, start your trial in Usage &amp; Trial')
+    expect(html).toContain('href="/app/settings/usage"')
+    expect(html).not.toContain('Record a Completion')
+  })
+
+  it('directs clients with an active trial to record their first completion', async () => {
+    rows.organization_entitlements = [{
+      status: 'ACTIVE',
+      allocated_requests: 30,
+      consumed_requests: 0,
+      expires_at: '2100-01-01T00:00:00Z',
+    }]
+    const html = renderToString(await DestinationPage())
+    expect(html).toContain('Google review link confirmed')
+    expect(html).toContain('Your trial is active')
+    expect(html).toContain('Record a Completion')
+    expect(html).toContain('href="/app/quick-complete"')
+  })
+
+  it('does not claim trial activation when the entitlement status cannot be read', async () => {
+    failedTable = 'organization_entitlements'
+    const html = renderToString(await DestinationPage())
+    expect(html).toContain('Check Usage &amp; Trial')
+    expect(html).toContain('href="/app/settings/usage"')
+    expect(html).not.toContain('Your trial is active')
+    expect(html).not.toContain('Record a Completion')
   })
 })
 

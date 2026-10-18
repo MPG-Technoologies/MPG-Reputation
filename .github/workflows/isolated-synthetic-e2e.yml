@@ -94,6 +94,11 @@ jobs:
             test/integration/stripe-fenced-reconciliation.test.ts \
             test/integration/stripe-reconciliation-worker.test.ts
 
+      # This suite inspects a global service-only queue; run separately after
+      # the other synthetic DB fixtures have been cleaned up to avoid races.
+      - name: Verify TEST-only retry scheduling and queue dispatch
+        run: pnpm exec vitest run test/integration/stripe-test-recovery-dispatcher.test.ts
+
       - name: Stop and erase disposable local Supabase containers
         if: always()
         continue-on-error: true

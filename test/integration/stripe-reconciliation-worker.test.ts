@@ -140,6 +140,10 @@ describe('MR-5C3B2 TEST worker integration, fake provider / real disposable Post
     expect(await stored(item.id)).toMatchObject({
       processing_status:'FAILED',error_code:'PROVIDER_UNAVAILABLE',processing_attempts:1,
     })
+    // Synthetic clock advances after the SQL-enforced first-failure cooldown.
+    data(await admin.from('billing_webhook_events')
+      .update({ next_processing_attempt_at: '2020-01-01T00:00:00Z' })
+      .eq('id', item.id).select('id'))
     const fixed=transport(item,{subscriptionStatus:'active'})
     expect((await processDurableStripeTestEvent({
       supabase:admin,eventRecordId:item.id,...fixed,

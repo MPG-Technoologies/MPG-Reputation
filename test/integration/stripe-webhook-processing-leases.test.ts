@@ -167,6 +167,11 @@ describe('MR-5C3A atomic TEST-only webhook claim/lease/finalization', () => {
     expect(await row(id)).toMatchObject({
       processing_status: 'FAILED', error_code: 'PROVIDER_UNAVAILABLE', processed_at: null,
     })
+    // A direct service-role call cannot bypass the new retry cooldown.
+    expect(await lease(id)).toEqual({ outcome: 'NO_WORK' })
+    checked(await admin.from('billing_webhook_events')
+      .update({ next_processing_attempt_at: '2020-01-01T00:00:00Z' })
+      .eq('id', id).select('id'))
     const retry = await lease(id)
     expect(retry.outcome).toBe('LEASED')
     expect(retry.attempt).toBe(2)
@@ -212,6 +217,12 @@ describe('MR-5C3A atomic TEST-only webhook claim/lease/finalization', () => {
       expect(acquired.attempt).toBe(attempt)
       expect(await complete(id, String(acquired.lease_token), 'FAILED', null, 'PROCESSING_FAILED'))
         .toEqual({ outcome: 'FINALIZED', status: 'FAILED' })
+      if (attempt < 5) {
+        expect(await lease(id)).toEqual({ outcome: 'NO_WORK' })
+        checked(await admin.from('billing_webhook_events')
+          .update({ next_processing_attempt_at: '2020-01-01T00:00:00Z' })
+          .eq('id', id).select('id'))
+      }
     }
     expect(await lease(id)).toEqual({ outcome: 'NO_WORK' })
     expect(await row(id)).toMatchObject({

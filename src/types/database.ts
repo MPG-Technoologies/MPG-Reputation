@@ -1193,6 +1193,7 @@ export interface Database {
           error_code: string | null
           processing_lease_token: string | null
           processing_lease_expires_at: string | null
+          next_processing_attempt_at: string | null
           processing_attempts: number
           created_at: string
         }
@@ -1211,6 +1212,7 @@ export interface Database {
           error_code?: string | null
           processing_lease_token?: string | null
           processing_lease_expires_at?: string | null
+          next_processing_attempt_at?: string | null
           processing_attempts?: number
           created_at?: string
         }
@@ -1229,6 +1231,7 @@ export interface Database {
           error_code?: string | null
           processing_lease_token?: string | null
           processing_lease_expires_at?: string | null
+          next_processing_attempt_at?: string | null
           processing_attempts?: number
           created_at?: string
         }
@@ -1245,6 +1248,10 @@ export interface Database {
     }
     Views: Record<string, never>
     Functions: {
+      inspect_stripe_test_webhook_recovery: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
       lease_stripe_subscription_reconciliation: {
         Args: {
           p_event_id: string

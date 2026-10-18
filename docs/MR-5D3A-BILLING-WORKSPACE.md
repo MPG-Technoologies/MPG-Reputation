@@ -9,7 +9,7 @@
 | Product main (verified) | `6b7ac073432921789314315ec5fc624a81d8f699` |
 | Checkout / hosted TEST | DEFERRED until an approved deployed-test window |
 | LIVE billing, launch | NOT AUTHORIZED |
-| Verification | Pending actual CI at authoring |
+| Verification | SUCCESS: 507 application tests and 14 disposable database tests |
 
 ## What this adds
 
@@ -39,4 +39,4 @@ No main merge, hosted schema change, production deploy, live charges, customer d
 
 ## Required checks
 
-Lint, Next type generation, TypeScript, synthetic status tests, production build including App Router success/cancel routes, full nine-file diff review and secrets/scope check. Existing disposable local Supabase E2E remains in the stacked PR #27; MR-5D3A adds no schema or DB mutations. Record actual CI outcome once complete.
+Lint, Next type generation, TypeScript, synthetic status tests, production build including App Router success/cancel routes, full eleven-file diff review and secrets/scope check. Existing disposable local Supabase E2E remains in the stacked PR #27; MR-5D3A adds no schema or DB mutations. Record actual CI outcome once complete.

@@ -59,7 +59,8 @@ export function createStripeTestPortalProvider() {
         id: session.id,
         livemode: session.livemode,
         customer: session.customer,
-        configuration: session.configuration,
+        configuration: typeof session.configuration === 'string'
+          ? session.configuration : session.configuration?.id ?? '',
         returnUrl: session.return_url ?? '',
         url: session.url,
       }

@@ -1032,6 +1032,56 @@ export interface Database {
           }
         ]
       }
+      stripe_test_customer_provisioning: {
+        Row: {
+          id: string
+          organization_id: string
+          provider: 'stripe'
+          environment: 'TEST'
+          organization_name: string
+          state: 'PREPARING' | 'READY'
+          lease_token: string | null
+          lease_expires_at: string | null
+          provider_customer_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          organization_name: string
+          state: 'PREPARING' | 'READY'
+          lease_token?: string | null
+          lease_expires_at?: string | null
+          provider_customer_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          organization_name?: string
+          state?: 'PREPARING' | 'READY'
+          lease_token?: string | null
+          lease_expires_at?: string | null
+          provider_customer_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_test_customer_provisioning_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       stripe_test_checkout_reservations: {
         Row: {
           id: string
@@ -1272,6 +1322,20 @@ export interface Database {
     }
     Views: Record<string, never>
     Functions: {
+      reserve_stripe_test_customer: {
+        Args: { p_user_id: string; p_organization_id: string }
+        Returns: Json
+      }
+      finalize_stripe_test_customer: {
+        Args: {
+          p_user_id: string
+          p_organization_id: string
+          p_reservation_id: string
+          p_lease_token: string
+          p_provider_customer_id: string
+        }
+        Returns: Json
+      }
       reserve_stripe_test_checkout: {
         Args: {
           p_user_id: string

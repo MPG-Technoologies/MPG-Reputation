@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { validateGoogleReviewUrl } from '../../src/domain/destination'
+import { validateGoogleReviewUrl, matchesTestedSavedDestination } from '../../src/domain/destination'
 
 describe('validateGoogleReviewUrl', () => {
   it('accepts valid g.page review links', () => {
@@ -101,5 +101,32 @@ describe('MR-2 destination activation safety', () => {
         'https://www.google.com.example.com/maps/place/test'
       ).valid
     ).toBe(false)
+  })
+})
+
+describe('review destination confirmation must match the saved URL', () => {
+  const saved = 'https://g.page/r/synthetic-business-a/review'
+
+  it('accepts a test of the exact saved destination', () => {
+    expect(matchesTestedSavedDestination(saved, saved)).toBe(true)
+  })
+
+  it('accepts canonical equivalence when the test URL has a harmless fragment', () => {
+    expect(matchesTestedSavedDestination(saved + '#fragment', saved)).toBe(true)
+  })
+
+  it('rejects a different business location even when both Google links are valid', () => {
+    expect(matchesTestedSavedDestination('https://g.page/r/synthetic-business-b/review', saved)).toBe(false)
+  })
+
+  it('requires an explicit tested URL and an existing saved URL', () => {
+    expect(matchesTestedSavedDestination(null, saved)).toBe(false)
+    expect(matchesTestedSavedDestination('', saved)).toBe(false)
+    expect(matchesTestedSavedDestination(saved, null)).toBe(false)
+  })
+
+  it('rejects invalid or untrusted tested links', () => {
+    expect(matchesTestedSavedDestination('https://example.test/review', saved)).toBe(false)
+    expect(matchesTestedSavedDestination('http://g.page/r/synthetic-business-a/review', saved)).toBe(false)
   })
 })

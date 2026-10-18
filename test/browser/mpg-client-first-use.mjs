@@ -68,7 +68,7 @@ async function clientJourney(browser, label, viewport) {
     stage = 'reject-non-google-link'
     await page.getByLabel('Google Review URL').fill('https://example.com/review')
     await page.getByRole('button', { name: 'Save Destination' }).click()
-    await page.getByRole('status').getByText(/Invalid host: example\\.com/).waitFor()
+    await page.getByRole('status').getByText(/Invalid host: example/).waitFor()
     await page.getByText('No Google review destination has been saved for this location.').waitFor()
 
     stage = 'reject-unsaved-google-link'

@@ -1156,6 +1156,9 @@ export interface Database {
           received_at: string
           processed_at: string | null
           error_code: string | null
+          processing_lease_token: string | null
+          processing_lease_expires_at: string | null
+          processing_attempts: number
           created_at: string
         }
         Insert: {
@@ -1171,6 +1174,9 @@ export interface Database {
           received_at?: string
           processed_at?: string | null
           error_code?: string | null
+          processing_lease_token?: string | null
+          processing_lease_expires_at?: string | null
+          processing_attempts?: number
           created_at?: string
         }
         Update: {
@@ -1186,6 +1192,9 @@ export interface Database {
           received_at?: string
           processed_at?: string | null
           error_code?: string | null
+          processing_lease_token?: string | null
+          processing_lease_expires_at?: string | null
+          processing_attempts?: number
           created_at?: string
         }
         Relationships: [
@@ -1201,6 +1210,20 @@ export interface Database {
     }
     Views: Record<string, never>
     Functions: {
+      lease_stripe_webhook_processing: {
+        Args: { p_event_id: string }
+        Returns: Json
+      }
+      complete_stripe_webhook_processing: {
+        Args: {
+          p_event_id: string
+          p_lease_token: string
+          p_status: 'PROCESSED' | 'IGNORED' | 'FAILED'
+          p_organization_id?: string | null
+          p_error_code?: string | null
+        }
+        Returns: Json
+      }
       reconcile_stripe_subscription_projection: {
         Args: {
           p_org_id: string

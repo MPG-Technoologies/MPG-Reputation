@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { submitQuickComplete, QuickCompleteResult } from '@/actions/quick-complete'
+import { QuickCompleteReceipt } from './receipt'
 
 interface LocationItem {
   id: string
@@ -39,11 +40,7 @@ export function QuickCompleteForm({
         // Generate new key for the next legitimate job completion
         setSourceEventId(`qc_${crypto.randomUUID()}`)
         router.refresh()
-        if (onSuccess) {
-          setTimeout(() => {
-            onSuccess()
-          }, 1200)
-        }
+        // Keep the receipt visible until the operator dismisses it.
       }
     } catch {
       setResult({ success: false, error: 'An unexpected error occurred while submitting.' })
@@ -65,52 +62,7 @@ export function QuickCompleteForm({
       <input type="hidden" name="organizationId" value={organizationId} />
       <input type="hidden" name="sourceEventId" value={sourceEventId} />
 
-      {result && (
-        <div
-          role="status"
-          className={`p-4 rounded-md border text-sm animate-page-enter flex items-start gap-3 ${
-            result.success
-              ? result.duplicate
-                ? 'bg-amber-950/40 border-amber-800 text-amber-200'
-                : 'bg-emerald-950/40 border-emerald-800 text-emerald-200'
-              : 'bg-rose-950/40 border-rose-800 text-rose-200'
-          }`}
-        >
-          {result.success ? (
-            <>
-              <svg
-                className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              <div>
-                <strong className="font-semibold">
-                  {result.duplicate ? 'Duplicate Handled: ' : 'Success: '}
-                </strong>
-                {result.message}
-              </div>
-            </>
-          ) : (
-            <>
-              <svg
-                className="h-5 w-5 text-rose-400 shrink-0 mt-0.5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              <div>
-                <strong className="font-semibold">Error: </strong>
-                {result.error}
-              </div>
-            </>
-          )}
-        </div>
-      )}
+      {result && <QuickCompleteReceipt result={result} onDone={onSuccess} />}
 
       {/* Location */}
       <div>

@@ -119,7 +119,8 @@ describe('MR-5D3B1 synthetic Customer provisioning', () => {
   it('creates with a frozen trusted name and an immutable idempotency key', async () => {
     const f = fixture()
     expect(await f.run()).toEqual({ outcome: 'READY', alreadyLinked: false })
-    expect(f.createCustomer).toHaveBeenCalledExactlyOnceWith({
+    expect(f.createCustomer).toHaveBeenCalledOnce()
+    expect(f.createCustomer).toHaveBeenCalledWith({
       name,
       idempotencyKey: 'mpg-reputation-test-customer-' + reservationId,
     })

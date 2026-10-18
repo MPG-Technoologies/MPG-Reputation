@@ -38,7 +38,7 @@ const retrieveSubscription = vi.fn(async (_id: string) => {
 
 describe('MR-5C3C2A local operator against disposable PostgreSQL', () => {
   beforeAll(async () => {
-    expect(new URL(url).hostname).toMatch(/^(127\\.0\\.0\\.1|localhost)$/)
+    expect(new URL(url).hostname).toMatch(/^(127\.0\.0\.1|localhost)$/)
     expect(process.env.ENABLE_LIVE_BILLING).not.toBe('true')
     const { data, error } = await admin.from('billing_webhook_events').insert({
       provider: 'stripe', environment: 'TEST',

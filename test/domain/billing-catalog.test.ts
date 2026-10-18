@@ -12,7 +12,7 @@ function providerPrice(
   overrides: Partial<ProviderRecurringPriceSnapshot> = {}
 ): ProviderRecurringPriceSnapshot {
   return {
-    id: 'price_test_monthly123',
+    id: 'price_TestMonthly123',
     currency: 'php',
     unitAmountMinor: 150_000,
     interval: 'month',
@@ -29,15 +29,15 @@ function match(
 ) {
   return validateReputationProviderPrice({
     planId,
-    configuredPriceId: 'price_test_monthly123',
+    configuredPriceId: 'price_TestMonthly123',
     expectedEnvironment: 'TEST',
     providerPrice: providerPrice(overrides),
   })
 }
 
 const testConfiguration = {
-  STRIPE_TEST_MONTHLY_PRICE_ID: 'price_test_monthly123',
-  STRIPE_TEST_ANNUAL_PRICE_ID: 'price_test_annual123',
+  STRIPE_TEST_MONTHLY_PRICE_ID: 'price_TestMonthly123',
+  STRIPE_TEST_ANNUAL_PRICE_ID: 'price_TestAnnual123',
 }
 
 describe('MR-5 proposed recurring pricing contract (no Stripe account required)', () => {
@@ -80,10 +80,10 @@ describe('MR-5 proposed recurring pricing contract (no Stripe account required)'
   it('verifies a separate annual Stripe Price bills once per year', () => {
     expect(validateReputationProviderPrice({
       planId: 'annual',
-      configuredPriceId: 'price_test_annual123',
+      configuredPriceId: 'price_TestAnnual123',
       expectedEnvironment: 'TEST',
       providerPrice: providerPrice({
-        id: 'price_test_annual123',
+        id: 'price_TestAnnual123',
         unitAmountMinor: 1_200_000,
         interval: 'year',
       }),
@@ -148,12 +148,12 @@ describe('MR-5 Stripe price configuration boundaries', () => {
       planId: 'monthly',
       environment: 'TEST',
       config: testConfiguration,
-    })).toEqual({ outcome: 'READY', priceId: 'price_test_monthly123' })
+    })).toEqual({ outcome: 'READY', priceId: 'price_TestMonthly123' })
     expect(resolveStripePriceBinding({
       planId: 'annual',
       environment: 'TEST',
       config: testConfiguration,
-    })).toEqual({ outcome: 'READY', priceId: 'price_test_annual123' })
+    })).toEqual({ outcome: 'READY', priceId: 'price_TestAnnual123' })
   })
 
   it('rejects invalid and duplicate Stripe Price IDs', () => {
@@ -166,8 +166,8 @@ describe('MR-5 Stripe price configuration boundaries', () => {
       planId: 'annual',
       environment: 'TEST',
       config: {
-        STRIPE_TEST_MONTHLY_PRICE_ID: 'price_same123',
-        STRIPE_TEST_ANNUAL_PRICE_ID: 'price_same123',
+        STRIPE_TEST_MONTHLY_PRICE_ID: 'price_Duplicate123',
+        STRIPE_TEST_ANNUAL_PRICE_ID: 'price_Duplicate123',
       },
     })).toEqual({ outcome: 'BLOCKED', reason: 'DUPLICATE_PLAN_PRICE_IDS' })
   })
@@ -185,7 +185,7 @@ describe('MR-5 Stripe price configuration boundaries', () => {
       planId: 'monthly',
       environment: 'LIVE',
       config: {
-        STRIPE_LIVE_MONTHLY_PRICE_ID: 'price_live_example',
+        STRIPE_LIVE_MONTHLY_PRICE_ID: 'price_LiveExample123',
         ENABLE_LIVE_BILLING: 'false',
       },
     })).toEqual({ outcome: 'BLOCKED', reason: 'LIVE_BILLING_DISABLED' })
@@ -195,7 +195,7 @@ describe('MR-5 Stripe price configuration boundaries', () => {
     expect(resolveStripePriceBinding({
       planId: 'monthly',
       environment: 'TEST',
-      config: { STRIPE_LIVE_MONTHLY_PRICE_ID: 'price_live_example' },
+      config: { STRIPE_LIVE_MONTHLY_PRICE_ID: 'price_LiveExample123' },
     })).toEqual({ outcome: 'BLOCKED', reason: 'PRICE_NOT_CONFIGURED' })
   })
 })

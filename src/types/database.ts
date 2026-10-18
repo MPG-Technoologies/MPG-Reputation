@@ -1032,6 +1032,77 @@ export interface Database {
           }
         ]
       }
+      stripe_test_checkout_reservations: {
+        Row: {
+          id: string
+          organization_id: string
+          billing_account_id: string
+          provider: 'stripe'
+          environment: 'TEST'
+          provider_customer_id: string
+          provider_price_id: string
+          plan_id: 'monthly' | 'annual'
+          return_origin: string
+          status: 'PREPARING' | 'READY'
+          lease_token: string | null
+          lease_expires_at: string | null
+          stripe_session_id: string | null
+          stripe_session_url: string | null
+          session_expires_at: string
+          reservation_expires_at: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          billing_account_id: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          provider_customer_id: string
+          provider_price_id: string
+          plan_id: 'monthly' | 'annual'
+          return_origin: string
+          status: 'PREPARING' | 'READY'
+          lease_token?: string | null
+          lease_expires_at?: string | null
+          stripe_session_id?: string | null
+          stripe_session_url?: string | null
+          session_expires_at: string
+          reservation_expires_at: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          billing_account_id?: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          provider_customer_id?: string
+          provider_price_id?: string
+          plan_id?: 'monthly' | 'annual'
+          return_origin?: string
+          status?: 'PREPARING' | 'READY'
+          lease_token?: string | null
+          lease_expires_at?: string | null
+          stripe_session_id?: string | null
+          stripe_session_url?: string | null
+          session_expires_at?: string
+          reservation_expires_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_checkout_account_fkey"
+            columns: ["billing_account_id", "organization_id", "provider", "environment"]
+            isOneToOne: false
+            referencedRelation: "organization_billing_accounts"
+            referencedColumns: ["id", "organization_id", "provider", "environment"]
+          }
+        ]
+      }
       organization_billing_accounts: {
         Row: {
           id: string
@@ -1201,6 +1272,29 @@ export interface Database {
     }
     Views: Record<string, never>
     Functions: {
+      reserve_stripe_test_checkout: {
+        Args: {
+          p_user_id: string
+          p_organization_id: string
+          p_billing_account_id: string
+          p_provider_customer_id: string
+          p_provider_price_id: string
+          p_plan_id: 'monthly' | 'annual'
+          p_return_origin: string
+        }
+        Returns: Json
+      }
+      finalize_stripe_test_checkout: {
+        Args: {
+          p_user_id: string
+          p_reservation_id: string
+          p_lease_token: string
+          p_session_id: string
+          p_session_url: string
+          p_session_expires_at: string
+        }
+        Returns: Json
+      }
       create_org_with_owner_and_location: {
         Args: {
           p_org_name: string

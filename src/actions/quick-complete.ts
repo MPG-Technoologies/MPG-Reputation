@@ -236,6 +236,6 @@ export async function submitQuickComplete(formData: FormData): Promise<QuickComp
     success: true,
     duplicate: false,
     customerId,
-    message: 'Customer completion recorded. The review workflow has been queued for processing.',
+    message: 'Service completion recorded. Review-request eligibility and delivery are evaluated separately; this receipt does not confirm an email was sent.',
   }
 }

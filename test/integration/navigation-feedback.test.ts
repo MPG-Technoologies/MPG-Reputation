@@ -24,8 +24,55 @@ import { SubmitButton } from '../../src/components/ui/submit-button'
 import AppTemplate from '../../src/app/app/template'
 import DashboardLoading from '../../src/app/app/dashboard/loading'
 import QuickCompleteLoading from '../../src/app/app/quick-complete/loading'
+import { QuickCompleteReceipt } from '../../src/app/app/quick-complete/receipt'
 import LocationSettingsLoading from '../../src/app/app/settings/location/loading'
 import ReviewDestinationLoading from '../../src/app/app/settings/review-destination/loading'
+
+describe('Quick Complete client confirmation feedback', () => {
+  it('separates recorded completions from review eligibility and email delivery', () => {
+    const html = renderToString(React.createElement(QuickCompleteReceipt, {
+      result: { success: true, duplicate: false, message: 'Service completion recorded.' },
+      onDone: vi.fn(),
+    }))
+    expect(html).toContain('Completion recorded')
+    expect(html).toContain('Review request:')
+    expect(html).toContain('Check Recent Activity for its eligibility and outcome')
+    expect(html).toContain('Email delivery:')
+    expect(html).toContain('Not confirmed by this receipt')
+    expect(html).toContain('href="/app/dashboard"')
+    expect(html).toContain('Done')
+    expect(html).not.toContain('Invitation sent')
+  })
+
+  it('does not misrepresent a duplicate submission as a new completion', () => {
+    const html = renderToString(React.createElement(QuickCompleteReceipt, {
+      result: { success: true, duplicate: true, message: 'Already recorded.' },
+    }))
+    expect(html).toContain('Already recorded')
+    expect(html).toContain('No second completion was created')
+    expect(html).not.toContain('Email delivery:')
+    expect(html).not.toContain('Completion recorded</div>')
+  })
+
+  it('shows server errors without claiming a completion was recorded', () => {
+    const html = renderToString(React.createElement(QuickCompleteReceipt, {
+      result: { success: false, error: 'Validation failed' },
+    }))
+    expect(html).toContain('Could not record completion')
+    expect(html).toContain('role="alert"')
+    expect(html).toContain('Validation failed')
+    expect(html).not.toContain('Review request:')
+    expect(html).not.toContain('View Recent Activity')
+  })
+
+  it('keeps the receipt visible until dismissed rather than auto-closing the modal', () => {
+    const form = fs.readFileSync(
+      path.resolve(__dirname, '../../src/app/app/quick-complete/form.tsx'), 'utf8'
+    )
+    expect(form).toContain('<QuickCompleteReceipt result={result} onDone={onSuccess} />')
+    expect(form).not.toContain('setTimeout(')
+  })
+})
 
 describe('Navigation Feedback, Loading Skeletons & Transitions (Section 10)', () => {
   describe('1. CSS Transitions & Reduced Motion Safety', () => {

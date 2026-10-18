@@ -33,6 +33,6 @@ export function createStripeTestCustomerCreator():
       { name },
       { idempotencyKey, maxNetworkRetries: 1 }
     )
-    return { id: created.id, livemode: created.livemode, name: created.name }
+    return { id: created.id, livemode: created.livemode, name: created.name ?? null }
   }
 }

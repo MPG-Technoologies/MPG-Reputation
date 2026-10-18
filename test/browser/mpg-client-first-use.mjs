@@ -65,15 +65,14 @@ async function clientJourney(browser, label, viewport) {
     await page.waitForURL(url => url.pathname === '/app/settings/review-destination', { timeout: 45_000 })
     await page.getByText('Setup · Step 2 of 2').waitFor()
 
-    stage = 'save-google-link'
-    await page.getByLabel('Google Review URL').fill(testedGoogleUrl)
+    stage = 'reject-non-google-link'
+    await page.getByLabel('Google Review URL').fill('https://example.com/review')
     await page.getByRole('button', { name: 'Save Destination' }).click()
-    await page.getByText('Configured Destination:').waitFor()
-    await page.getByText(testedGoogleUrl, { exact: true }).first().waitFor()
+    await page.getByRole('status').getByText(/Invalid host: example/).waitFor()
+    await page.getByText('No Google review destination has been saved for this location.').waitFor()
 
-    stage = 'test-google-link-locally'
-    // Test the actual browser button, but intercept the external popup.
-    // This verifies URL selection without asserting Google account ownership.
+    stage = 'reject-unsaved-google-link'
+    // Inspect attempted popup URLs without visiting any external service.
     await page.evaluate(() => {
       window.__mpgOpenedGoogleLink = null
       window.open = (url) => {
@@ -81,6 +80,39 @@ async function clientJourney(browser, label, viewport) {
         return null
       }
     })
+    await page.getByLabel('Google Review URL').fill(testedGoogleUrl)
+    await page.getByRole('button', { name: /Test Link/ }).click()
+    await page.getByRole('status').getByText(/Save the entered Google review link before testing it/).waitFor()
+    assert.equal(
+      await page.evaluate(() => window.__mpgOpenedGoogleLink),
+      null,
+      'An unsaved Google review link must never be opened as the tested destination'
+    )
+
+    stage = 'save-google-link'
+    await page.getByRole('button', { name: 'Save Destination' }).click()
+    await page.getByText('Configured Destination:').waitFor()
+    await page.getByText(testedGoogleUrl, { exact: true }).first().waitFor()
+
+    stage = 'reject-different-location-draft'
+    await page.getByLabel('Google Review URL').fill('https://g.page/r/OtherSyntheticLocation/review')
+    await page.getByRole('button', { name: /Test Link/ }).click()
+    await page.getByRole('status').getByText(/Save the entered Google review link before testing it/).waitFor()
+    assert.equal(
+      await page.evaluate(() => window.__mpgOpenedGoogleLink),
+      null,
+      'Editing the destination must not test a different business location'
+    )
+    assert.equal(
+      await page.getByRole('checkbox', { name: /I tested this saved link and confirmed/ }).isDisabled(),
+      true,
+      'The confirmation assertion must remain disabled for an unsaved draft'
+    )
+    await page.getByLabel('Google Review URL').fill('')
+
+    stage = 'test-google-link-locally'
+    // Test the actual browser button, but intercept the external popup.
+    // This verifies URL selection without asserting Google account ownership.
     await page.getByRole('button', { name: /Test Link/ }).click()
     const attemptedLink = await page.evaluate(() => window.__mpgOpenedGoogleLink)
     assert.equal(attemptedLink, testedGoogleUrl, 'Test Link must open the saved URL')

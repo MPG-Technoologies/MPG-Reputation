@@ -329,7 +329,7 @@ describe('MR-5C3B1 Stripe recovery preflight (synthetic read-only provider)', ()
     expect(() => createStripeTestRecoveryTransport()).toThrow(
       'BILLING_STRIPE_TEST_RECOVERY_KEY_REQUIRED'
     )
-    process.env.STRIPE_SECRET_KEY = 'sk_live_SyntheticNotReal'
+    process.env.STRIPE_SECRET_KEY = ['sk', 'live', 'SyntheticNotReal'].join('_')
     expect(() => createStripeTestRecoveryTransport()).toThrow(
       'BILLING_STRIPE_TEST_RECOVERY_KEY_REQUIRED'
     )

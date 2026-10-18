@@ -40,8 +40,8 @@ export const REPUTATION_BILLING_PLANS: Readonly<Record<
     currency: 'PHP',
     interval: 'year',
     intervalCount: 1,
-    amountMinor: 1_200_000,
-    monthlyEquivalentMinor: 100_000,
+    amountMinor: 100_000,
+    monthlyEquivalentMinor: 8_333,
     approval: 'PROPOSED',
   }),
 })
@@ -53,17 +53,26 @@ export function isReputationBillingPlanId(
 }
 
 export function getReputationBillingPlan(
-  value: unknown
+  value: unknown,
+  plans: ReputationBillingCatalog = REPUTATION_BILLING_PLANS
 ): ReputationBillingPlan | null {
   return isReputationBillingPlanId(value)
-    ? REPUTATION_BILLING_PLANS[value]
+    ? plans[value]
     : null
 }
 
-export function getAnnualSavingsMinor(): number {
+export type ReputationBillingCatalog = Readonly<Record<
+  ReputationBillingPlanId,
+  ReputationBillingPlan
+>>
+
+/** Compare whole-year cost at the selected monthly rate. */
+export function getAnnualSavingsMinor(
+  plans: ReputationBillingCatalog = REPUTATION_BILLING_PLANS
+): number {
   return (
-    REPUTATION_BILLING_PLANS.monthly.amountMinor * 12 -
-    REPUTATION_BILLING_PLANS.annual.amountMinor
+    plans.monthly.amountMinor * 12 -
+    plans.annual.amountMinor
   )
 }
 
@@ -104,8 +113,12 @@ export function validateReputationProviderPrice(args: {
   configuredPriceId: string
   expectedEnvironment: 'TEST' | 'LIVE'
   providerPrice: ProviderRecurringPriceSnapshot
+  plans?: ReputationBillingCatalog
 }): ProviderPriceMatch {
-  const plan = getReputationBillingPlan(args.planId)
+  const plan = getReputationBillingPlan(
+    args.planId,
+    args.plans ?? REPUTATION_BILLING_PLANS
+  )
   if (!plan) return { ok: false, reason: 'UNKNOWN_PLAN' }
 
   if (

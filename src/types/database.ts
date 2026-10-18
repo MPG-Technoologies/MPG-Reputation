@@ -1032,6 +1032,41 @@ export interface Database {
           }
         ]
       }
+      stripe_test_billing_action_limits: {
+        Row: {
+          organization_id: string
+          user_id: string
+          period_started_at: string
+          attempts: number
+          last_action: 'CUSTOMER_SETUP' | 'CHECKOUT' | 'PORTAL'
+          updated_at: string
+        }
+        Insert: {
+          organization_id: string
+          user_id: string
+          period_started_at?: string
+          attempts?: number
+          last_action: 'CUSTOMER_SETUP' | 'CHECKOUT' | 'PORTAL'
+          updated_at?: string
+        }
+        Update: {
+          organization_id?: string
+          user_id?: string
+          period_started_at?: string
+          attempts?: number
+          last_action?: 'CUSTOMER_SETUP' | 'CHECKOUT' | 'PORTAL'
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_test_billing_action_limits_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       stripe_test_customer_provisioning: {
         Row: {
           id: string
@@ -1322,6 +1357,14 @@ export interface Database {
     }
     Views: Record<string, never>
     Functions: {
+      claim_stripe_test_billing_action: {
+        Args: {
+          p_user_id: string
+          p_organization_id: string
+          p_action: 'CUSTOMER_SETUP' | 'CHECKOUT' | 'PORTAL'
+        }
+        Returns: Json
+      }
       reserve_stripe_test_customer: {
         Args: { p_user_id: string; p_organization_id: string }
         Returns: Json

@@ -128,7 +128,8 @@ describe('MR-5C3C2A sealed TEST recovery operator', () => {
       dispatch: report(),
       signal: { status: 'HEALTHY', manualReviewRequired: false, reasons: [] },
     })
-    expect(mockDispatch).toHaveBeenCalledExactlyOnceWith({
+    expect(mockDispatch).toHaveBeenCalledOnce()
+    expect(mockDispatch).toHaveBeenCalledWith({
       supabase,
       retrieveEvent,
       retrieveSubscription,

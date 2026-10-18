@@ -57,7 +57,7 @@ export async function processDurableStripeTestEvent(args: {
     throw new Error('BILLING_WORKER_LEASE_INVALID')
   }
   const eventToken = lease.lease_token
-  let subscriptionLock: { id: string; token: string } | null = null
+  const subscriptionLockRef: { current: { id: string; token: string } | null } = { current: null }
   let mutexBusy = false
 
   async function finish(status: 'FAILED' | 'IGNORED', errorCode?: string) {
@@ -95,7 +95,7 @@ export async function processDurableStripeTestEvent(args: {
               locked.subscription_id !== subscriptionId) {
             throw new Error('BILLING_RECONCILIATION_LEASE_FAILED')
           }
-          subscriptionLock = { id: subscriptionId, token: locked.lease_token }
+          subscriptionLockRef.current = { id: subscriptionId, token: locked.lease_token }
           return retrieveSubscription(subscriptionId)
         },
       })
@@ -128,8 +128,8 @@ export async function processDurableStripeTestEvent(args: {
       return finalized ? { outcome: 'IGNORED' } : { outcome: 'LOST_LEASE' }
     }
 
-    if (!subscriptionLock ||
-        preflight.candidate.providerSubscriptionId !== subscriptionLock.id ||
+    if (!subscriptionLockRef.current ||
+        preflight.candidate.providerSubscriptionId !== subscriptionLockRef.current.id ||
         preflight.candidate.environment !== 'TEST') {
       const finalized = await finish('FAILED', 'INVALID_PROVIDER_DATA')
       return finalized
@@ -142,7 +142,7 @@ export async function processDurableStripeTestEvent(args: {
       'commit_stripe_subscription_reconciliation', {
         p_event_id: eventRecordId,
         p_event_lease_token: eventToken,
-        p_subscription_lease_token: subscriptionLock!.token,
+        p_subscription_lease_token: subscriptionLockRef.current!.token,
         p_org_id: candidate.organizationId,
         p_billing_account_id: candidate.billingAccountId,
         p_provider_customer_id: preflight.providerCustomerId,
@@ -170,14 +170,14 @@ export async function processDurableStripeTestEvent(args: {
       ? { outcome: 'FAILED', errorCode: 'PROCESSING_FAILED' }
       : { outcome: 'LOST_LEASE' }
   } finally {
-    if (subscriptionLock) {
+    if (subscriptionLockRef.current) {
       // SQL success already released the lock. For provider failures, release
       // only if this fencing token still owns it. Never mask primary failures
       // with cleanup errors; an unreleased slot self-expires within 120s.
       try {
         await supabase.rpc('release_stripe_subscription_reconciliation', {
-          p_subscription_id: subscriptionLock.id,
-          p_lease_token: subscriptionLock.token,
+          p_subscription_id: subscriptionLockRef.current.id,
+          p_lease_token: subscriptionLockRef.current.token,
         })
       } catch {
         // Token fencing and TTL supply the recovery path.

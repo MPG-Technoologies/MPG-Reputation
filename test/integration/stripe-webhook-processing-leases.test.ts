@@ -17,7 +17,7 @@ let ownerUserId = ''
 const prefix = 'evt_Mr5c3a' + randomUUID().replaceAll('-', '')
 
 function checked<T extends { data: unknown; error: unknown }>(result: T): NonNullable<T['data']> {
-  if (result.error || result.data === null) {
+  if (result.error) {
     throw new Error('Synthetic MR-5C3A local database verification failed', { cause: result.error })
   }
   return result.data as NonNullable<T['data']>

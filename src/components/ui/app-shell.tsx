@@ -46,6 +46,7 @@ const PRIMARY_NAV_ITEMS: NavItemConfig[] = [
   { href: '/app/settings/review-destination', label: 'Google Destination', icon: StarIcon },
   { href: '/app/settings/integrations', label: 'API & Webhooks', icon: LinkIcon },
   { href: '/app/settings/usage', label: 'Usage & Trial', icon: BarChartIcon },
+  { href: '/app/settings/billing', label: 'Billing', icon: SettingsIcon },
 ]
 
 const SECONDARY_NAV_ITEMS: NavItemConfig[] = [

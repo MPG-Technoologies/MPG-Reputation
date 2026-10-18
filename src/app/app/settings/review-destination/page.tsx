@@ -95,7 +95,7 @@ export default async function ReviewDestinationPage() {
           className="rounded-xl border border-[#1C2846] bg-[#0E172B] p-5 space-y-3"
         >
           <h2 id="find-google-review-link-title" className="text-base font-semibold text-white">
-            Don't have your Google review link?
+            Don&apos;t have your Google review link?
           </h2>
           <ol className="list-decimal pl-5 space-y-2 text-sm leading-relaxed text-slate-300">
             <li>Sign in to the Google account that manages your Google Business Profile.</li>
@@ -104,7 +104,7 @@ export default async function ReviewDestinationPage() {
           </ol>
           <p className="text-xs text-slate-400">
             Use the link for this specific location, not a general Google search or your Google account sign-in page.
-            If you don't see the review-link option, check that you're managing the correct Business Profile.
+            If you don&apos;t see the review-link option, check that you&apos;re managing the correct Business Profile.
           </p>
           <div className="flex flex-wrap gap-4 text-xs font-medium">
             <a
@@ -121,7 +121,7 @@ export default async function ReviewDestinationPage() {
               rel="noopener noreferrer"
               className="text-blue-300 underline underline-offset-4 hover:text-blue-200"
             >
-              Google's official link instructions ↗
+              Google&apos;s official link instructions ↗
             </a>
           </div>
         </section>

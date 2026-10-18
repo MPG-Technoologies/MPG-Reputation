@@ -99,3 +99,24 @@ export function validateGoogleReviewUrl(inputUrl: string): ValidationResult {
     canonicalUrl: parsed.toString(),
   }
 }
+
+/**
+ * The explicitly tested review link must identify the precise saved destination.
+ * Accept normal URL canonicalization (e.g. stripped fragments), not a different
+ * draft or a different business location.
+ */
+export function matchesTestedSavedDestination(
+  testedUrl: string | null | undefined,
+  savedUrl: string | null | undefined
+): boolean {
+  if (!testedUrl || !savedUrl) return false
+
+  const tested = validateGoogleReviewUrl(testedUrl)
+  const saved = validateGoogleReviewUrl(savedUrl)
+  return !!(
+    tested.valid &&
+    saved.valid &&
+    tested.canonicalUrl &&
+    tested.canonicalUrl === saved.canonicalUrl
+  )
+}

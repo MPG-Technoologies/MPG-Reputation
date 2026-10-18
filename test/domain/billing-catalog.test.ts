@@ -53,16 +53,16 @@ describe('MR-5 proposed recurring pricing contract (no Stripe account required)'
     })
   })
 
-  it('models ₱1,000 per month billed annually as a single ₱12,000 yearly charge', () => {
+  it('models ₱1,000 as the total payment once per year', () => {
     expect(REPUTATION_BILLING_PLANS.annual).toMatchObject({
       id: 'annual',
       interval: 'year',
       intervalCount: 1,
-      amountMinor: 1_200_000,
-      monthlyEquivalentMinor: 100_000,
+      amountMinor: 100_000,
+      monthlyEquivalentMinor: 8_333,
       approval: 'PROPOSED',
     })
-    expect(getAnnualSavingsMinor()).toBe(600_000)
+    expect(getAnnualSavingsMinor()).toBe(1_700_000)
     expect(REPUTATION_BILLING_PLANS.monthly.amountMinor * 12).toBe(1_800_000)
   })
 
@@ -84,7 +84,7 @@ describe('MR-5 proposed recurring pricing contract (no Stripe account required)'
       expectedEnvironment: 'TEST',
       providerPrice: providerPrice({
         id: 'price_TestAnnual123',
-        unitAmountMinor: 1_200_000,
+        unitAmountMinor: 100_000,
         interval: 'year',
       }),
     })).toEqual({ ok: true })

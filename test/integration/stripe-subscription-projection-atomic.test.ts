@@ -147,8 +147,10 @@ describe('MR-5C2 atomic subscription projection (disposable PostgreSQL only)', (
       normalized_status: 'ACTIVE',
       provider_state_updated_at: null,
     })
-    expect(subscription.current_period_start).toBe(candidate.currentPeriodStart)
-    expect(subscription.current_period_end).toBe(candidate.currentPeriodEnd)
+    expect(new Date(subscription.current_period_start!).getTime())
+      .toBe(new Date(candidate.currentPeriodStart!).getTime())
+    expect(new Date(subscription.current_period_end!).getTime())
+      .toBe(new Date(candidate.currentPeriodEnd!).getTime())
   })
 
   it('is idempotent: duplicates do not modify the same row or its updated_at', async () => {

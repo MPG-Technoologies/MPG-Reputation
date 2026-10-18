@@ -214,7 +214,7 @@ BEGIN
     IF v_projection->>'outcome' NOT IN ('CREATED','UPDATED','UNCHANGED') THEN
         RETURN pg_catalog.jsonb_build_object(
             'outcome','REJECTED',
-            'reason',pg_catalog.coalesce(v_projection->>'outcome','UNKNOWN')
+            'reason',COALESCE(v_projection->>'outcome','UNKNOWN')
         );
     END IF;
 

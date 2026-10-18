@@ -69,7 +69,7 @@ export type StripeSubscriptionProjectionDecision =
         | 'CANCELLATION_INVALID'
     }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const PRICE_ID = /^price_[A-Za-z0-9]+$/
 
 const PROVIDER_STATUS: Readonly<Record<string, BillingNormalizedStatus>> = {

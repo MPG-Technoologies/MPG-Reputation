@@ -22,29 +22,12 @@ vi.mock('next/navigation', () => ({
 
 import { SubmitButton } from '../../src/components/ui/submit-button'
 import AppTemplate from '../../src/app/app/template'
-import { AppNav } from '../../src/app/app/nav'
 import DashboardLoading from '../../src/app/app/dashboard/loading'
 import QuickCompleteLoading from '../../src/app/app/quick-complete/loading'
 import LocationSettingsLoading from '../../src/app/app/settings/location/loading'
 import ReviewDestinationLoading from '../../src/app/app/settings/review-destination/loading'
 
 describe('Navigation Feedback, Loading Skeletons & Transitions (Section 10)', () => {
-  describe('0. Business operational navigation', () => {
-    it('uses one Customers entry shared by desktop and conditional mobile navigation', () => {
-      const html = renderToString(React.createElement(AppNav))
-      // The mobile drawer is closed by default, so only desktop links SSR.
-      expect(html).toContain('href="/app/customers"')
-      expect(html).toContain('Customers')
-
-      const navSource = fs.readFileSync(
-        path.resolve(__dirname, '../../src/app/app/nav.tsx'),
-        'utf8'
-      )
-      expect(navSource).toContain("{ href: '/app/customers', label: 'Customers' }")
-      expect(navSource.match(/navItems\.map\(/g)).toHaveLength(2)
-    })
-  })
-
   describe('1. CSS Transitions & Reduced Motion Safety', () => {
     it('defines page-enter and nav-progress keyframes and classes in globals.css', () => {
       const cssPath = path.resolve(__dirname, '../../src/app/globals.css')

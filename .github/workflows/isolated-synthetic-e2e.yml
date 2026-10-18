@@ -86,7 +86,10 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Run scoped synthetic database-backed E2E test
-        run: pnpm exec vitest run test/integration/true-e2e.test.ts
+        run: |
+          pnpm exec vitest run \
+            test/integration/true-e2e.test.ts \
+            test/integration/stripe-test-checkout-preflight.test.ts
 
       - name: Stop and erase disposable local Supabase containers
         if: always()

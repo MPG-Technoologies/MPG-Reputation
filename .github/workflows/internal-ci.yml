@@ -81,6 +81,7 @@ jobs:
           pnpm exec vitest run \
             test/domain/activation-readiness.test.ts \
             test/domain/billing.test.ts \
+            test/domain/billing-catalog.test.ts \
             test/domain/completion-api.test.ts \
             test/domain/completion-ingestion-schema.test.ts \
             test/domain/completion.test.ts \

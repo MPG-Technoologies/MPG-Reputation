@@ -33,7 +33,7 @@ export function deriveStripeRecoveryOperatorSignal(
   if (inventory && inventory.aged_out > 0) reasons.push('AGED_OUT_EVENTS')
   if (report.errors > 0) reasons.push('PROCESSING_ERRORS')
   if (report.failed > 0) reasons.push('FAILED_EVENTS')
-  if (inventory && (inventory.ready > 0 || inventory.cooldown > 0)) reasons.push('RETRY_BACKLOG')
+  if (inventory && (inventory.ready > report.examined || inventory.cooldown > 0)) reasons.push('RETRY_BACKLOG')
 
   const manualReviewRequired = reasons.some(reason =>
     reason === 'EXHAUSTED_EVENTS' ||

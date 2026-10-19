@@ -42,7 +42,7 @@ BEGIN
 
   RETURN pg_catalog.jsonb_build_object(
     'outcome','READY',
-    'customer_id',pg_catalog.coalesce(
+    'customer_id',COALESCE(
       v_account.provider_customer_id,v_customer.provider_customer_id
     ),
     'customer_linked',v_account.id IS NOT NULL,

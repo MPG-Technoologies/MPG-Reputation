@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getConfiguredReputationBillingCatalog } from '@/lib/billing/pricing'
 import { getBillingWorkspaceSummary } from '@/domain/billing/ui-state'
 import { BillingPlanPreview } from './plan-preview'
+import { isLocalTestBillingActionEndpointEnabled } from '@/lib/billing/stripe-test-action-request'
 
 /**
  * Read-only MR-5D3 billing workspace. Never takes an organization ID from
@@ -76,6 +77,11 @@ export default async function BillingSettingsPage() {
     process.env.NODE_ENV !== 'production' &&
     process.env.ENABLE_MR5D_BILLING_UI_PREVIEW === 'true'
   const catalog = pricingPreviewEnabled ? getConfiguredReputationBillingCatalog() : null
+  // This is a read-only production page regardless of feature flags.
+  // Interactive billing actions require explicit local-only synthetic gates.
+  const localActionsEnabled = pricingPreviewEnabled &&
+    !accountError && !subscriptionsError && isLocalTestBillingActionEndpointEnabled()
+
   const name = (membership.organizations as { name?: string } | null)?.name ?? 'Your business'
 
   return (
@@ -144,7 +150,14 @@ export default async function BillingSettingsPage() {
             separate from payment setup.
           </p>
           {catalog ? (
-            <BillingPlanPreview plans={[catalog.monthly, catalog.annual]} />
+            <BillingPlanPreview
+              plans={[catalog.monthly, catalog.annual]}
+              organizationId={orgId}
+              localActionsEnabled={localActionsEnabled}
+              hasTestAccount={Boolean(account)}
+              hasOngoingSubscription={Boolean(subscriptions?.[0] &&
+                subscriptions[0].normalized_status !== 'ENDED')}
+            />
           ) : (
             <div className="rounded-xl bg-[#131E38] border border-[#1C2846] p-5">
               <p className="font-medium text-slate-200">Plan selection is not available yet</p>

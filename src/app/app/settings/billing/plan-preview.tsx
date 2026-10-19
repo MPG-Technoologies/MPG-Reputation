@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { ReputationBillingPlanId } from '@/domain/billing/catalog'
+import { LocalSyntheticBillingActions } from './local-synthetic-actions'
 
 interface PlanPreview {
   readonly id: ReputationBillingPlanId
@@ -10,7 +11,15 @@ interface PlanPreview {
   readonly currency: 'PHP'
 }
 
-export function BillingPlanPreview({ plans }: { plans: readonly PlanPreview[] }) {
+export function BillingPlanPreview({
+  plans, organizationId, localActionsEnabled, hasTestAccount, hasOngoingSubscription,
+}: {
+  plans: readonly PlanPreview[]
+  organizationId: string
+  localActionsEnabled: boolean
+  hasTestAccount: boolean
+  hasOngoingSubscription: boolean
+}) {
   const [selected, setSelected] = useState<ReputationBillingPlanId>('monthly')
   const current = plans.find(plan => plan.id === selected) ?? plans[0]
 
@@ -48,13 +57,19 @@ export function BillingPlanPreview({ plans }: { plans: readonly PlanPreview[] })
           This is an engineering pricing preview, not an available offer. Checkout and
           subscription changes are disabled until MPG approves deployed TEST billing.
         </p>
-        <button
-          disabled
-          type="button"
-          className="mt-4 w-full py-2.5 rounded-lg bg-slate-800 text-slate-400 font-semibold text-sm cursor-not-allowed"
-        >
-          Checkout not available yet
-        </button>
+        {localActionsEnabled ? (
+          <LocalSyntheticBillingActions
+            organizationId={organizationId}
+            planId={selected}
+            hasTestAccount={hasTestAccount}
+            hasOngoingSubscription={hasOngoingSubscription}
+          />
+        ) : (
+          <button disabled type="button"
+            className="mt-4 w-full py-2.5 rounded-lg bg-slate-800 text-slate-400 font-semibold text-sm cursor-not-allowed">
+            Checkout not available yet
+          </button>
+        )}
       </div>
     </div>
   )

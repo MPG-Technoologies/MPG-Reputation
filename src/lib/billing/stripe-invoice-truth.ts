@@ -1,4 +1,7 @@
-import 'server-only'
+/**
+ * Server-side billing identity resolver. Keep this module under lib/billing;
+ * never import it into client components or expose its trusted DB client.
+ */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'

@@ -48,6 +48,17 @@ describe('MR-5E2 non-authorizing correlation', () => {
       ...paid,providerEventId:'evt_failed', eventType:'invoice.payment_failed'}]}))
       .toEqual({outcome:'UNVERIFIED',reason:'CONFLICTING_PAYMENT_EVENT'})
   })
+  it('fails closed for unexpected runtime event types and statuses', () => {
+    for (const mutation of [
+      { eventType: 'charge.succeeded' },
+      { processingStatus: 'UNKNOWN' },
+      { signatureVerified: 'true' },
+    ]) {
+      const event = { ...paid, ...mutation } as DurableBillingEvent
+      expect(correlateInvoiceEvidence({...base, events: [event]}))
+        .toEqual({outcome:'UNVERIFIED',reason:'INVALID_EVENTS'})
+    }
+  })
   it('rejects stale provider data independently of webhook status', () => {
     expect(correlateInvoiceEvidence({...base,evidence:{...evidence,
       verifiedAt:'2026-10-01T00:00:00Z'}}))

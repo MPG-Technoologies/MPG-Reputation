@@ -50,79 +50,31 @@ CREATE TABLE public.billing_paid_entitlement_proposals (
 );
 
 -- SOURCE CHECK ON INSERT ONLY. No entitlement activation or payment assertion.
--- The event may be synthetic PROCESSED test evidence; this is not independent
--- proof of settlement and the ledger remains permanently non-authorizing.
+-- A PROCESSED synthetic event is not independent proof of settlement.
 CREATE FUNCTION public.validate_billing_paid_entitlement_proposal_source()
 RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER
 SET search_path = ''
-AS $
+AS $paid_proposal$
 DECLARE
     v_event public.billing_webhook_events%ROWTYPE;
 BEGIN
     SELECT * INTO v_event
     FROM public.billing_webhook_events
     WHERE id = NEW.webhook_event_record_id;
-
     IF NOT FOUND OR
        v_event.organization_id IS DISTINCT FROM NEW.organization_id OR
        v_event.provider IS DISTINCT FROM NEW.provider OR
        v_event.environment IS DISTINCT FROM NEW.environment OR
        v_event.processing_status <> 'PROCESSED' OR
        v_event.processed_at IS NULL OR
-       v_event.payload_hash !~ '^[a-f0-9]{64}
-    ON public.billing_paid_entitlement_proposals (organization_id, recorded_at DESC);
-
--- No API user may see or manipulate this sensitive proposal store.
--- Service role can append and inspect, but not edit or remove proposals.
--- Referential cascade from a deleted organization remains managed by the DB.
-ALTER TABLE public.billing_paid_entitlement_proposals ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.billing_paid_entitlement_proposals
-    FROM PUBLIC, anon, authenticated, service_role;
-GRANT SELECT, INSERT ON TABLE public.billing_paid_entitlement_proposals TO service_role;
-
-COMMENT ON TABLE public.billing_paid_entitlement_proposals IS
-    'MR-5E3B simulation-only records, not paid entitlement or billing settlement. Requires future owner-approved verification and activation design. Never used by request authorization.';
-COMMENT ON COLUMN public.billing_paid_entitlement_proposals.access_authorized IS
-    'Hard-false safety invariant. Proposed ACTIVE is not product access.';
- THEN
+       v_event.payload_hash !~ '^[a-f0-9]{64}$' THEN
         RAISE EXCEPTION 'BILLING_PAID_PROPOSAL_SOURCE_NOT_VERIFIED';
     END IF;
-
-    -- Event type must agree with the proposed lifecycle action. Even a
-    -- processed synthetic event must not be repurposed as a paid invoice.
     IF (NEW.proposed_action IN ('INITIAL_ACTIVATION', 'RENEWAL')
           AND (v_event.event_type <> 'invoice.paid' OR
                v_event.provider_invoice_id IS NULL OR
-               v_event.provider_invoice_id !~ '^in_[A-Za-z0-9]+
-END;
-$;
-
-REVOKE ALL ON FUNCTION public.validate_billing_paid_entitlement_proposal_source()
-  FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.validate_billing_paid_entitlement_proposal_source()
-  TO service_role;
-
-CREATE TRIGGER validate_billing_paid_entitlement_proposal_insert
-    BEFORE INSERT ON public.billing_paid_entitlement_proposals
-    FOR EACH ROW EXECUTE FUNCTION public.validate_billing_paid_entitlement_proposal_source();
-
-CREATE INDEX billing_paid_entitlement_proposals_org_recorded_idx
-    ON public.billing_paid_entitlement_proposals (organization_id, recorded_at DESC);
-
--- No API user may see or manipulate this sensitive proposal store.
--- Service role can append and inspect, but not edit or remove proposals.
--- Referential cascade from a deleted organization remains managed by the DB.
-ALTER TABLE public.billing_paid_entitlement_proposals ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.billing_paid_entitlement_proposals
-    FROM PUBLIC, anon, authenticated, service_role;
-GRANT SELECT, INSERT ON TABLE public.billing_paid_entitlement_proposals TO service_role;
-
-COMMENT ON TABLE public.billing_paid_entitlement_proposals IS
-    'MR-5E3B simulation-only records, not paid entitlement or billing settlement. Requires future owner-approved verification and activation design. Never used by request authorization.';
-COMMENT ON COLUMN public.billing_paid_entitlement_proposals.access_authorized IS
-    'Hard-false safety invariant. Proposed ACTIVE is not product access.';
-))
+               v_event.provider_invoice_id !~ '^in_[A-Za-z0-9]+$'))
        OR (NEW.proposed_action = 'PAYMENT_DUE'
           AND v_event.event_type <> 'invoice.payment_failed')
        OR (NEW.proposed_action = 'SCHEDULE_CANCELLATION'
@@ -131,18 +83,18 @@ COMMENT ON COLUMN public.billing_paid_entitlement_proposals.access_authorized IS
           AND v_event.event_type <> 'customer.subscription.deleted')
        OR (NEW.proposed_action = 'ESCALATE_FOR_REVIEW'
           AND v_event.event_type NOT IN (
-              'charge.refunded', 'charge.dispute.created', 'invoice.payment_failed'
+             'charge.refunded', 'charge.dispute.created', 'invoice.payment_failed'
           )) THEN
         RAISE EXCEPTION 'BILLING_PAID_PROPOSAL_EVENT_TYPE_MISMATCH';
     END IF;
     RETURN NEW;
 END;
-$;
+$paid_proposal$;
 
 REVOKE ALL ON FUNCTION public.validate_billing_paid_entitlement_proposal_source()
-  FROM PUBLIC, anon, authenticated;
+    FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.validate_billing_paid_entitlement_proposal_source()
-  TO service_role;
+    TO service_role;
 
 CREATE TRIGGER validate_billing_paid_entitlement_proposal_insert
     BEFORE INSERT ON public.billing_paid_entitlement_proposals
@@ -151,15 +103,13 @@ CREATE TRIGGER validate_billing_paid_entitlement_proposal_insert
 CREATE INDEX billing_paid_entitlement_proposals_org_recorded_idx
     ON public.billing_paid_entitlement_proposals (organization_id, recorded_at DESC);
 
--- No API user may see or manipulate this sensitive proposal store.
--- Service role can append and inspect, but not edit or remove proposals.
--- Referential cascade from a deleted organization remains managed by the DB.
+-- Private RLS; service_role can append/inspect only, no direct update/delete.
 ALTER TABLE public.billing_paid_entitlement_proposals ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.billing_paid_entitlement_proposals
     FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT, INSERT ON TABLE public.billing_paid_entitlement_proposals TO service_role;
 
 COMMENT ON TABLE public.billing_paid_entitlement_proposals IS
-    'MR-5E3B simulation-only records, not paid entitlement or billing settlement. Requires future owner-approved verification and activation design. Never used by request authorization.';
+    'MR-5E3B synthetic-only staging, never paid access or billing settlement.';
 COMMENT ON COLUMN public.billing_paid_entitlement_proposals.access_authorized IS
-    'Hard-false safety invariant. Proposed ACTIVE is not product access.';
+    'Hard-false safety invariant; even a proposed ACTIVE status is not product access.';

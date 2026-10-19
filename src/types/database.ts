@@ -1357,6 +1357,13 @@ export interface Database {
     }
     Views: Record<string, never>
     Functions: {
+      inspect_stripe_test_billing_recovery: {
+        Args: {
+          p_user_id: string
+          p_organization_id: string
+        }
+        Returns: Json
+      }
       claim_stripe_test_billing_action: {
         Args: {
           p_user_id: string

@@ -162,11 +162,12 @@ describe('MR-5E3C3A synthetic-only exception reconciliation', () => {
 
   it('rejects an early period end but permits a simulated end at paid-through date', () => {
     const cancellation = fact(2, 'SCHEDULE_CANCELLATION')
+    const earlyTerminal = fact(3, 'END_AT_PERIOD')
+    expect(inspect(earlyTerminal, [active, cancellation])).toMatchObject({
+      outcome: 'REVIEW_REQUIRED', audit: { reason: 'END_BEFORE_PAID_PERIOD' },
+    })
     const terminal = fact(3, 'END_AT_PERIOD', {
       providerCreatedAt: '2026-11-19T01:00:00Z',
-    })
-    expect(inspect(terminal, [active, cancellation])).toMatchObject({
-      outcome: 'REVIEW_REQUIRED', audit: { reason: 'END_BEFORE_PAID_PERIOD' },
     })
     expect(inspect(terminal, [active, cancellation], {
       now: '2026-11-19T02:00:00Z',

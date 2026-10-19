@@ -1344,6 +1344,9 @@ export interface Database {
           provider_event_id: string
           event_type: string
           provider_invoice_id: string | null
+          processing_lease_token: string | null
+          processing_lease_expires_at: string | null
+          processing_attempt_count: number
           processing_status: 'RECEIVED' | 'PROCESSING' | 'PROCESSED' | 'IGNORED' | 'FAILED'
           payload_hash: string
           organization_id: string | null
@@ -1360,6 +1363,9 @@ export interface Database {
           provider_event_id: string
           event_type: string
           provider_invoice_id?: string | null
+          processing_lease_token?: string | null
+          processing_lease_expires_at?: string | null
+          processing_attempt_count?: number
           processing_status?: 'RECEIVED' | 'PROCESSING' | 'PROCESSED' | 'IGNORED' | 'FAILED'
           payload_hash: string
           organization_id?: string | null
@@ -1376,6 +1382,9 @@ export interface Database {
           provider_event_id?: string
           event_type?: string
           provider_invoice_id?: string | null
+          processing_lease_token?: string | null
+          processing_lease_expires_at?: string | null
+          processing_attempt_count?: number
           processing_status?: 'RECEIVED' | 'PROCESSING' | 'PROCESSED' | 'IGNORED' | 'FAILED'
           payload_hash?: string
           organization_id?: string | null
@@ -1398,6 +1407,14 @@ export interface Database {
     }
     Views: Record<string, never>
     Functions: {
+      claim_stripe_test_invoice_processing: {
+        Args: { p_provider_event_id: string }
+        Returns: Json
+      }
+      fail_stripe_test_invoice_processing: {
+        Args: { p_provider_event_id: string; p_lease_token: string; p_error_code: string }
+        Returns: Json
+      }
       request_stripe_test_billing_recovery_review: {
         Args: {
           p_user_id: string

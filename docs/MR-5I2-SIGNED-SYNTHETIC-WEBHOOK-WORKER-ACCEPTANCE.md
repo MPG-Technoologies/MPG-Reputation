@@ -1,6 +1,6 @@
 # MR-5I2 — Signed synthetic webhook-to-projection acceptance
 
-**State: IN PROGRESS until combined CI passes.**
+**State: ENGINEERING COMPLETE / READY FOR OWNER REVIEW; not OWNER ACCEPTED.**
 
 ## Remote source of truth
 - Company OS main: `03a48a34481f1952a31cd5c4fb980bc381432d8d`. MR-5 INCOMPLETE; MR-7 owner-approved security milestone and owner-approved bounded nonlive billing preparation.
@@ -27,3 +27,10 @@ Run Internal CI (lint, typecheck, 681+ application tests, build), isolated Postg
 
 ## Next gated work
 Provider-independent follow-up: a bounded **server-only local synthetic recovery dispatcher** or callable acceptance harness to bridge inbox event IDs to the already fenced worker without activating hosted scheduler or public worker endpoint. Separate TEST provider credentials/financial evidence must be introduced only when supplied and expressly authorized. Full provider financial truth + owner-approved atomic paid entitlement and usage policy remain future acceptance gates.
+
+## Verified engineering checkpoint
+- Initial database run: 171 prior PostgreSQL tests PASS; new suite did not load because its `server-only` import lacked the same Vitest mock used by existing worker integration tests. Fixed test harness only; no source/runtime changes.
+- [Internal CI #39234394491](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39234394491): SUCCESS — lint, typecheck, 681/681 synthetic application tests, build.
+- [Isolated Synthetic E2E #39234394469](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39234394469): SUCCESS — 176/176 scoped PostgreSQL tests (including five new signed-flow cases), six isolated dispatcher and two recovery-operator tests, total **184/184**, disposable DB cleanup PASS.
+- Scoped diff consists only of this document, one test module, and CI test allowlist; no production source, schema, RLS, provider calls or paid grants.
+- **ENGINEERING COMPLETE / READY FOR OWNER REVIEW**, not OWNER ACCEPTED or operational provider billing.

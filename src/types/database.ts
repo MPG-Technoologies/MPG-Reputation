@@ -1032,6 +1032,44 @@ export interface Database {
           }
         ]
       }
+      stripe_test_billing_recovery_reviews: {
+        Row: {
+          id: string
+          organization_id: string
+          kind: 'CUSTOMER_SETUP' | 'CHECKOUT'
+          reason: 'AGED_CUSTOMER_ATTEMPT' | 'UNLINKED_CUSTOMER' | 'CUSTOMER_MAPPING_CONFLICT' | 'AGED_CHECKOUT_ATTEMPT' | 'EXPIRED_CHECKOUT_SESSION' | 'EXPIRED_CHECKOUT_RESERVATION'
+          state: 'OPEN'
+          requested_by: string
+          requested_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          kind: 'CUSTOMER_SETUP' | 'CHECKOUT'
+          reason: 'AGED_CUSTOMER_ATTEMPT' | 'UNLINKED_CUSTOMER' | 'CUSTOMER_MAPPING_CONFLICT' | 'AGED_CHECKOUT_ATTEMPT' | 'EXPIRED_CHECKOUT_SESSION' | 'EXPIRED_CHECKOUT_RESERVATION'
+          state?: 'OPEN'
+          requested_by: string
+          requested_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          kind?: 'CUSTOMER_SETUP' | 'CHECKOUT'
+          reason?: 'AGED_CUSTOMER_ATTEMPT' | 'UNLINKED_CUSTOMER' | 'CUSTOMER_MAPPING_CONFLICT' | 'AGED_CHECKOUT_ATTEMPT' | 'EXPIRED_CHECKOUT_SESSION' | 'EXPIRED_CHECKOUT_RESERVATION'
+          state?: 'OPEN'
+          requested_by?: string
+          requested_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_test_billing_recovery_reviews_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       stripe_test_billing_action_limits: {
         Row: {
           organization_id: string
@@ -1357,6 +1395,14 @@ export interface Database {
     }
     Views: Record<string, never>
     Functions: {
+      request_stripe_test_billing_recovery_review: {
+        Args: {
+          p_user_id: string
+          p_organization_id: string
+          p_kind: 'CUSTOMER_SETUP' | 'CHECKOUT'
+        }
+        Returns: Json
+      }
       read_stripe_test_provider_recovery_context: {
         Args: {
           p_user_id: string

@@ -88,6 +88,53 @@ COMMENT ON COLUMN public.billing_paid_entitlement_proposals.access_authorized IS
  THEN
         RAISE EXCEPTION 'BILLING_PAID_PROPOSAL_SOURCE_NOT_VERIFIED';
     END IF;
+
+    -- Event type must agree with the proposed lifecycle action. Even a
+    -- processed synthetic event must not be repurposed as a paid invoice.
+    IF (NEW.proposed_action IN ('INITIAL_ACTIVATION', 'RENEWAL')
+          AND (v_event.event_type <> 'invoice.paid' OR
+               v_event.provider_invoice_id IS NULL OR
+               v_event.provider_invoice_id !~ '^in_[A-Za-z0-9]+
+END;
+$;
+
+REVOKE ALL ON FUNCTION public.validate_billing_paid_entitlement_proposal_source()
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.validate_billing_paid_entitlement_proposal_source()
+  TO service_role;
+
+CREATE TRIGGER validate_billing_paid_entitlement_proposal_insert
+    BEFORE INSERT ON public.billing_paid_entitlement_proposals
+    FOR EACH ROW EXECUTE FUNCTION public.validate_billing_paid_entitlement_proposal_source();
+
+CREATE INDEX billing_paid_entitlement_proposals_org_recorded_idx
+    ON public.billing_paid_entitlement_proposals (organization_id, recorded_at DESC);
+
+-- No API user may see or manipulate this sensitive proposal store.
+-- Service role can append and inspect, but not edit or remove proposals.
+-- Referential cascade from a deleted organization remains managed by the DB.
+ALTER TABLE public.billing_paid_entitlement_proposals ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.billing_paid_entitlement_proposals
+    FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT, INSERT ON TABLE public.billing_paid_entitlement_proposals TO service_role;
+
+COMMENT ON TABLE public.billing_paid_entitlement_proposals IS
+    'MR-5E3B simulation-only records, not paid entitlement or billing settlement. Requires future owner-approved verification and activation design. Never used by request authorization.';
+COMMENT ON COLUMN public.billing_paid_entitlement_proposals.access_authorized IS
+    'Hard-false safety invariant. Proposed ACTIVE is not product access.';
+))
+       OR (NEW.proposed_action = 'PAYMENT_DUE'
+          AND v_event.event_type <> 'invoice.payment_failed')
+       OR (NEW.proposed_action = 'SCHEDULE_CANCELLATION'
+          AND v_event.event_type <> 'customer.subscription.updated')
+       OR (NEW.proposed_action = 'END_AT_PERIOD'
+          AND v_event.event_type <> 'customer.subscription.deleted')
+       OR (NEW.proposed_action = 'ESCALATE_FOR_REVIEW'
+          AND v_event.event_type NOT IN (
+              'charge.refunded', 'charge.dispute.created', 'invoice.payment_failed'
+          )) THEN
+        RAISE EXCEPTION 'BILLING_PAID_PROPOSAL_EVENT_TYPE_MISMATCH';
+    END IF;
     RETURN NEW;
 END;
 $;

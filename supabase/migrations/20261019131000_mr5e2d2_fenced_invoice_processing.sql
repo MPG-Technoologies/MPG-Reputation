@@ -30,7 +30,7 @@ SET search_path = ''
 AS $$
 DECLARE
   v_event public.billing_webhook_events%ROWTYPE;
-  v_now TIMESTAMPTZ := pg_catalog.clock_timestamp();
+  v_now TIMESTAMPTZ;
   v_token UUID;
 BEGIN
   IF p_provider_event_id IS NULL
@@ -48,6 +48,9 @@ BEGIN
   IF NOT FOUND THEN
     RETURN pg_catalog.jsonb_build_object('outcome','NOT_FOUND');
   END IF;
+
+  -- Refresh the clock AFTER acquiring the row lock, not before waiting.
+  v_now := pg_catalog.clock_timestamp();
 
   IF v_event.event_type NOT IN ('invoice.paid','invoice.payment_failed')
      OR v_event.provider_invoice_id IS NULL
@@ -139,7 +142,7 @@ BEGIN
     AND event_type IN ('invoice.paid','invoice.payment_failed')
     AND processing_status = 'PROCESSING'
     AND processing_lease_token = p_lease_token
-    AND processing_lease_expires_at > v_now
+    AND processing_lease_expires_at > pg_catalog.clock_timestamp()
     AND processed_at IS NULL
   RETURNING id INTO v_affected;
 

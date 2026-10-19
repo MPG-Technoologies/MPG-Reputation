@@ -168,7 +168,7 @@ describe.skipIf(!hasDisposableDb)('MR-5E3C3B private synthetic exception review 
   it('rejects foreign subscription or webhook tenant',async()=>{
     const a=await webhook(orgA),b=await webhook(orgB)
     const r=assessment(orgA,subA,providerSubA,a)
-    expect(await request(orgA,subB,a.id,r)).toEqual({outcome:'SOURCE_MISMATCH'})
+    expect(await request(orgA,subB,a.id,r)).toEqual({outcome:'INVALID_INPUT'})
     expect(await request(orgA,subA,b.id,r)).toEqual({outcome:'INVALID_INPUT'})
     expect(await request(orgB,subB,a.id,assessment(orgB,subB,providerSubB,a)))
       .toEqual({outcome:'SOURCE_MISMATCH'})

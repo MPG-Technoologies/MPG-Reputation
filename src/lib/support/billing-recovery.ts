@@ -18,7 +18,9 @@ export interface SupportBillingRecoveryCase {
 }
 
 export type SupportBillingRecoveryResult =
-  | { readonly status: 'DISABLED' | 'DENIED' | 'UNAVAILABLE' }
+  | { readonly status: 'DISABLED' }
+  | { readonly status: 'DENIED' }
+  | { readonly status: 'UNAVAILABLE' }
   | { readonly status: 'AVAILABLE'; readonly cases: SupportBillingRecoveryCase[];
       readonly truncated: boolean; readonly snapshotAt: string }
 

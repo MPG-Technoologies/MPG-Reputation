@@ -104,6 +104,7 @@ jobs:
             test/integration/billing-paid-entitlement-proposals.test.ts \
             test/integration/billing-synthetic-proposal-admission.test.ts \
             test/integration/billing-synthetic-proposal-ordering.test.ts \
+            test/integration/billing-synthetic-exception-review.test.ts \
             test/integration/support-billing-recovery.test.ts
 
       - name: Stop and erase disposable local Supabase containers

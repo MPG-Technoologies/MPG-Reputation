@@ -29,6 +29,9 @@ export default async function SupportSubscriptionExceptionsPage({
   if (result.status === 'UNAVAILABLE') {
     return <AdminFailure unavailable>Review cases could not be inspected and audited.</AdminFailure>
   }
+  if (result.status !== 'AVAILABLE') {
+    return <AdminFailure unavailable>Review snapshot is unavailable.</AdminFailure>
+  }
 
   return (
     <>

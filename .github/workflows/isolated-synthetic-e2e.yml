@@ -120,6 +120,12 @@ jobs:
       - name: Verify sealed recovery operator against disposable Supabase
         run: pnpm exec vitest run test/integration/stripe-recovery-operator.test.ts
 
+      # This test exercises the global TEST webhook queue using signed local
+      # ingress and the existing sealed operator. Keep it after other fixture
+      # suites so it cannot claim their in-flight synthetic events.
+      - name: Verify sealed signed TEST webhook recovery dispatch
+        run: pnpm exec vitest run test/integration/stripe-signed-local-operator-dispatch.test.ts
+
       - name: Stop and erase disposable local Supabase containers
         if: always()
         continue-on-error: true

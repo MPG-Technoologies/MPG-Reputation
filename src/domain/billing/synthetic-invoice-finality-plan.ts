@@ -11,7 +11,6 @@
  * an entitlement or permission to modify a database record.
  */
 import type { ProviderEvidenceInspection } from './provider-evidence-port'
-import type { PrivateInvoiceReadFinding } from '../../lib/billing/stripe-test-private-invoice-read-assembler'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const EVENT = /^evt_[A-Za-z0-9]+$/
@@ -108,7 +107,7 @@ export function planSyntheticInvoiceFinality(args: {
   readonly leaseToken: string
   readonly receipt: SyntheticInvoiceLeaseSnapshot
   readonly priorEvents: readonly SyntheticPriorInvoiceEvent[]
-  readonly sourceRead: PrivateInvoiceReadFinding
+  readonly sourceRead: { readonly outcome: 'SYNTHETIC_MATCH_ONLY' | 'NOT_CONFIGURED' | 'BLOCKED' | 'DISABLED' | 'DENIED'; readonly reason?: string }
   readonly providerInspection: ProviderEvidenceInspection | null
 }): InvoiceFinalityReviewPlan {
   if (args?.mode !== 'LOCAL_SYNTHETIC') return blocked('MODE_GATED')

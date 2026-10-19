@@ -134,9 +134,9 @@ describe.skipIf(!hasDisposableDb)('MR-5I4C private synthetic DB-backed read asse
     expect(await inspect({operatorToken:'f'.repeat(64)})).toEqual({outcome:'DENIED'})
     expect(await inspect({operatorToken:'invalid'})).toEqual({outcome:'DENIED'})
     expect(await inspect({organizationId:'invalid'}))
-      .toEqual({outcome:'BLOCKED',reason:'INVALID_INPUT'})
+      .toEqual({outcome:'BLOCKED',reason:'INVALID_ORGANIZATION_ID'})
     expect(await inspect({providerEventId:'invalid'}))
-      .toEqual({outcome:'BLOCKED',reason:'INVALID_INPUT'})
+      .toEqual({outcome:'BLOCKED',reason:'INVALID_EVENT_ID'})
   })
 
   it('blocks unknown/foreign tenant and unknown invoice receipt', async () => {

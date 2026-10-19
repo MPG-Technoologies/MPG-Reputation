@@ -59,6 +59,7 @@ export type SubscriptionLifecycleProposal =
         | 'STALE_OR_CONFLICTING_EVENT' | 'PROVIDER_PROOF_REQUIRED'
         | 'NO_PRIOR_SUBSCRIPTION' | 'PERIOD_INVALID'
         | 'TERMINAL_REQUIRES_NEW_SUBSCRIPTION' | 'CANCELLATION_REQUIRES_REVIEW'
+        | 'EXCEPTION_REQUIRES_REVIEW'
     }
   | {
       readonly outcome: 'PROPOSAL_ONLY'
@@ -184,6 +185,9 @@ export function proposeSubscriptionLifecycle(args: {
     if (current?.status === 'CANCEL_AT_PERIOD_END') {
       return blocked('CANCELLATION_REQUIRES_REVIEW')
     }
+    if (current?.status === 'REVIEW_REQUIRED') {
+      return blocked('EXCEPTION_REQUIRES_REVIEW')
+    }
     if (current && eventEnd <= priorEnd!) return blocked('PERIOD_INVALID')
     return proposed('ACTIVE', event.periodEnd, current ? 'RENEWAL' : 'INITIAL_ACTIVATION')
   }
@@ -199,6 +203,10 @@ export function proposeSubscriptionLifecycle(args: {
   }
 
   if (event.kind === 'INVOICE_FAILED') {
+    if (current.status === 'CANCEL_AT_PERIOD_END' ||
+        current.status === 'REVIEW_REQUIRED') {
+      return blocked('EXCEPTION_REQUIRES_REVIEW')
+    }
     // Failure never extends a paid period or creates a grace entitlement.
     if (eventEnd !== priorEnd) return blocked('PERIOD_INVALID')
     return proposed('PAST_DUE', current.periodEnd, 'PAYMENT_DUE')

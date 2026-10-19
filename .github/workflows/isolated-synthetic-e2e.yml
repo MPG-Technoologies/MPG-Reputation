@@ -101,6 +101,7 @@ jobs:
             test/integration/stripe-invoice-webhook-reference.test.ts \
             test/integration/stripe-test-invoice-inbox.test.ts \
             test/integration/stripe-test-invoice-processing.test.ts \
+            test/integration/billing-paid-entitlement-proposals.test.ts \
             test/integration/support-billing-recovery.test.ts
 
       - name: Stop and erase disposable local Supabase containers

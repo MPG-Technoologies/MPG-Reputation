@@ -1,6 +1,6 @@
 # MR-5I4B — Read-only synthetic invoice / subscription projection correlation
 
-**State: IN PROGRESS — CI and final diff review pending; NOT OWNER ACCEPTED.**
+**State: ENGINEERING COMPLETE / READY FOR OWNER REVIEW — NOT OWNER ACCEPTED.**
 
 ## Remote source of truth and scope
 
@@ -36,3 +36,10 @@ Require Internal CI lint, Next typegen, typecheck, the full allowlisted unit sui
 **MR-5I4C (separate review):** Design a *trusted, local-only read assembler* that loads durable event, billing account, frozen Price and subscription projection from the existing private tables with explicit worker identity, tenant scope, event lease/fencing and change-during-read protections. It must source verified provider facts from an authenticated read adapter once credentials are available, and must reject stale events, replays, refunds/disputes and mismatched financial evidence. The current provider interface supports future injection but no verified provider integration exists. Only a later separately accepted atomic processing/finality and paid-entitlement policy may write `PROCESSED` or grant access. Preserve **30 Free Review Requests**, suppression/unsubscribe and all tenant boundaries.
 
 No Company Stage/status change, production deploy, hosted migration, real charging, LIVE messaging, commercial release or merge into `main` is authorized by this work.
+
+## Verified final evidence (2026-10-19)
+
+- [Internal CI #39243955299](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39243955299): **PASS** — lint, Next.js route type generation, TypeScript typecheck, **691/691 application tests across 48 files**, synthetic production build. These tests include the new 9-case MR-5I4B local/read-only correlation suite.
+- [Isolated Synthetic E2E #39243955638](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39243955638): **PASS** — **176/176** scoped disposable PostgreSQL tests (24 files), **7/7** recovery queue, **2/2** sealed operator, **4/4** signed local operator = **189/189 database-backed tests**, and disposable database teardown.
+- Full PR #56 diff review versus parent PR #55: **exactly four scoped files** — new pure comparison module, matching synthetic regression suite, one CI test-allowlist addition, and this document. No schema/RLS/tenant-auth changes; no provider secrets, payment calls, live messaging, financial writes, new routes, production/hosted operation or alteration of product `main`.
+- This is a **stacked unmerged** engineering checkpoint, not a completed MR-5 milestone. The invoice receipt remains `RECEIVED` even when the synthetic comparison succeeds; no billing access grant or payment finality has been implemented.

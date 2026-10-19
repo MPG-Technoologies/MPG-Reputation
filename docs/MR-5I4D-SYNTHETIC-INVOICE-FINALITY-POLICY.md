@@ -1,6 +1,6 @@
 # MR-5I4D — Synthetic invoice finality policy and provider-authentication gate
 
-**Status: IN PROGRESS — engineering verification and diff review pending. NOT OWNER ACCEPTED.**
+**Status: ENGINEERING COMPLETE / READY FOR OWNER REVIEW — NOT OWNER ACCEPTED.**
 
 ## Latest remote state (2026-10-19)
 
@@ -39,4 +39,8 @@ This module intentionally does **not** connect to provider APIs, production bill
 
 ## Verification
 
-Pending Internal CI lint/typecheck, synthetic domain test suite/build; isolated disposable DB regression and final diff, no hosted database operations. Review PR base against parent MR-5I4C, do not merge main.
+- Initial Internal CI found a syntax error in one new test assertion (missing closing parenthesis), fixed in the test file only at `c5935f45`. No production logic or gate was weakened. Follow-up CI is green.
+- [Internal CI #39258557164](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39258557164): **PASS** — lint, Next.js route type generation, TypeScript typecheck, **705/705 synthetic application tests across 49 files** (including 14 new MR-5I4D cases), synthetic production build.
+- [Isolated Synthetic E2E #39258557088](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39258557088): **PASS** — **185/185** scoped disposable PostgreSQL tests across 25 files, **7/7** recovery queue, **2/2** sealed operator, **4/4** signed local operator = **198/198 database-backed tests**; disposal/teardown PASS.
+- Scoped PR #58 diff relative to MR-5I4C branch includes exactly four files: new pure `src/domain/billing/synthetic-invoice-finality-plan.ts`, new `test/domain/synthetic-invoice-finality-plan.test.ts`, one new Internal CI test allowlist line and this handoff. No database schema/RLS/grants; no credentials, runtime financial processing, checkout, entitlement writes, provider API, live billing, real-customer data, messaging, production deployment or merge to `main`.
+- This is a **non-authorizing synthetic proposal policy**. It does not complete accounting finality, provider proof or settlement; MR-5 remains INCOMPLETE and separate owner review/financial/provider gates stand. Final handoff evidence commit is documentation-only and GitHub Actions will re-run for final HEAD.

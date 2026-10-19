@@ -97,6 +97,7 @@ jobs:
             test/integration/stripe-test-billing-recovery-diagnostics.test.ts \
             test/integration/stripe-test-provider-recovery-context.test.ts \
             test/integration/stripe-test-recovery-review-intake.test.ts \
+            test/integration/stripe-invoice-truth.test.ts \
             test/integration/support-billing-recovery.test.ts
 
       - name: Stop and erase disposable local Supabase containers

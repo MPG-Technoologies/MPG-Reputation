@@ -138,7 +138,7 @@ describe.skipIf(!isDisposableDb)('MR-5E3B paid-entitlement proposal ledger — n
   it('rejects cross-tenant subscription linkage',async()=>{
     const {error}=await insert({subscription_record_id:subB,
       webhook_event_record_id:await makeEvent(orgA,'crosssub')})
-    expect(error?.code).toBe('23503')
+    expect(error?.message).toContain('BILLING_PROPOSAL_SUBSCRIPTION_IDENTITY_MISMATCH')
   })
   it('rejects cross-tenant webhook linkage at insertion',async()=>{
     const {error}=await insert({webhook_event_record_id:eventB})

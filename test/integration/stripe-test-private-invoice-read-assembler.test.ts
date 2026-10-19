@@ -1,5 +1,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAdminClient } from '../../src/lib/supabase/admin'
+
+// Vitest has no Next.js server-only module; preserve the production import.
+vi.mock('server-only', () => ({}))
 import { inspectPrivateSyntheticInvoiceEvidence } from '../../src/lib/billing/stripe-test-private-invoice-read-assembler'
 import type { ProviderInvoiceFacts } from '../../src/domain/billing/provider-evidence-port'
 

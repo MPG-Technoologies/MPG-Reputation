@@ -1,6 +1,6 @@
 # MR-5I4E — Trusted Provider Evidence + Atomic Invoice Finality Design
 
-**State: IN PROGRESS — CI and final diff pending. DESIGN-ONLY / NO FINANCIAL FINALITY IMPLEMENTATION.**
+**State: ENGINEERING COMPLETE / READY FOR OWNER REVIEW — NOT OWNER ACCEPTED. DESIGN-ONLY / NO FINANCIAL FINALITY IMPLEMENTATION.**
 
 ## 1. Authority and verified baseline — 2026-10-19
 
@@ -84,6 +84,13 @@ The above is a design target, **not proof** that a provider connector, frozen te
 
 This slice adds **only this design document**, a credential-free repository regression test for the current *no-invoice-success* guard, and a single Internal CI allowlist entry. The test checks the current invoice-only SQL RPC names, restricted privileges and missing success-finalizer, existing TEST/LIVE identity isolation, pure MR-5I4D `PROPOSAL_ONLY` policy, and the synthetic proposal ledger's immutable `access_authorized = false` restriction. It is an architectural **tripwire, not a SQL security proof** and not provider evidence; independent SQL/RLS integration tests remain essential for any future implementation. No migration, database connection, service-role client, webhook change, provider calls, trial/entitlement mutation or production deployment.
 
-**Acceptance criteria for this design-only slice:** Internal CI lint/typecheck/synthetic unit tests/build pass, existing isolated disposable PostgreSQL suite stays green, final diff is limited to the stated three files, and PR remains DRAFT/unmerged for owner review. Product/Company OS `main` remains unchanged.
+**Verified acceptance evidence (October 19, 2026):**
+
+- [Internal CI #39265189091](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39265189091) — **PASS**: lint, Next.js generated route types, TypeScript typecheck, **711/711 tests in 50 files** (including 6 new MR-5I4E nonactivation checks), and synthetic production build.
+- [Isolated Synthetic E2E #39265189279](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39265189279) — **PASS**: **185/185** scoped disposable-PostgreSQL tests (25 files), **7/7** TEST recovery dispatch, **2/2** sealed operator, **4/4** signed local operator = **198/198 database-backed tests**, and complete disposable database teardown.
+- Final scoped diff against parent PR #58: **three intended files only** — this design packet, `test/domain/mr5i4e-invoice-finality-nonactivation.test.ts`, and one Internal CI test allowlist line. No financial processing implementation, schema migration/RLS/grants, privileged client, provider connection/credential, API, billing activation, real-customer data, live messaging, hosted database change, production deployment or merge into main.
+- Automated source-text checks are a **defense-in-depth tripwire only**; they do not prove all SQL privileges, settlement semantics or external API authenticity. No finality design or commercial payment is owner accepted from this engineering evidence.
+
+The final handoff-only commit triggers a fresh GitHub CI run. Preserve the passing code and do not mark MR-5 complete.
 
 **NEXT after accepted MR-5I4E:** MR-5I4F — validate an isolated SQL threat model and concrete immutable financial-evidence schema/transaction design *without executing successful financial finality*. Production/provider/test account activation and owner decisions remain prerequisites to real settlement.

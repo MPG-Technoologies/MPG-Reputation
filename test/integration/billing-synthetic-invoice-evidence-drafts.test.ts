@@ -21,6 +21,7 @@ describe.skipIf(!enabled)('MR-5I4F unverified invoice evidence staging (disposab
   const owner=createClient<Database>(url,anonKey,opts)
   const orgIds:string[]=[]
   const eventIds:string[]=[]
+  let eventSequence=0
   let orgA='',orgB='',accountA='',accountB='',subA='',subB='',ownerId=''
   let originalEvent=''
 
@@ -51,7 +52,8 @@ describe.skipIf(!enabled)('MR-5I4F unverified invoice evidence staging (disposab
     status?:'RECEIVED'|'PROCESSING'|'PROCESSED';hash?:string;
     environment?:'TEST'|'LIVE';
   }={}){
-    const seq=eventIds.length+1
+    // Reserve the ID synchronously before either concurrent request awaits.
+    const seq=++eventSequence
     const providerEventId='evt_mr5i4f'+suffix+seq
     const providerInvoiceId=input.invoiceId??'in_mr5i4f'+suffix+seq
     const {data,error}=await admin.from('billing_webhook_events').insert({

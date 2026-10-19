@@ -178,7 +178,7 @@ describe('MR-5D3D2 exact-ID Stripe TEST recovery, never paid entitlement',()=>{
       {lines:{items:[{priceId:'price_Foreign',quantity:1}]}},
       {lines:{items:[{priceId,quantity:2}]}},
       {lines:{items:[{priceId,quantity:1},{priceId,quantity:1}]}},
-    ] as const
+    ]
     for(const patch of failures){
       const f=fixture()
       if('session' in patch){

@@ -25,13 +25,16 @@ type Fixture = {
   membershipError?: boolean
 }
 
-function setup({
-  authenticated = true,
-  anonymous = false,
-  authError = false,
-  rows = [a],
-  membershipError = false,
-}: Fixture = {}) {
+function setup(input: Fixture = {}) {
+  const {
+    authenticated = true,
+    anonymous = false,
+    authError = false,
+    membershipError = false,
+  } = input
+  // Supplying rows: undefined intentionally simulates a broken DB response.
+  const rows = Object.prototype.hasOwnProperty.call(input, 'rows')
+    ? input.rows : [a]
   const eq = vi.fn(async (key: string, value: string) => {
     if (key !== 'user_id' || value !== userId) {
       throw new Error('MR5I4L_UNSCOPED_USER_MEMBERSHIP_QUERY')

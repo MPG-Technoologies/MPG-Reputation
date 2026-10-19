@@ -1336,6 +1336,73 @@ export interface Database {
           }
         ]
       }
+      billing_synthetic_subscription_exception_reviews: {
+        Row: {
+          id: string
+          organization_id: string
+          subscription_record_id: string
+          webhook_event_record_id: string
+          provider: 'stripe'
+          environment: 'TEST'
+          review_reason: 'HISTORY_INVALID_OR_AMBIGUOUS' | 'EVENT_FINGERPRINT_CONFLICT' | 'OLDER_OR_EQUAL_TIME' | 'INITIAL_SUBSCRIPTION_REQUIRES_REVIEW' | 'UNSUPPORTED_TRANSITION' | 'PAID_PERIOD_NOT_ADVANCED' | 'PAID_PERIOD_INVALID' | 'FAILED_PAYMENT_PERIOD_MISMATCH' | 'REPEATED_PAYMENT_FAILURE' | 'PAYMENT_RECOVERY_NEEDS_PROVIDER_REVIEW' | 'DISPUTE_OR_REFUND_HOLD' | 'CANCELLATION_HOLD' | 'TERMINAL_SUBSCRIPTION_HOLD' | 'END_BEFORE_PAID_PERIOD' | 'REFUND_OR_DISPUTE_REQUIRES_REVIEW'
+          review_state: 'OPEN'
+          source_kind: 'SYNTHETIC'
+          verification_status: 'UNVERIFIED'
+          access_authorized: false
+          opened_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          subscription_record_id: string
+          webhook_event_record_id: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          review_reason: 'HISTORY_INVALID_OR_AMBIGUOUS' | 'EVENT_FINGERPRINT_CONFLICT' | 'OLDER_OR_EQUAL_TIME' | 'INITIAL_SUBSCRIPTION_REQUIRES_REVIEW' | 'UNSUPPORTED_TRANSITION' | 'PAID_PERIOD_NOT_ADVANCED' | 'PAID_PERIOD_INVALID' | 'FAILED_PAYMENT_PERIOD_MISMATCH' | 'REPEATED_PAYMENT_FAILURE' | 'PAYMENT_RECOVERY_NEEDS_PROVIDER_REVIEW' | 'DISPUTE_OR_REFUND_HOLD' | 'CANCELLATION_HOLD' | 'TERMINAL_SUBSCRIPTION_HOLD' | 'END_BEFORE_PAID_PERIOD' | 'REFUND_OR_DISPUTE_REQUIRES_REVIEW'
+          review_state?: 'OPEN'
+          source_kind?: 'SYNTHETIC'
+          verification_status?: 'UNVERIFIED'
+          access_authorized?: false
+          opened_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          subscription_record_id?: string
+          webhook_event_record_id?: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          review_reason?: 'HISTORY_INVALID_OR_AMBIGUOUS' | 'EVENT_FINGERPRINT_CONFLICT' | 'OLDER_OR_EQUAL_TIME' | 'INITIAL_SUBSCRIPTION_REQUIRES_REVIEW' | 'UNSUPPORTED_TRANSITION' | 'PAID_PERIOD_NOT_ADVANCED' | 'PAID_PERIOD_INVALID' | 'FAILED_PAYMENT_PERIOD_MISMATCH' | 'REPEATED_PAYMENT_FAILURE' | 'PAYMENT_RECOVERY_NEEDS_PROVIDER_REVIEW' | 'DISPUTE_OR_REFUND_HOLD' | 'CANCELLATION_HOLD' | 'TERMINAL_SUBSCRIPTION_HOLD' | 'END_BEFORE_PAID_PERIOD' | 'REFUND_OR_DISPUTE_REQUIRES_REVIEW'
+          review_state?: 'OPEN'
+          source_kind?: 'SYNTHETIC'
+          verification_status?: 'UNVERIFIED'
+          access_authorized?: false
+          opened_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_synthetic_subscription_exception_reviews_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_synthetic_exception_subscription_tenant_fk"
+            columns: ["subscription_record_id", "organization_id", "provider", "environment"]
+            isOneToOne: false
+            referencedRelation: "organization_subscriptions"
+            referencedColumns: ["id", "organization_id", "provider", "environment"]
+          },
+          {
+            foreignKeyName: "billing_synthetic_subscription_exception_reviews_webhook_event_record_id_fkey"
+            columns: ["webhook_event_record_id"]
+            isOneToOne: false
+            referencedRelation: "billing_webhook_events"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       billing_paid_entitlement_proposals: {
         Row: {
           id: string

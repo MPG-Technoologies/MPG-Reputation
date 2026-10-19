@@ -48,6 +48,7 @@ export type StripeInvoiceOrganizationResolution =
   | { readonly outcome: 'UNSUPPORTED_EVENT' }
   | { readonly outcome: 'UNRESOLVED_CUSTOMER' }
   | { readonly outcome: 'UNRESOLVED_SUBSCRIPTION' }
+  | { readonly outcome: 'INACTIVE_ORGANIZATION' }
   | {
       readonly outcome: 'RESOLVED_IDENTITY_ONLY'
       readonly organizationId: string
@@ -127,6 +128,16 @@ export async function resolveStripeInvoiceOrganization(args: {
 
   if (subscriptionError) throw new Error('BILLING_INVOICE_SUBSCRIPTION_READ_FAILED')
   if (!subscription) return { outcome: 'UNRESOLVED_SUBSCRIPTION' }
+
+  const { data: organization, error: organizationError } = await supabase
+    .from('organizations')
+    .select('status')
+    .eq('id', account.organization_id)
+    .maybeSingle()
+  if (organizationError) throw new Error('BILLING_INVOICE_ORGANIZATION_READ_FAILED')
+  if (!organization || organization.status !== 'ACTIVE') {
+    return { outcome: 'INACTIVE_ORGANIZATION' }
+  }
   return {
     outcome: 'RESOLVED_IDENTITY_ONLY',
     organizationId: account.organization_id,

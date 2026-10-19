@@ -86,6 +86,9 @@ jobs:
             test/domain/provider-evidence-port.test.ts \
             test/domain/subscription-lifecycle-proposals.test.ts \
             test/domain/synthetic-exception-reconciliation.test.ts \
+            test/domain/stripe-subscription-candidate.test.ts \
+            test/domain/stripe-recovery-preflight.test.ts \
+            test/domain/stripe-recovery-operator.test.ts \
             test/domain/stripe-test-checkout-preflight.test.ts \
             test/domain/stripe-test-checkout-start.test.ts \
             test/domain/billing-ui-state.test.ts \

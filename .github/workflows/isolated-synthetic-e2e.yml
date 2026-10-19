@@ -89,6 +89,10 @@ jobs:
         run: |
           pnpm exec vitest run \
             test/integration/true-e2e.test.ts \
+            test/integration/stripe-subscription-projection-atomic.test.ts \
+            test/integration/stripe-webhook-processing-leases.test.ts \
+            test/integration/stripe-fenced-reconciliation.test.ts \
+            test/integration/stripe-reconciliation-worker.test.ts \
             test/integration/stripe-test-checkout-preflight.test.ts \
             test/integration/stripe-test-checkout-reservations.test.ts \
             test/integration/stripe-test-customer-provisioning.test.ts \
@@ -107,6 +111,13 @@ jobs:
             test/integration/billing-synthetic-exception-review.test.ts \
             test/integration/support-billing-recovery.test.ts \
             test/integration/support-subscription-exceptions.test.ts
+
+      # Queue-wide synthetic tests run separately, not against other test fixtures.
+      - name: Verify TEST-only retry scheduling and queue dispatch
+        run: pnpm exec vitest run test/integration/stripe-test-recovery-dispatcher.test.ts
+
+      - name: Verify sealed recovery operator against disposable Supabase
+        run: pnpm exec vitest run test/integration/stripe-recovery-operator.test.ts
 
       - name: Stop and erase disposable local Supabase containers
         if: always()

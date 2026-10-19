@@ -181,6 +181,61 @@ describe('MR-5C3C1 TEST recovery queue and controlled batch (disposable database
       .in('id', [ready.id, cool.id, busy.id, exhausted.id, aged.id]))
   })
 
+  it('keeps every invoice.* event outside subscription retry inventory and direct leases', async () => {
+    const before = await inspection()
+    const events: { id: string; providerId: string; type: string }[] = []
+    for (const type of ['invoice.paid', 'invoice.payment_failed', 'invoice.upcoming']) {
+      const providerId = prefix + randomUUID().replaceAll('-', '')
+      const result = checked(await admin.from('billing_webhook_events').insert({
+        provider: 'stripe', environment: 'TEST', provider_event_id: providerId,
+        event_type: type, processing_status: 'RECEIVED',
+        provider_invoice_id: type === 'invoice.upcoming' ? null :
+          'in_Mr5i4' + randomUUID().replaceAll('-', ''),
+        payload_hash: 'f'.repeat(64),
+      }).select('id').single())
+      if (!result) throw new Error('MR5I4_INVOICE_FIXTURE_FAILED')
+      events.push({ id: result.id, providerId, type })
+    }
+    const after = await inspection()
+    expect(after.summary).toEqual(before.summary)
+    for (const event of events) {
+      expect(after.event_ids).not.toContain(event.id)
+      expect(await lease(event.id)).toEqual({ outcome: 'NO_WORK' })
+      expect(await complete(event.id, randomUUID(), 'IGNORED'))
+        .toEqual({ outcome: 'NOT_LEASE_HOLDER' })
+      const state = checked(await admin.from('billing_webhook_events')
+        .select('processing_status,processing_attempts,processing_attempt_count,processed_at')
+        .eq('id', event.id).single())
+      expect(state).toMatchObject({
+        processing_status: 'RECEIVED', processing_attempts: 0,
+        processing_attempt_count: 0, processed_at: null,
+      })
+    }
+
+    // The dedicated MR-5E invoice worker retains the right to lease ONLY
+    // recognized invoice types. This tests queue partition, not settlement.
+    for (const event of events) {
+      const claimed = object(checked(await admin.rpc(
+        'claim_stripe_test_invoice_processing', { p_provider_event_id: event.providerId }
+      )))
+      if (event.type === 'invoice.upcoming') {
+        expect(claimed).toEqual({ outcome: 'NOT_ELIGIBLE' })
+      } else {
+        expect(claimed).toMatchObject({ outcome: 'CLAIMED', attempts: 1 })
+        expect(await lease(event.id)).toEqual({ outcome: 'NO_WORK' })
+        expect(await complete(event.id, randomUUID(), 'IGNORED'))
+          .toEqual({ outcome: 'NOT_LEASE_HOLDER' })
+        const state = checked(await admin.from('billing_webhook_events')
+          .select('processing_status,processing_attempts,processing_attempt_count')
+          .eq('id', event.id).single())
+        expect(state).toMatchObject({
+          processing_status: 'PROCESSING', processing_attempts: 0,
+          processing_attempt_count: 1,
+        })
+      }
+    }
+  })
+
   it('is disabled by default and cannot query or call a provider without an explicit flag', async () => {
     delete process.env.ENABLE_STRIPE_TEST_RECOVERY_DISPATCHER
     const fake = retrievers('evt_Missing', 'customer.created')

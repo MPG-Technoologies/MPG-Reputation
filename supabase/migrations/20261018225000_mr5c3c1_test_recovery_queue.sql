@@ -7,8 +7,12 @@ ALTER TABLE public.billing_webhook_events
 CREATE INDEX billing_webhook_test_retry_due_idx
   ON public.billing_webhook_events(next_processing_attempt_at, received_at)
   WHERE provider = 'stripe' AND environment = 'TEST'
+    AND event_type NOT LIKE 'invoice.%'
     AND processing_status IN ('RECEIVED','FAILED','PROCESSING');
 
+-- Invoice events have a separate MR-5E fenced evidence path.
+-- Reserve ALL invoice.* events for that path at recovery inventory, claim
+-- and completion boundaries; never treat payment events as ignorable noise.
 -- All attempts, including direct privileged calls, must respect cooldown,
 -- provider Event retrieval age, and the prior five-attempt maximum.
 CREATE OR REPLACE FUNCTION public.lease_stripe_webhook_processing(p_event_id UUID)
@@ -34,6 +38,7 @@ BEGIN
      WHERE events.id = p_event_id
        AND events.provider = 'stripe'
        AND events.environment = 'TEST'
+       AND events.event_type NOT LIKE 'invoice.%'
        AND events.processing_attempts < 5
        -- Provider Event recovery is only guaranteed for 30 days. Stop
        -- automatic attempts before that boundary; manual inventory required.
@@ -126,6 +131,7 @@ BEGIN
      WHERE events.id = p_event_id
        AND events.provider = 'stripe'
        AND events.environment = 'TEST'
+       AND events.event_type NOT LIKE 'invoice.%'
        AND events.processing_status = 'PROCESSING'
        AND events.processing_lease_token = p_lease_token
        AND events.processing_lease_expires_at > pg_catalog.now()
@@ -164,6 +170,7 @@ BEGIN
             FROM public.billing_webhook_events AS events
            WHERE events.provider = 'stripe'
              AND events.environment = 'TEST'
+             AND events.event_type NOT LIKE 'invoice.%'
              AND events.processing_attempts < 5
       AND COALESCE(events.provider_created_at, events.received_at) >
           v_now - INTERVAL '29 days'
@@ -219,7 +226,8 @@ BEGIN
       INTO v_summary
       FROM public.billing_webhook_events AS events
      WHERE events.provider = 'stripe'
-       AND events.environment = 'TEST';
+       AND events.environment = 'TEST'
+       AND events.event_type NOT LIKE 'invoice.%';
 
     RETURN pg_catalog.jsonb_build_object(
       'outcome','READY',

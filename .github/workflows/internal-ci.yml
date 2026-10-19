@@ -86,6 +86,7 @@ jobs:
             test/domain/provider-evidence-port.test.ts \
             test/domain/synthetic-invoice-projection-correlation.test.ts \
             test/domain/synthetic-invoice-finality-plan.test.ts \
+            test/domain/mr5i4e-invoice-finality-nonactivation.test.ts \
             test/domain/subscription-lifecycle-proposals.test.ts \
             test/domain/synthetic-exception-reconciliation.test.ts \
             test/domain/stripe-subscription-candidate.test.ts \

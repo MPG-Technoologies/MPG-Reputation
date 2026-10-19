@@ -47,7 +47,7 @@ describe('MR-5I4H client and operator billing surface nonactivation', () => {
     expect(billing).toContain("process.env.NODE_ENV !== 'production'")
     expect(billing).toContain("process.env.ENABLE_MR5D_BILLING_UI_PREVIEW === 'true'")
     expect(billing).toContain('isLocalTestBillingActionEndpointEnabled()')
-    expect(preview).toContain('Preview only')
+    expect(billing).toContain('Preview only')
     expect(preview).toContain('not an available offer')
     expect(billing).toContain('Payments, checkout, and subscription changes are not enabled')
   })

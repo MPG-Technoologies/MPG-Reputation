@@ -1,6 +1,6 @@
 # MR-5I4I — Isolated Billing Multi-Organization Safety and Client/Admin Acceptance Checkpoint
 
-**State: IN PROGRESS — required CI/diff pending; NOT OWNER ACCEPTED.**  
+**State: ENGINEERING COMPLETE / READY FOR OWNER REVIEW — NOT OWNER ACCEPTED.**  
 **Scope: small billing-context safety improvement on the unmerged combined synthetic candidate.**
 
 ## Remote-first evidence (2026-10-20)
@@ -38,6 +38,15 @@ The smallest safe mitigation is **fail closed on ambiguous multi-org billing con
 | Full multi-org selector | **NOT IMPLEMENTED** — do not change app-wide context without architecture/security approval | Explicit remaining gap |
 | Full desktop/mobile authenticated browser walk-through | **NOT RUN** — needs isolated running app, synthetic test users and permissible UI harness | Separate acceptance step |
 | Authenticated provider TEST/real payment | **NOT RUN** — no provider account/API and commercial/owner gates | Deferred |
+
+## Verified CI and scoped final review
+
+- [Internal CI #39324446695](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39324446695): **PASS** ESLint, Next.js route typegen, TypeScript, **733/733 application tests across 53 files** (including 15 new MR-5I4I context/page tests), and synthetic Next.js production build.
+- [Isolated Synthetic E2E #39324446755, successful rerun of final code SHA](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39324446755): **PASS** **206/206** scoped PostgreSQL tests (27 files), **7/7** retry/queue, **2/2** sealed operator, **4/4** signed local operator = **219/219 DB-backed tests**, with disposable database stop/erasure.
+- Initial application CI detected one *test-only* mismatch in the single-owner mock render assertion (`Checkout not available yet` versus actual `Plan selection is not available yet`). Corrected the assertion without changing product logic. Both final-code CI checks passed.
+- The disposable database suite was initially cancelled by the workflow concurrency policy when the test-only correction triggered a new PR run. The subsequently rerun **final commit** database job passed.
+- Diff against stacked parent MR-5I4H PR #62: exactly **seven intended files**: one pure membership resolver, one guarded billing route, two new test files, one updated prior source guard, one CI allowlist and this handoff. No migrations, RLS/auth role relaxation, service secrets, provider SDK/account, real payments, entitlements, hosted database changes, production deployment or merge to main.
+- GitHub's final documentation-only checkpoint may trigger a fresh CI run; code is unchanged. Engineering complete is **not** owner acceptance or approval for billing/pilot.
 
 ## Verification and remaining risks
 

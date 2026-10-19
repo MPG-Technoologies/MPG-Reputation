@@ -89,7 +89,7 @@ describe.skipIf(!hasDisposableDb)('MR-5E3C1 disposable synthetic proposal admiss
         eventId:event.provider_event_id,fingerprint:event.payload_hash,
         kind:'INVOICE_SETTLED',organizationId:orgId,
         subscriptionId:subId,environment:'TEST',
-        occurredAt:event.received_at,periodEnd:end,
+        occurredAt:new Date(event.received_at).toISOString(),periodEnd:end,
       },
       proof: {
         // These are deliberately synthetic markers, NEVER provider proof.
@@ -99,7 +99,7 @@ describe.skipIf(!hasDisposableDb)('MR-5E3C1 disposable synthetic proposal admiss
       },
     })
     if (proposal.outcome !== 'PROPOSAL_ONLY') {
-      throw new Error('SYNTHETIC_POLICY_PROPOSAL_MISSING: '+proposal.outcome)
+      throw new Error('SYNTHETIC_POLICY_PROPOSAL_MISSING: '+JSON.stringify(proposal))
     }
     return proposal
   }

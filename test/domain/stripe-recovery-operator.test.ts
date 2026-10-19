@@ -120,6 +120,21 @@ describe('MR-5C3C2A sealed TEST recovery operator', () => {
     expect(mockDispatch).not.toHaveBeenCalled()
   })
 
+  it('rejects production Node mode even if the database happens to be local', async () => {
+    enableLocalTest()
+    const oldNodeMode = process.env.NODE_ENV
+    try {
+      process.env.NODE_ENV = 'production'
+      expect(await run()).toEqual({ outcome: 'DISABLED' })
+      expect(mockDispatch).not.toHaveBeenCalled()
+      expect(retrieveEvent).not.toHaveBeenCalled()
+      expect(retrieveSubscription).not.toHaveBeenCalled()
+    } finally {
+      if (oldNodeMode === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = oldNodeMode
+    }
+  })
+
   it('allows a bounded explicitly authorized synthetic-only call', async () => {
     enableLocalTest()
     mockDispatch.mockResolvedValue(report())

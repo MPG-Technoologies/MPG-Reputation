@@ -145,6 +145,7 @@ export async function inspectProviderInvoiceEvidence(args: {
   }
   if (response.outcome === 'UNAVAILABLE') return block('PROVIDER_UNAVAILABLE')
   if (response.outcome === 'NOT_FOUND') return block('PROVIDER_NOT_FOUND')
+  if (response.outcome !== 'FOUND') return block('INVALID_PROVIDER_RESPONSE')
 
   const invoice = response.invoice
   if (!invoice || !Number.isSafeInteger(invoice.amountDueMinor) ||

@@ -1,6 +1,6 @@
 # MR-5E2B — Trusted invoice evidence assembler: implementation boundary
 
-Status: INVESTIGATING / DESIGN ONLY — not engineering complete.
+Status: IN PROGRESS — read-only identity resolver implemented; CI pending.
 Base: MR-5E2 synthetic event correlation branch at `52119e95e21a8b44bea203aba97a2d908b00ebd4`.
 Company OS main: `03a48a34481f1952a31cd5c4fb980bc381432d8d`.
 Product main: `6b7ac073432921789314315ec5fc624a81d8f699`.
@@ -26,7 +26,7 @@ Company OS continues to record MR-5 PAUSED / INCOMPLETE; bounded non-live engine
 
 ## Explicit blockers and acceptance gates
 
-No code or migration should be introduced until the exact MR-5C trusted ingress/inbox schema and the right side of its provider resolver are verified from the current product branch. A simple `signatureVerified: true` DTO is **never** adequate authority.
+Inspected actual MR-5C `stripe-webhook-store.ts`, `stripe-subscription-truth.ts`, `api/webhooks/stripe/route.ts`, billing persistence and environment-isolation migrations. The intake stores the event ID, event type, hash, environment and processing status but no invoice ID or provider subscription ID; the HTTP handler acknowledges durable intake without processing invoices. Existing provider subscription resolution resolves Customer through `organization_billing_accounts`. Added `src/lib/billing/stripe-invoice-truth.ts` to resolve a **signed-event invoice identity against independently retrieved provider Invoice identity** and exact billing account + subscription mapping, returning only `RESOLVED_IDENTITY_ONLY` or unresolved results. This read-only helper accepts an injected provider reader but is **not connected to the webhook HTTP handler** and never derives settlement or entitlement. Added `test/integration/stripe-invoice-truth.test.ts` and an isolated DB CI allowlist entry. No schema or provider adapter was introduced. A simple `signatureVerified: true` DTO is **never** adequate authority.
 
 Do not conflate:
 - Stripe Checkout success return with payment settlement.
@@ -38,4 +38,4 @@ MR-5E3 must preserve 30 Free Review Requests and all existing suppression/unsubs
 
 ## Next
 
-Inspect concrete webhook, subscription and billing persistence code; map field-level evidence provenance; only then implement minimal read-only assembler and targeted tests. Reconcile MR-5E2 CI before marking it engineering complete.
+Verify MR-5E2B isolated database CI and full diff. The next slice needs a minimal private invoice/subscription evidence ledger and authenticated provider Invoice retrieval wired to an actual safe event processor; owner-reviewed transaction/idempotency and source evidence rules must be implemented before any `PROCESSED` event can confer authority. The current read-only resolver is only a prerequisite, never an assembler or paid entitlement.

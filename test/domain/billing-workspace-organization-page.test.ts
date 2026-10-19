@@ -141,7 +141,7 @@ describe('MR-5I4I actual BillingSettingsPage synthetic context and auth behavior
     expect(html).toContain('Billing &amp; subscription')
     expect(html).toContain('Synthetic Plumbing')
     expect(html).toContain('30 Free Review Requests')
-    expect(html).toContain('Checkout not available yet')
+    expect(html).toContain('Plan selection is not available yet')
     expect(html).not.toContain('TEST plan preview')
     expect(db.from.mock.calls.map(call => call[0])).toEqual([
       'organization_users', 'organization_billing_accounts',

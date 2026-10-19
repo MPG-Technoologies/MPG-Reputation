@@ -189,7 +189,8 @@ describe('MR-5C3C1 TEST recovery queue and controlled batch (disposable database
       const result = checked(await admin.from('billing_webhook_events').insert({
         provider: 'stripe', environment: 'TEST', provider_event_id: providerId,
         event_type: type, processing_status: 'RECEIVED',
-        provider_invoice_id: 'in_Mr5i4' + randomUUID().replaceAll('-', ''),
+        provider_invoice_id: type === 'invoice.upcoming' ? null :
+          'in_Mr5i4' + randomUUID().replaceAll('-', ''),
         payload_hash: 'f'.repeat(64),
       }).select('id').single())
       if (!result) throw new Error('MR5I4_INVOICE_FIXTURE_FAILED')

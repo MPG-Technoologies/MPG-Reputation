@@ -30,7 +30,7 @@ const PLANS = ['monthly', 'annual'] as const
 export type PrivateInvoiceReadFinding =
   | { readonly outcome: 'DISABLED' | 'DENIED' | 'NOT_CONFIGURED' | 'SYNTHETIC_MATCH_ONLY' }
   | { readonly outcome: 'BLOCKED'; readonly reason:
-      'INVALID_INPUT' | 'SOURCE_NOT_READY' | 'TENANT_NOT_ACTIVE' |
+      'INVALID_INPUT' | 'INVALID_EVENT_ID' | 'INVALID_ORGANIZATION_ID' | 'SOURCE_NOT_READY' | 'TENANT_NOT_ACTIVE' |
       'AMBIGUOUS_SUBSCRIPTION' | 'PRICE_NOT_MATCHED' |
       'CONFIGURATION_INVALID' | 'CHANGED_DURING_READ' |
       'SOURCE_READ_FAILED' | 'CORRELATION_REJECTED' }
@@ -141,9 +141,11 @@ export async function inspectPrivateSyntheticInvoiceEvidence(args: {
   if (!enabled()) return { outcome: 'DISABLED' }
   const authorization = sealed(args.operatorToken)
   if (authorization !== 'OK') return { outcome: authorization }
-  if (typeof args.providerEventId !== 'string' || !EVENT.test(args.providerEventId) ||
-      typeof args.organizationId !== 'string' || !UUID.test(args.organizationId)) {
-    return blocked('INVALID_INPUT')
+  if (typeof args.providerEventId !== 'string' || !EVENT.test(args.providerEventId)) {
+    return blocked('INVALID_EVENT_ID')
+  }
+  if (typeof args.organizationId !== 'string' || !UUID.test(args.organizationId)) {
+    return blocked('INVALID_ORGANIZATION_ID')
   }
 
   let before: Snapshot

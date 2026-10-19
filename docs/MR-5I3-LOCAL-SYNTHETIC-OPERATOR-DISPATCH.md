@@ -1,6 +1,6 @@
 # MR-5I3 — Local synthetic signed webhook → sealed operator dispatch
 
-**State: IN PROGRESS pending combined CI.**
+**State: ENGINEERING COMPLETE / READY FOR OWNER REVIEW — not OWNER ACCEPTED.**
 
 ## Verified remote
 - Company OS `techwithmpg/mpg-company-os` main: `03a48a34481f1952a31cd5c4fb980bc381432d8d`; MR-5 remains incomplete, MR-7 trust/security is owner-approved under governance. Owner later approved bounded non-live payment preparation.
@@ -36,3 +36,10 @@ MR-5C already implemented `dispatchStripeTestRecoveryBatch`, a queue-inventory-d
 ## Verification
 
 Require Internal CI lint/typecheck/682+ tests/build, disposable combined 184+ PostgreSQL tests plus the new operator path, clean teardown and scoped diff. Next engineering should tackle **provider-independent processing-to-evidence orchestration** with explicit security and receipt-versus-settlement boundaries; credential-backed TEST acceptance remains deferred.
+
+## Verified engineering checkpoint
+- Initial CI exposed an invalid direct assignment to the read-only `process.env.NODE_ENV` type in the test fixture; replaced with Vitest `vi.stubEnv` and restored automatically after the test. No production-control relaxation.
+- [Internal CI #39236325820](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39236325820): PASS — lint, Next route generation, TypeScript, **682/682 application tests in 47 files**, synthetic build.
+- [Isolated Synthetic E2E #39236326037](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39236326037): PASS — **176/176 scoped disposable PostgreSQL tests in 24 files**, **6/6 retry dispatcher**, **2/2 prior sealed operator**, **4/4 new signed operator-dispatch**, total **188/188**; local DB teardown PASS. Superseded earlier DB workflow was canceled in favor of corrected commit.
+- Diff review: only five intended files — existing operator production guard, operator domain test, new isolated signed dispatcher integration test, workflow test stage, and this handoff. No new API, migrations, RLS, provider calls, hosted Supabase or paid entitlement modification.
+- Live billing, real Stripe API credentials, provider settlement verification, and production deployment remain disabled/unavailable. The webhook still does not trigger an automatic worker invocation; the sealed operator must be called explicitly.

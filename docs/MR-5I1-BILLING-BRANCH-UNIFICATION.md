@@ -1,6 +1,6 @@
 # MR-5I1 — Isolated integration of MR-5C and MR-5D/E billing branches
 
-**Status: IN PROGRESS — combined verification required.**
+**Status: ENGINEERING COMPLETE / READY FOR OWNER REVIEW — combined synthetic verification PASS.** Not OWNER ACCEPTED or merged to `main`.
 
 ## Remote source
 Company OS main `03a48a34481f1952a31cd5c4fb980bc381432d8d` governs MR-5 incomplete, MR-7 security active; later owner directives approve non-live engineering only. Product main `6b7ac073432921789314315ec5fc624a81d8f699` is unchanged. MR-5C source PR #25 `fd10ecde5d15283a3421de89e3d3dc2e4e2fec09`; MR-5D/E source PR #50 `483d939512cf8d4a6f1d72a2dcea685bf50cc7a6`; both unmerged. PR #51 established four textual conflicts.
@@ -16,3 +16,9 @@ Company OS main `03a48a34481f1952a31cd5c4fb980bc381432d8d` governs MR-5 incomple
 ## Gates and limitations
 Run lint, typecheck, synthetic build, combined full disposable PostgreSQL migration chain and all original MR-5C/MR-5D/E security/tenant/replay suites; investigate/fix any integration failures. This branch merge alone does **not** establish a complete operational payment system or connect the subscription worker to the HTTP webhook.
 No Stripe credentials or real provider proof; no live charges, hosted DB migrations, production changes, paid-entitlement writes, final price approval, or customer messaging. The 30 Free Review Requests trial is unchanged.
+
+## Final integration verification
+- [Internal CI #39229627258](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39229627258): SUCCESS — lint, route typegen, TypeScript, 681/681 application tests (47 files), synthetic build.
+- [Isolated Synthetic E2E #39229627294](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39229627294): SUCCESS — 171 combined PostgreSQL tests (23 files), 6 isolated retry-dispatcher tests, 2 isolated recovery-operator tests, successful disposal; **179/179 total**.
+- Two-parent merge at `255c98f0b82c047a7048926ef34c068f35aae251` has 32 changed files vs MR-5D/E first parent: 27 preserved source blobs plus 4 explicitly reconciled/verified code/workflow files and this handoff. Invoice claim migration includes the additional idempotent columns adjustment. No extra public endpoint, provider credentials, live billing, request quota/paid-entitlement grant, hosted infrastructure or main changes.
+- File-level integration and migration compatibility tested. Still **no complete synthetic signed event → worker invocation → canonical provider state → financial evidence → paid entitlement journey**. That requires separately scoped MR-5I2 and later provider TEST acceptance.

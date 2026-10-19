@@ -1336,6 +1336,76 @@ export interface Database {
           }
         ]
       }
+      billing_paid_entitlement_proposals: {
+        Row: {
+          id: string
+          organization_id: string
+          subscription_record_id: string
+          webhook_event_record_id: string
+          provider: 'stripe'
+          environment: 'TEST'
+          proposed_action: 'INITIAL_ACTIVATION' | 'RENEWAL' | 'PAYMENT_DUE' | 'SCHEDULE_CANCELLATION' | 'END_AT_PERIOD' | 'ESCALATE_FOR_REVIEW'
+          candidate_status: 'ACTIVE' | 'PAST_DUE' | 'CANCEL_AT_PERIOD_END' | 'ENDED' | 'REVIEW_REQUIRED'
+          candidate_period_end: string
+          source_kind: 'SYNTHETIC'
+          verification_status: 'UNVERIFIED'
+          access_authorized: false
+          recorded_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          subscription_record_id: string
+          webhook_event_record_id: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          proposed_action: 'INITIAL_ACTIVATION' | 'RENEWAL' | 'PAYMENT_DUE' | 'SCHEDULE_CANCELLATION' | 'END_AT_PERIOD' | 'ESCALATE_FOR_REVIEW'
+          candidate_status: 'ACTIVE' | 'PAST_DUE' | 'CANCEL_AT_PERIOD_END' | 'ENDED' | 'REVIEW_REQUIRED'
+          candidate_period_end: string
+          source_kind?: 'SYNTHETIC'
+          verification_status?: 'UNVERIFIED'
+          access_authorized?: false
+          recorded_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          subscription_record_id?: string
+          webhook_event_record_id?: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          proposed_action?: 'INITIAL_ACTIVATION' | 'RENEWAL' | 'PAYMENT_DUE' | 'SCHEDULE_CANCELLATION' | 'END_AT_PERIOD' | 'ESCALATE_FOR_REVIEW'
+          candidate_status?: 'ACTIVE' | 'PAST_DUE' | 'CANCEL_AT_PERIOD_END' | 'ENDED' | 'REVIEW_REQUIRED'
+          candidate_period_end?: string
+          source_kind?: 'SYNTHETIC'
+          verification_status?: 'UNVERIFIED'
+          access_authorized?: false
+          recorded_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_paid_entitlement_proposals_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_paid_entitlement_proposals_subscription_identity_fk"
+            columns: ["subscription_record_id", "organization_id", "provider", "environment"]
+            isOneToOne: false
+            referencedRelation: "organization_subscriptions"
+            referencedColumns: ["id", "organization_id", "provider", "environment"]
+          },
+          {
+            foreignKeyName: "billing_paid_entitlement_proposals_webhook_record_fk"
+            columns: ["webhook_event_record_id"]
+            isOneToOne: false
+            referencedRelation: "billing_webhook_events"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       billing_webhook_events: {
         Row: {
           id: string

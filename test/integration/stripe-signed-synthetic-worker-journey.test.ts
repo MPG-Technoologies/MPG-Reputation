@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+vi.mock('server-only', () => ({}))
+
 import { POST } from '../../src/app/api/webhooks/stripe/route'
 import { createAdminClient } from '../../src/lib/supabase/admin'
 import { createStripeClient } from '../../src/lib/billing/stripe'

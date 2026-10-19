@@ -88,13 +88,35 @@ export async function resolveStripeInvoiceOrganization(args: {
     throw new Error('BILLING_INVOICE_EVENT_ID_INVALID')
   }
 
+  return resolveStripeInvoiceReferenceOrganization({
+    supabase, invoiceId: eventObject.id, environment, retrieveInvoice,
+  })
+}
+
+/**
+ * Exact-ID read-only identity resolution shared by verified-event ingress and
+ * the private durable inbox preflight. The caller MUST authenticate provenance;
+ * invoiceId/environment alone are never authorization or payment evidence.
+ */
+export async function resolveStripeInvoiceReferenceOrganization(args: {
+  readonly supabase: SupabaseClient<Database>
+  readonly invoiceId: string
+  readonly environment: BillingEnvironment
+  readonly retrieveInvoice: StripeInvoiceRetriever
+}): Promise<StripeInvoiceOrganizationResolution> {
+  const { supabase, invoiceId, environment, retrieveInvoice } = args
+  assertStripeEventEnvironmentAllowed({ livemode: environment === 'LIVE' })
+  if (!INVOICE_ID.test(invoiceId)) {
+    throw new Error('BILLING_INVOICE_REFERENCE_INVALID')
+  }
+
   let invoice: StripeInvoiceIdentityTruth
   try {
-    invoice = await retrieveInvoice(eventObject.id)
+    invoice = await retrieveInvoice(invoiceId)
   } catch {
     throw new Error('BILLING_INVOICE_PROVIDER_UNAVAILABLE')
   }
-  if (invoice.id !== eventObject.id ||
+  if (invoice.id !== invoiceId ||
       invoice.livemode !== (environment === 'LIVE')) {
     throw new Error('BILLING_INVOICE_PROVIDER_IDENTITY_MISMATCH')
   }

@@ -1403,6 +1403,91 @@ export interface Database {
           }
         ]
       }
+      billing_synthetic_checkout_quote_snapshots: {
+        Row: {
+          id: string
+          organization_id: string
+          billing_account_id: string
+          checkout_reservation_id: string
+          provider: 'stripe'
+          environment: 'TEST'
+          plan_id: 'monthly' | 'annual'
+          provider_price_id: string
+          candidate_currency: 'PHP'
+          candidate_amount_minor: number
+          candidate_interval: 'month' | 'year'
+          interval_count: 1
+          source_kind: 'SYNTHETIC'
+          approval_status: 'PROPOSED'
+          verification_status: 'UNVERIFIED'
+          payment_authorized: false
+          access_authorized: false
+          captured_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          billing_account_id: string
+          checkout_reservation_id: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          plan_id: 'monthly' | 'annual'
+          provider_price_id: string
+          candidate_currency?: 'PHP'
+          candidate_amount_minor: number
+          candidate_interval: 'month' | 'year'
+          interval_count?: 1
+          source_kind?: 'SYNTHETIC'
+          approval_status?: 'PROPOSED'
+          verification_status?: 'UNVERIFIED'
+          payment_authorized?: false
+          access_authorized?: false
+          captured_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          billing_account_id?: string
+          checkout_reservation_id?: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          plan_id?: 'monthly' | 'annual'
+          provider_price_id?: string
+          candidate_currency?: 'PHP'
+          candidate_amount_minor?: number
+          candidate_interval?: 'month' | 'year'
+          interval_count?: 1
+          source_kind?: 'SYNTHETIC'
+          approval_status?: 'PROPOSED'
+          verification_status?: 'UNVERIFIED'
+          payment_authorized?: false
+          access_authorized?: false
+          captured_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_synthetic_checkout_quote_snapshots_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mr5i4g_quote_account_tenant_fk"
+            columns: ["billing_account_id", "organization_id", "provider", "environment"]
+            isOneToOne: false
+            referencedRelation: "organization_billing_accounts"
+            referencedColumns: ["id", "organization_id", "provider", "environment"]
+          },
+          {
+            foreignKeyName: "mr5i4g_quote_reservation_fk"
+            columns: ["checkout_reservation_id"]
+            isOneToOne: false
+            referencedRelation: "stripe_test_checkout_reservations"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       billing_synthetic_invoice_evidence_drafts: {
         Row: {
           id: string

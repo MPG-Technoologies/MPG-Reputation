@@ -2,9 +2,10 @@
 -- Does not query Stripe, settle invoices, accept evidence, grant entitlements,
 -- replay FAILED events, or permit any billing status to become PROCESSED.
 -- Existing webhook inbox remains private with its original RLS and privileges.
+-- MR-5C already creates these shared lease columns; preserve their leases.
 ALTER TABLE public.billing_webhook_events
-  ADD COLUMN processing_lease_token UUID,
-  ADD COLUMN processing_lease_expires_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS processing_lease_token UUID,
+  ADD COLUMN IF NOT EXISTS processing_lease_expires_at TIMESTAMPTZ,
   ADD COLUMN processing_attempt_count INTEGER NOT NULL DEFAULT 0;
 
 ALTER TABLE public.billing_webhook_events

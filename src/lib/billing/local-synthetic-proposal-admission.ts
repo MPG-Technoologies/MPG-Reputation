@@ -38,7 +38,7 @@ const ACTION_STATUSES: Record<Action, Status> = {
 const ACTIONS = Object.keys(EVENT_TYPES) as Action[]
 
 export type SyntheticProposalAdmission =
-  | { readonly outcome: 'DISABLED' | 'INVALID_INPUT' | 'SOURCE_MISMATCH' | 'REPLAY_CONFLICT' }
+  | { readonly outcome: 'DISABLED' | 'INVALID_INPUT' | 'SOURCE_MISMATCH' | 'REPLAY_CONFLICT' | 'STALE_OR_AMBIGUOUS' | 'REVIEW_HOLD' }
   | { readonly outcome: 'RECORDED_PROPOSAL_ONLY' | 'ALREADY_RECORDED'; readonly recordId: string }
 
 function enabled(): boolean {
@@ -122,7 +122,7 @@ export async function recordLocalSyntheticLifecycleProposal(args: {
 
   const { data: event, error: eventError } = await db
     .from('billing_webhook_events')
-    .select('id, organization_id, provider, environment, provider_event_id, event_type, provider_invoice_id, processing_status, processed_at, received_at, payload_hash')
+    .select('id, organization_id, provider, environment, provider_event_id, event_type, provider_invoice_id, processing_status, processed_at, provider_created_at, payload_hash')
     .eq('id', webhookEventRecordId)
     .eq('provider', 'stripe')
     .eq('environment', 'TEST')
@@ -131,7 +131,8 @@ export async function recordLocalSyntheticLifecycleProposal(args: {
   if (!event || event.organization_id !== organizationId ||
       event.provider_event_id !== candidate.lastEventId ||
       event.payload_hash !== candidate.lastEventFingerprint ||
-      Date.parse(event.received_at) !== validTime(candidate.lastEventAt) ||
+      !event.provider_created_at ||
+      Date.parse(event.provider_created_at) !== validTime(candidate.lastEventAt) ||
       event.processing_status !== 'PROCESSED' ||
       !event.processed_at ||
       !EVENT_TYPES[action].includes(event.event_type) ||
@@ -177,6 +178,13 @@ export async function recordLocalSyntheticLifecycleProposal(args: {
     .select('id')
     .single()
 
+  if (insertError?.message?.includes('BILLING_PROPOSAL_STALE_OR_AMBIGUOUS_EVENT') ||
+      insertError?.message?.includes('BILLING_PROPOSAL_SOURCE_ORDER_UNKNOWN')) {
+    return { outcome: 'STALE_OR_AMBIGUOUS' }
+  }
+  if (insertError?.message?.includes('BILLING_PROPOSAL_REVIEW_HOLD')) {
+    return { outcome: 'REVIEW_HOLD' }
+  }
   if (insertError?.code === '23505') {
     // Unique event key resolves concurrent identical replays without UPSERT:
     // no second write, no mutation of immutable proposal or source event.

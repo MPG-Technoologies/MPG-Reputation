@@ -8,6 +8,7 @@ describe.skipIf(!hasDb)('MR-5E3C2 ordered synthetic proposal ledger', () => {
   const db = createAdminClient()
   const nonce = Date.now()
   const orgs: string[] = []
+  const accountIds = new Map<string,string>()
   const prefix = 'evt_mr5e3c2' + nonce
   let org = ''
   let sequence = 0
@@ -23,13 +24,18 @@ describe.skipIf(!hasDb)('MR-5E3C2 ordered synthetic proposal ledger', () => {
   }
   async function createSubscription(orgId: string) {
     const id=String(++sequence)
-    const {data:account,error:aerr}=await db.from('organization_billing_accounts')
-      .insert({organization_id:orgId,provider:'stripe',environment:'TEST',
-        provider_customer_id:'cus_mr5e3c2'+id+nonce})
-      .select('id').single()
-    if(aerr||!account)throw new Error('ORDER_ACCOUNT_SETUP: '+aerr?.message)
+    let accountId = accountIds.get(orgId)
+    if (!accountId) {
+      const {data:account,error:aerr}=await db.from('organization_billing_accounts')
+        .insert({organization_id:orgId,provider:'stripe',environment:'TEST',
+          provider_customer_id:'cus_mr5e3c2'+id+nonce})
+        .select('id').single()
+      if(aerr||!account)throw new Error('ORDER_ACCOUNT_SETUP: '+aerr?.message)
+      accountId=account.id
+      accountIds.set(orgId,accountId)
+    }
     const {data:sub,error:serr}=await db.from('organization_subscriptions')
-      .insert({organization_id:orgId,billing_account_id:account.id,
+      .insert({organization_id:orgId,billing_account_id:accountId,
         provider:'stripe',environment:'TEST',
         provider_subscription_id:'sub_mr5e3c2'+id+nonce,
         provider_status:'active',normalized_status:'ACTIVE'})

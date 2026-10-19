@@ -43,7 +43,9 @@ export function correlateInvoiceEvidence(args: {
   if (!Array.isArray(args.events) || args.events.length === 0 ||
       args.events.length > 100 || args.events.some(e =>
         !e || !/^evt_[A-Za-z0-9]+$/.test(e.providerEventId) ||
-        !e.signatureVerified ||
+        e.signatureVerified !== true ||
+        !['invoice.paid', 'invoice.payment_failed'].includes(e.eventType) ||
+        !['PROCESSED', 'RECEIVED', 'PROCESSING', 'FAILED', 'IGNORED'].includes(e.processingStatus) ||
         e.organizationId !== args.organizationId ||
         e.environment !== args.environment ||
         e.subscriptionId !== args.evidence!.subscriptionId ||

@@ -42,9 +42,9 @@ describe('MR-5I4J Usage & Trial organization-context safety', () => {
     }
   })
   it('does not accept a user-selected organization override from a row', () => {
-    expect(selectSingleUsageMembership([{
-      ...a, selectedOrganizationId: b.organizationId, userRole: 'OWNER',
-    }])).toEqual({outcome:'SELECTED',organizationId:a.organizationId,role:'OWNER'})
+    const forged = { ...a, selectedOrganizationId: b.organizationId, userRole: 'OWNER' }
+    expect(selectSingleUsageMembership([forged]))
+      .toEqual({outcome:'SELECTED',organizationId:a.organizationId,role:'OWNER'})
   })
   it('never authorizes a trial mutation or asserts entitlement from membership', () => {
     const output = selectSingleUsageMembership([a])

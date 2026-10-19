@@ -3,14 +3,12 @@
 -- The MR-4 organization_entitlements / consume_trial_entitlement policy remains
 -- the sole existing request allowance authority (30 Free Review Requests).
 --
--- Composite FK keys lock every proposal to its exact organization, provider,
--- environment and pre-existing subscription and webhook records.
+-- Composite FK locks each proposal to its exact tenant-scoped subscription.
+-- A narrowly scoped INSERT trigger validates the source event tenant/identity.
+-- The webhook's org link can later be NULLed by its existing ON DELETE SET NULL
+-- policy; do not add a composite webhook FK that would break org erasure.
 ALTER TABLE public.organization_subscriptions
     ADD CONSTRAINT organization_subscriptions_paid_proposal_identity_key
-    UNIQUE (id, organization_id, provider, environment);
-
-ALTER TABLE public.billing_webhook_events
-    ADD CONSTRAINT billing_webhook_events_paid_proposal_identity_key
     UNIQUE (id, organization_id, provider, environment);
 
 CREATE TABLE public.billing_paid_entitlement_proposals (
@@ -43,13 +41,65 @@ CREATE TABLE public.billing_paid_entitlement_proposals (
         FOREIGN KEY (subscription_record_id, organization_id, provider, environment)
         REFERENCES public.organization_subscriptions (id, organization_id, provider, environment)
         ON DELETE CASCADE,
-    CONSTRAINT billing_paid_entitlement_proposals_webhook_identity_fk
-        FOREIGN KEY (webhook_event_record_id, organization_id, provider, environment)
-        REFERENCES public.billing_webhook_events (id, organization_id, provider, environment)
+    CONSTRAINT billing_paid_entitlement_proposals_webhook_record_fk
+        FOREIGN KEY (webhook_event_record_id)
+        REFERENCES public.billing_webhook_events (id)
         ON DELETE CASCADE,
     CONSTRAINT billing_paid_entitlement_proposals_event_once_key
         UNIQUE (webhook_event_record_id)
 );
+
+-- SOURCE CHECK ON INSERT ONLY. No entitlement activation or payment assertion.
+-- The event may be synthetic PROCESSED test evidence; this is not independent
+-- proof of settlement and the ledger remains permanently non-authorizing.
+CREATE FUNCTION public.validate_billing_paid_entitlement_proposal_source()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER
+SET search_path = ''
+AS $
+DECLARE
+    v_event public.billing_webhook_events%ROWTYPE;
+BEGIN
+    SELECT * INTO v_event
+    FROM public.billing_webhook_events
+    WHERE id = NEW.webhook_event_record_id;
+
+    IF NOT FOUND OR
+       v_event.organization_id IS DISTINCT FROM NEW.organization_id OR
+       v_event.provider IS DISTINCT FROM NEW.provider OR
+       v_event.environment IS DISTINCT FROM NEW.environment OR
+       v_event.processing_status <> 'PROCESSED' OR
+       v_event.processed_at IS NULL OR
+       v_event.payload_hash !~ '^[a-f0-9]{64}
+    ON public.billing_paid_entitlement_proposals (organization_id, recorded_at DESC);
+
+-- No API user may see or manipulate this sensitive proposal store.
+-- Service role can append and inspect, but not edit or remove proposals.
+-- Referential cascade from a deleted organization remains managed by the DB.
+ALTER TABLE public.billing_paid_entitlement_proposals ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.billing_paid_entitlement_proposals
+    FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT, INSERT ON TABLE public.billing_paid_entitlement_proposals TO service_role;
+
+COMMENT ON TABLE public.billing_paid_entitlement_proposals IS
+    'MR-5E3B simulation-only records, not paid entitlement or billing settlement. Requires future owner-approved verification and activation design. Never used by request authorization.';
+COMMENT ON COLUMN public.billing_paid_entitlement_proposals.access_authorized IS
+    'Hard-false safety invariant. Proposed ACTIVE is not product access.';
+ THEN
+        RAISE EXCEPTION 'BILLING_PAID_PROPOSAL_SOURCE_NOT_VERIFIED';
+    END IF;
+    RETURN NEW;
+END;
+$;
+
+REVOKE ALL ON FUNCTION public.validate_billing_paid_entitlement_proposal_source()
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.validate_billing_paid_entitlement_proposal_source()
+  TO service_role;
+
+CREATE TRIGGER validate_billing_paid_entitlement_proposal_insert
+    BEFORE INSERT ON public.billing_paid_entitlement_proposals
+    FOR EACH ROW EXECUTE FUNCTION public.validate_billing_paid_entitlement_proposal_source();
 
 CREATE INDEX billing_paid_entitlement_proposals_org_recorded_idx
     ON public.billing_paid_entitlement_proposals (organization_id, recorded_at DESC);

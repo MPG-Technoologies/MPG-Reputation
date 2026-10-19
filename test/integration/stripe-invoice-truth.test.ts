@@ -93,7 +93,8 @@ describe.skipIf(!hasDisposableDb)('MR-5E2B invoice identity / tenant resolution'
 
   it('resolves the exact provider Invoice through Customer and Subscription linkage', async () => {
     const { result, retrieveInvoice } = await resolve()
-    expect(retrieveInvoice).toHaveBeenCalledExactlyOnceWith(ids.invoice)
+    expect(retrieveInvoice).toHaveBeenCalledTimes(1)
+    expect(retrieveInvoice).toHaveBeenCalledWith(ids.invoice)
     expect(result).toEqual({
       outcome: 'RESOLVED_IDENTITY_ONLY', environment: 'TEST',
       organizationId: orgA, billingAccountId: accountA,

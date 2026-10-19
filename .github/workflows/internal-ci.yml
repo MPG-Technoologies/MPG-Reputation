@@ -83,6 +83,7 @@ jobs:
             test/domain/billing.test.ts \
             test/domain/billing-catalog.test.ts \
             test/domain/billing-configuration.test.ts \
+            test/domain/provider-evidence-port.test.ts \
             test/domain/stripe-test-checkout-preflight.test.ts \
             test/domain/stripe-test-checkout-start.test.ts \
             test/domain/billing-ui-state.test.ts \

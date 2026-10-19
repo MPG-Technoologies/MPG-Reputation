@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   inspectProviderInvoiceEvidence,
-  type BillingEvidenceReadPort,
   type ExpectedInvoiceBinding,
   type ProviderInvoiceFacts,
   type ProviderInvoiceRead,

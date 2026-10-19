@@ -1343,6 +1343,7 @@ export interface Database {
           environment: 'TEST' | 'LIVE'
           provider_event_id: string
           event_type: string
+          provider_invoice_id: string | null
           processing_status: 'RECEIVED' | 'PROCESSING' | 'PROCESSED' | 'IGNORED' | 'FAILED'
           payload_hash: string
           organization_id: string | null
@@ -1358,6 +1359,7 @@ export interface Database {
           environment?: 'TEST' | 'LIVE'
           provider_event_id: string
           event_type: string
+          provider_invoice_id?: string | null
           processing_status?: 'RECEIVED' | 'PROCESSING' | 'PROCESSED' | 'IGNORED' | 'FAILED'
           payload_hash: string
           organization_id?: string | null
@@ -1373,6 +1375,7 @@ export interface Database {
           environment?: 'TEST' | 'LIVE'
           provider_event_id?: string
           event_type?: string
+          provider_invoice_id?: string | null
           processing_status?: 'RECEIVED' | 'PROCESSING' | 'PROCESSED' | 'IGNORED' | 'FAILED'
           payload_hash?: string
           organization_id?: string | null

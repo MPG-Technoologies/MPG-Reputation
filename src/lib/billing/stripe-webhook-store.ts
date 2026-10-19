@@ -11,7 +11,25 @@ import { assertStripeEventEnvironmentAllowed } from './stripe'
 type VerifiedStripeEventIdentity = Pick<
   Stripe.Event,
   'id' | 'type' | 'created' | 'livemode'
->
+> & { readonly data?: { readonly object?: unknown } }
+
+const INVOICE_EVENTS = new Set(['invoice.paid', 'invoice.payment_failed'])
+const INVOICE_ID = /^in_[A-Za-z0-9]+$/
+
+/** Extract only an invoice ID from cryptographically verified event data. */
+function verifiedInvoiceReference(event: VerifiedStripeEventIdentity): string | null {
+  if (!INVOICE_EVENTS.has(event.type)) return null
+  const object = event.data?.object
+  if (!object || typeof object !== 'object' || Array.isArray(object)) {
+    throw new Error('BILLING_WEBHOOK_INVOICE_REFERENCE_INVALID')
+  }
+  const candidate = object as { readonly id?: unknown; readonly object?: unknown }
+  if (candidate.object !== 'invoice' ||
+      typeof candidate.id !== 'string' || !INVOICE_ID.test(candidate.id)) {
+    throw new Error('BILLING_WEBHOOK_INVOICE_REFERENCE_INVALID')
+  }
+  return candidate.id
+}
 
 interface StripeWebhookClaimRecord {
   recordId: string
@@ -35,7 +53,9 @@ export function hashStripeWebhookPayload(
 }
 
 function classifyExistingClaim(
-  row: Database['public']['Tables']['billing_webhook_events']['Row'],
+  row: Pick<Database['public']['Tables']['billing_webhook_events']['Row'],
+    'id' | 'environment' | 'payload_hash' | 'processing_status' |
+    'organization_id' | 'processed_at'>,
   payloadHash: string
 ): StripeWebhookClaimResult {
   const base: StripeWebhookClaimRecord = {
@@ -89,6 +109,7 @@ export async function claimVerifiedStripeWebhookEvent(args: {
 
   const environment = assertStripeEventEnvironmentAllowed(event)
   const payloadHash = hashStripeWebhookPayload(rawBody)
+  const providerInvoiceId = verifiedInvoiceReference(event)
   const providerCreatedAt = new Date(event.created * 1000).toISOString()
 
   const { data: inserted, error: insertError } = await supabase
@@ -98,6 +119,7 @@ export async function claimVerifiedStripeWebhookEvent(args: {
       environment,
       provider_event_id: event.id,
       event_type: event.type,
+      provider_invoice_id: providerInvoiceId,
       processing_status: 'RECEIVED',
       payload_hash: payloadHash,
       provider_created_at: providerCreatedAt,

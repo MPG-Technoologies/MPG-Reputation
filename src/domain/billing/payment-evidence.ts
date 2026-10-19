@@ -25,7 +25,7 @@ export type PaymentEvidenceAssessment =
   | { readonly outcome: 'VERIFIED_PAYMENT_EVIDENCE' }
   | { readonly outcome: 'INSUFFICIENT_EVIDENCE'; readonly reason:
       'MISSING_OR_INVALID' | 'TENANT_MISMATCH' | 'ENVIRONMENT_MISMATCH' |
-      'SUBSCRIPTION_MISMATCH' | 'UNPAID_INVOICE' | 'PAYMENT_NOT_SUCCEEDED' |
+      'SUBSCRIPTION_MISMATCH' | 'CURRENCY_MISMATCH' | 'UNPAID_INVOICE' | 'PAYMENT_NOT_SUCCEEDED' |
       'SUBSCRIPTION_NOT_ACTIVE' | 'EXPIRED_PERIOD' | 'STALE_EVIDENCE' }
 
 /**
@@ -37,15 +37,17 @@ export type PaymentEvidenceAssessment =
 export function assessPaymentEvidence(
   value: PaymentEvidenceSnapshot | null,
   context: { organizationId: string; environment: 'TEST' | 'LIVE'; now: string;
-    maxEvidenceAgeMs: number }
+    maxEvidenceAgeMs: number; expectedCurrency: string }
 ): PaymentEvidenceAssessment {
   const fail = (reason: Extract<PaymentEvidenceAssessment, {outcome: 'INSUFFICIENT_EVIDENCE'}>['reason']): PaymentEvidenceAssessment =>
     ({ outcome: 'INSUFFICIENT_EVIDENCE', reason })
   if (!value || value.provider !== 'stripe' ||
       !Number.isFinite(Date.parse(context.now)) ||
       !Number.isFinite(context.maxEvidenceAgeMs) || context.maxEvidenceAgeMs <= 0 ||
-      !value.subscriptionId.startsWith('sub_') ||
-      !value.invoiceId.startsWith('in_') ||
+      !/^sub_[A-Za-z0-9]+$/.test(value.subscriptionId) ||
+      !/^in_[A-Za-z0-9]+$/.test(value.invoiceId) ||
+      !/^[A-Z]{3}$/.test(context.expectedCurrency) ||
+      !/^[A-Za-z]{3}$/.test(value.invoiceCurrency) ||
       !Number.isSafeInteger(value.invoiceAmountRemainingMinor) ||
       value.invoiceAmountRemainingMinor < 0 ||
       !Number.isFinite(Date.parse(value.verifiedAt)) ||
@@ -55,6 +57,7 @@ export function assessPaymentEvidence(
   if (value.environment !== context.environment ||
       value.invoiceEnvironment !== context.environment) return fail('ENVIRONMENT_MISMATCH')
   if (value.subscriptionId !== value.invoiceSubscriptionId) return fail('SUBSCRIPTION_MISMATCH')
+  if (value.invoiceCurrency.toUpperCase() !== context.expectedCurrency) return fail('CURRENCY_MISMATCH')
   if (!value.invoicePaid || value.invoiceAmountRemainingMinor !== 0) return fail('UNPAID_INVOICE')
   if (value.paymentStatus !== 'succeeded') return fail('PAYMENT_NOT_SUCCEEDED')
   if (value.subscriptionStatus !== 'active') return fail('SUBSCRIPTION_NOT_ACTIVE')

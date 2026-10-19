@@ -122,7 +122,7 @@ export async function recordLocalSyntheticLifecycleProposal(args: {
 
   const { data: event, error: eventError } = await db
     .from('billing_webhook_events')
-    .select('id, organization_id, provider, environment, provider_event_id, event_type, provider_invoice_id, processing_status, processed_at, payload_hash')
+    .select('id, organization_id, provider, environment, provider_event_id, event_type, provider_invoice_id, processing_status, processed_at, received_at, payload_hash')
     .eq('id', webhookEventRecordId)
     .eq('provider', 'stripe')
     .eq('environment', 'TEST')
@@ -131,6 +131,7 @@ export async function recordLocalSyntheticLifecycleProposal(args: {
   if (!event || event.organization_id !== organizationId ||
       event.provider_event_id !== candidate.lastEventId ||
       event.payload_hash !== candidate.lastEventFingerprint ||
+      Date.parse(event.received_at) !== validTime(candidate.lastEventAt) ||
       event.processing_status !== 'PROCESSED' ||
       !event.processed_at ||
       !EVENT_TYPES[action].includes(event.event_type) ||

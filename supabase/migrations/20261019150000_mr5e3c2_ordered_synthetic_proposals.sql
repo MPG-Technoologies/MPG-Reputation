@@ -54,6 +54,16 @@ BEGIN
   -- Source-derived immutable value: client-supplied ordering values ignored.
   NEW.source_provider_created_at := v_event.provider_created_at;
 
+  -- Check exact-event deduplication across the whole ledger, not just the
+  -- latest proposal, so old replays remain idempotent after later events.
+  IF EXISTS (
+      SELECT 1 FROM public.billing_paid_entitlement_proposals
+      WHERE webhook_event_record_id = NEW.webhook_event_record_id
+  ) THEN
+    RAISE EXCEPTION 'BILLING_PROPOSAL_EVENT_ALREADY_RECORDED'
+      USING ERRCODE = '23505';
+  END IF;
+
   -- NULLS FIRST is intentional: a preexisting unorderable ledger record must
   -- hold processing for review rather than be silently bypassed.
   SELECT * INTO v_prior

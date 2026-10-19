@@ -66,6 +66,7 @@ describe.skipIf(!hasDisposableDb)('MR-5E3C1 disposable synthetic proposal admiss
     const providerEventId = eventPrefix + suffix
     const eventType = options.type ?? 'invoice.paid'
     const status = options.status ?? 'PROCESSED'
+    const providerCreatedAt = new Date(Date.now() - 3_600_000 + eventCounter * 1000).toISOString()
     const {data,error} = await db.from('billing_webhook_events')
       .insert({
         provider:'stripe', environment:'TEST', organization_id:orgId,
@@ -73,14 +74,15 @@ describe.skipIf(!hasDisposableDb)('MR-5E3C1 disposable synthetic proposal admiss
         provider_invoice_id:eventType==='invoice.paid'?'in_mr5e3c1'+suffix+nonce:null,
         payload_hash:'e'.repeat(64),processing_status:status,
         processed_at:status==='PROCESSED'?new Date().toISOString():null,
+        provider_created_at:providerCreatedAt,
       })
-      .select('id,received_at,provider_event_id,payload_hash').single()
+      .select('id,provider_created_at,provider_event_id,payload_hash').single()
     if (error || !data) throw new Error('EVENT_FIXTURE_FAILED: '+error?.message)
     return data
   }
 
   function syntheticProposal(event: {
-    provider_event_id: string; received_at: string; payload_hash: string
+    provider_event_id: string; provider_created_at: string | null; payload_hash: string
   }, orgId = orgA, subId = 'sub_mr5e3c1a'+nonce, end = periodEnd()) {
     const proposal = proposeSubscriptionLifecycle({
       current: null,
@@ -89,7 +91,7 @@ describe.skipIf(!hasDisposableDb)('MR-5E3C1 disposable synthetic proposal admiss
         eventId:event.provider_event_id,fingerprint:event.payload_hash,
         kind:'INVOICE_SETTLED',organizationId:orgId,
         subscriptionId:subId,environment:'TEST',
-        occurredAt:new Date(event.received_at).toISOString(),periodEnd:end,
+        occurredAt:new Date(event.provider_created_at!).toISOString(),periodEnd:end,
       },
       proof: {
         // These are deliberately synthetic markers, NEVER provider proof.

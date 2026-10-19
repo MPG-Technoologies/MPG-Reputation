@@ -25,7 +25,7 @@ describe.skipIf(!isDisposableDb)('MR-5E3B paid-entitlement proposal ledger — n
   let received = ''
   let unrelated = ''
   let ownerUserId = ''
-  let owner = createClient<Database>(url, anonKey, {
+  const owner = createClient<Database>(url, anonKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
   const proposed = {

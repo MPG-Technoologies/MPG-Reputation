@@ -84,9 +84,7 @@ describe('MR-5I4D synthetic invoice finality non-authorizing policy', () => {
       {providerEventId: 'evt_forged'},
       {providerInvoiceId: 'in_foreign'},
     ]) {
-      const change = patch.organizationId ? {receipt:{...receipt,...patch}} :
-        {receipt:{...receipt,...patch}}
-      expect(plan(change))
+      expect(plan({receipt:{...receipt,...patch}})
         .toEqual({outcome:'BLOCKED',reason:'TENANT_OR_EVENT_MISMATCH'})
     }
     expect(plan({invoiceId:'in_foreign'}))

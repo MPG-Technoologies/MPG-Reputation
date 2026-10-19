@@ -109,6 +109,7 @@ jobs:
             test/integration/stripe-test-private-invoice-read-assembler.test.ts \
             test/integration/billing-paid-entitlement-proposals.test.ts \
             test/integration/billing-synthetic-invoice-evidence-drafts.test.ts \
+            test/integration/billing-synthetic-checkout-quote-snapshots.test.ts \
             test/integration/billing-synthetic-proposal-admission.test.ts \
             test/integration/billing-synthetic-proposal-ordering.test.ts \
             test/integration/billing-synthetic-exception-review.test.ts \

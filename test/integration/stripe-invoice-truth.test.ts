@@ -145,6 +145,18 @@ describe.skipIf(!hasDisposableDb)('MR-5E2B invoice identity / tenant resolution'
       retrieveInvoice: async () => { throw new Error('network disconnected') },
     })).rejects.toThrow('BILLING_INVOICE_PROVIDER_UNAVAILABLE')
   })
+  it('refuses to resolve identity for an inactive organization', async () => {
+    const { error: deactivateError } = await supabase.from('organizations')
+      .update({status: 'INACTIVE'}).eq('id', orgA)
+    expect(deactivateError).toBeNull()
+    try {
+      expect((await resolve()).result).toEqual({outcome:'INACTIVE_ORGANIZATION'})
+    } finally {
+      const { error: restoreError } = await supabase.from('organizations')
+        .update({status: 'ACTIVE'}).eq('id', orgA)
+      expect(restoreError).toBeNull()
+    }
+  })
   it('never alters the existing subscription projection', async () => {
     await resolve()
     const { data } = await supabase.from('organization_subscriptions')

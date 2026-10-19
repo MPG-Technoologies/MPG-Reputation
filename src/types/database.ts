@@ -1347,6 +1347,7 @@ export interface Database {
           proposed_action: 'INITIAL_ACTIVATION' | 'RENEWAL' | 'PAYMENT_DUE' | 'SCHEDULE_CANCELLATION' | 'END_AT_PERIOD' | 'ESCALATE_FOR_REVIEW'
           candidate_status: 'ACTIVE' | 'PAST_DUE' | 'CANCEL_AT_PERIOD_END' | 'ENDED' | 'REVIEW_REQUIRED'
           candidate_period_end: string
+          source_provider_created_at: string | null
           source_kind: 'SYNTHETIC'
           verification_status: 'UNVERIFIED'
           access_authorized: false
@@ -1362,6 +1363,7 @@ export interface Database {
           proposed_action: 'INITIAL_ACTIVATION' | 'RENEWAL' | 'PAYMENT_DUE' | 'SCHEDULE_CANCELLATION' | 'END_AT_PERIOD' | 'ESCALATE_FOR_REVIEW'
           candidate_status: 'ACTIVE' | 'PAST_DUE' | 'CANCEL_AT_PERIOD_END' | 'ENDED' | 'REVIEW_REQUIRED'
           candidate_period_end: string
+          source_provider_created_at?: string | null
           source_kind?: 'SYNTHETIC'
           verification_status?: 'UNVERIFIED'
           access_authorized?: false
@@ -1377,6 +1379,7 @@ export interface Database {
           proposed_action?: 'INITIAL_ACTIVATION' | 'RENEWAL' | 'PAYMENT_DUE' | 'SCHEDULE_CANCELLATION' | 'END_AT_PERIOD' | 'ESCALATE_FOR_REVIEW'
           candidate_status?: 'ACTIVE' | 'PAST_DUE' | 'CANCEL_AT_PERIOD_END' | 'ENDED' | 'REVIEW_REQUIRED'
           candidate_period_end?: string
+          source_provider_created_at?: string | null
           source_kind?: 'SYNTHETIC'
           verification_status?: 'UNVERIFIED'
           access_authorized?: false

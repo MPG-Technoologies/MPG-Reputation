@@ -80,6 +80,7 @@ export async function runAuthorizedLocalStripeRecoveryOperation(args: {
   if (process.env.ENABLE_STRIPE_TEST_RECOVERY_OPERATOR !== 'true' ||
       process.env.ENABLE_STRIPE_TEST_RECOVERY_DISPATCHER !== 'true' ||
       process.env.MPG_STRIPE_RECOVERY_TARGET !== 'LOCAL_SYNTHETIC' ||
+      process.env.NODE_ENV === 'production' ||
       process.env.VERCEL_ENV !== undefined ||
       process.env.ENABLE_LIVE_BILLING === 'true') {
     return { outcome: 'DISABLED' }

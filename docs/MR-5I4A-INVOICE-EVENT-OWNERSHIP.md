@@ -1,6 +1,6 @@
 # MR-5I4A — Reserve invoice events for invoice-evidence processing
 
-**State: IN PROGRESS until full isolated CI passes.**
+**State: ENGINEERING COMPLETE / READY FOR OWNER REVIEW, NOT OWNER ACCEPTED.**
 
 ## Verified remote state and owner bounds
 
@@ -38,3 +38,10 @@ Extend the existing **isolated** MR-5C recovery dispatcher integration test to s
 Require Internal CI lint, typecheck, full application tests and synthetic build; disposable Supabase/PostgreSQL migrations plus all prior cross-chain domain/security tests, isolated recovery dispatcher/owner-operator tests, and SQL cleanup. Inspect complete diff; no production or hosted migrations, real Stripe traffic/credentials, paid entitlement writes or main merge.
 
 **Next MR-5I4B:** create a read-only, explicit/local TEST correlation boundary between already durable invoice references, independently sourced future `BillingEvidenceReadPort` facts, and tenant-safe subscription projection. Keep `NOT_CONFIGURED` when Stripe credentials are absent; never promote a subscription's `ACTIVE` status to payment truth or paid access.
+
+## Final test results and correction
+- First database run: **176/176** baseline PostgreSQL tests passed; the new test failed during fixture creation because the existing `billing_webhook_events_invoice_reference_check` correctly forbids storing an invoice reference for the unsupported `invoice.upcoming` event. Corrected **test fixture only** to set `provider_invoice_id = NULL` for that type. No RLS, schema constraint or production behavior was weakened.
+- [Internal CI #39238426747](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39238426747): PASS — lint, Next route type generation, typecheck, **682/682 application tests (47 files)** and synthetic production build.
+- [Isolated Synthetic E2E #39238426697](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39238426697): PASS — **176/176 combined disposable DB tests (24 files)**, **7/7 recovery queue tests** (including one new invoice ownership regression), **2/2 sealed operator tests**, **4/4 signed local operator tests** = **189/189 database-backed tests**; database teardown PASS.
+- Diff contains only this handoff, original unmerged feature migration, and existing recovery queue integration tests; invoice processing lease and source RLS/grants are not changed. No credentials, Stripe API calls, hosted DB operation, live billing, paid-access activation or `main` merge.
+- Next MR-5I4B remains separately gated: read-only subscription-projection+invoice evidence correlation, default NOT_CONFIGURED without an independently verified provider adapter; never grant paid access from an ACTIVE projection.

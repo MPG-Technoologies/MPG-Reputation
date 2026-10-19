@@ -1,6 +1,6 @@
 # MR-5E3C3C — Scoped read-only subscription exception support inspection
 
-Status: IN PROGRESS pending CI and final diff review.
+Status: ENGINEERING COMPLETE / READY FOR OWNER REVIEW; not OWNER ACCEPTED. GitHub CI verified 633/633 application and 133/133 disposable PostgreSQL tests, successful build and database cleanup. No main merge or hosted deployment.
 
 ## Remote sources
 - Company OS `techwithmpg/mpg-company-os` main: `03a48a34481f1952a31cd5c4fb980bc381432d8d`. MR-5 PAUSED / INCOMPLETE under accepted governance; the owner has later directed bounded non-live provider-ready feature work. MR-7 remains current owner-approved security milestone.

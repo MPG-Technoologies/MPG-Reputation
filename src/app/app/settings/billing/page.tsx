@@ -5,12 +5,14 @@ import { Panel } from '@/components/layout/panels'
 import { createClient } from '@/lib/supabase/server'
 import { getConfiguredReputationBillingCatalog } from '@/lib/billing/pricing'
 import { getBillingWorkspaceSummary } from '@/domain/billing/ui-state'
+import { selectSingleBillingMembership } from '@/domain/billing/workspace-organization-selection'
 import { BillingPlanPreview } from './plan-preview'
 import { isLocalTestBillingActionEndpointEnabled } from '@/lib/billing/stripe-test-action-request'
 
 /**
- * Read-only MR-5D3 billing workspace. Never takes an organization ID from
- * search params: uses the same first active membership as /app layout.
+ * Read-only TEST billing workspace. Never trusts an organization ID from URL
+ * parameters or selects an arbitrary first membership. With no established
+ * active-organization switcher, refuse multi-organization billing context.
  * No checkout server action/portal, Stripe secret or paid entitlement.
  */
 export default async function BillingSettingsPage() {
@@ -25,11 +27,41 @@ export default async function BillingSettingsPage() {
   if (membershipError) {
     return <PageShell><p role="alert" className="text-rose-300">Billing access could not be verified. Try again later.</p></PageShell>
   }
-  const membership = memberships?.[0]
-  if (!membership) redirect('/onboarding')
+  const selection = selectSingleBillingMembership(memberships?.map(membership => ({
+    organizationId: membership.organization_id,
+    role: membership.role,
+    organizationName: (membership.organizations as { name?: string } | null)?.name,
+  })))
+  if (selection.outcome === 'NO_MEMBERSHIP') redirect('/onboarding')
+
+  // The general app shell still defaults to its first membership. Billing
+  // must not inherit that ambiguous context when multiple businesses exist.
+  // Do not read any account/subscription or render TEST billing action props.
+  if (selection.outcome === 'AMBIGUOUS_ORGANIZATION') {
+    return (
+      <PageShell>
+        <PageHeader title="Billing" subtitle="Select a business before managing its billing." />
+        <Panel className="p-6">
+          <h2 className="font-semibold text-white">Multiple businesses detected</h2>
+          <p role="alert" className="mt-2 text-sm text-amber-200">
+            Billing is unavailable until an authorized business selection is supported.
+            No billing details or payment actions are shown for an arbitrary business.
+          </p>
+          <p className="mt-3 text-sm text-slate-400">
+            Contact MPG support for assistance. Subscription changes and payments remain disabled.
+          </p>
+        </Panel>
+      </PageShell>
+    )
+  }
+  if (selection.outcome === 'INVALID_MEMBERSHIP') {
+    return <PageShell><p role="alert" className="text-rose-300">
+      Billing organization could not be verified. No billing records were accessed.
+    </p></PageShell>
+  }
 
   // Keep the billing view narrower than organization-wide operational reads.
-  if (membership.role !== 'OWNER' && membership.role !== 'ADMIN') {
+  if (selection.outcome === 'ROLE_RESTRICTED') {
     return (
       <PageShell>
         <PageHeader title="Billing" subtitle="Subscription and payment administration." />
@@ -46,7 +78,7 @@ export default async function BillingSettingsPage() {
     )
   }
 
-  const orgId = membership.organization_id
+  const orgId = selection.organizationId
   const [
     { data: account, error: accountError },
     { data: subscriptions, error: subscriptionsError },
@@ -82,7 +114,7 @@ export default async function BillingSettingsPage() {
   const localActionsEnabled = pricingPreviewEnabled &&
     !accountError && !subscriptionsError && isLocalTestBillingActionEndpointEnabled()
 
-  const name = (membership.organizations as { name?: string } | null)?.name ?? 'Your business'
+  const name = selection.organizationName
 
   return (
     <PageShell>

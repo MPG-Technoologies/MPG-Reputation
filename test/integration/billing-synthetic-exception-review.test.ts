@@ -181,10 +181,10 @@ describe.skipIf(!hasDisposableDb)('MR-5E3C3B private synthetic exception review 
       {...r,audit:{...r.audit,reason:'SIMULATED_RENEWAL'}}))
       .toEqual({outcome:'INVALID_INPUT'})
     expect(await request(orgA,subA,e.id,
-      {...r,audit:{...r.audit,evidenceVerified:true}}))
+      {...r,audit:{...r.audit,evidenceVerified:true}} as unknown as SyntheticReconciliationResult))
       .toEqual({outcome:'INVALID_INPUT'})
     expect(await request(orgA,subA,e.id,
-      {...r,audit:{...r.audit,accessAuthorized:true}}))
+      {...r,audit:{...r.audit,accessAuthorized:true}} as unknown as SyntheticReconciliationResult))
       .toEqual({outcome:'INVALID_INPUT'})
     expect(await request(orgA,subA,e.id,{
       outcome:'SIMULATED_CANDIDATE_ONLY',audit:r.audit,
@@ -246,7 +246,7 @@ describe.skipIf(!hasDisposableDb)('MR-5E3C3B private synthetic exception review 
       {webhook_event_record_id:foreign.id},
     ]) {
       const {error}=await db.from('billing_synthetic_subscription_exception_reviews')
-        .insert({...good,...patch})
+        .insert({...good,...patch} as unknown as Database['public']['Tables']['billing_synthetic_subscription_exception_reviews']['Insert'])
       expect(error).not.toBeNull()
     }
   })

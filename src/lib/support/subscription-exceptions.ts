@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { authorizeSupportAccess } from './access'
 import { recordSupportSubscriptionExceptionInspection } from './audit'
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MAX = 20
 const REASONS = [
 'HISTORY_INVALID_OR_AMBIGUOUS','EVENT_FINGERPRINT_CONFLICT','OLDER_OR_EQUAL_TIME',

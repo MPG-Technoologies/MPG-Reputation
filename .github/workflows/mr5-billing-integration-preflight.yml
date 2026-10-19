@@ -1,0 +1,47 @@
+# MR-5I0 informational preflight only. Never touches hosted Supabase,
+# external providers, main, local developer machines, or customer data.
+name: MR-5 Billing Branch Integration Preflight
+
+on:
+  pull_request:
+    branches:
+      - chatgpt/mr5e3c3c-support-exception-inspection
+    paths:
+      - scripts/mr5-billing-integration-preflight.sh
+      - .github/workflows/mr5-billing-integration-preflight.yml
+      - docs/MR-5I0-BILLING-INTEGRATION-RECONCILIATION.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare-only:
+    name: Disposable compatibility preview (not integration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CI: 'true'
+      SUPABASE_SERVICE_ROLE_KEY: ''
+      STRIPE_SECRET_KEY: ''
+      RESEND_API_KEY: ''
+      ENABLE_LIVE_BILLING: 'false'
+      ENABLE_LIVE_EMAIL: 'false'
+    steps:
+      - name: Checkout read-only feature worktree
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Confirm no provider operations
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$ENABLE_LIVE_BILLING" = 'false'
+          test "$ENABLE_LIVE_EMAIL" = 'false'
+          test -z "$SUPABASE_SERVICE_ROLE_KEY"
+          test -z "$STRIPE_SECRET_KEY"
+          test -z "$RESEND_API_KEY"
+      - name: Inspect MR-5C against MR-5D/E in disposable worktree
+        shell: bash
+        run: bash scripts/mr5-billing-integration-preflight.sh

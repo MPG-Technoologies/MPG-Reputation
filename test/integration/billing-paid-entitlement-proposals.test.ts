@@ -70,6 +70,7 @@ describe.skipIf(!isDisposableDb)('MR-5E3B paid-entitlement proposal ledger — n
       provider_invoice_id:eventType==='invoice.paid'?'in_mr5e3b'+safeSuffix+nonce:null,
       processing_status:status,payload_hash:'a'.repeat(64),
       processed_at:status==='PROCESSED'?'2026-10-19T12:00:00Z':null,
+      provider_created_at:'2026-10-19T11:00:00Z',
     }).select('id').single()
     if(error||!data) throw new Error('EVENT_SETUP_FAILED: '+error?.message)
     return data.id

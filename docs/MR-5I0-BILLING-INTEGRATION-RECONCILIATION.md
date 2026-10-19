@@ -1,6 +1,6 @@
 # MR-5I0 — Billing Branch Integration Reconciliation (read-only preflight)
 
-**Status: IN PROGRESS until remote compatibility preflight and final CI verification.** This checkpoint reports facts and tests whether two previously accepted engineering workstreams can be joined without textual merge conflicts. It does **NOT** integrate them, authorize operational payments, or change main.
+**Status: PRE-FLIGHT ENGINEERING COMPLETE / BILLING INTEGRATION BLOCKED.** Compatibility preview succeeded and identified four file-level conflicts; standard CI pending final validation. No billing integration or owner acceptance. This checkpoint reports facts and tests whether two previously accepted engineering workstreams can be joined without textual merge conflicts. It does **NOT** integrate them, authorize operational payments, or change main.
 
 ## Verified remote governance (2026-10-19)
 
@@ -45,6 +45,20 @@ This slice adds ONLY an informative script plus GitHub Actions preflight workflo
 - Its output `NO_TEXT_CONFLICTS_NOT_INTEGRATED` or `CONFLICTS_NOT_INTEGRATED` means only a textual merge preview, NOT schema/behavior compatibility and NOT payment readiness.
 - Conflicts are findings, not a signal to force or skip them. No changes to Stripe/payment code, auth, RLS, schema, production, hosted Supabase, customer data or Company OS.
 - Standard inherited Internal CI and disposable PostgreSQL verification still run on this branch.
+
+## Verified scratch merge result (2026-10-19)
+
+[Informational read-only integration preflight #39226072558](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39226072558) **SUCCESSFULLY EXECUTED**, and reported **CONFLICTS_NOT_INTEGRATED**:
+
+- MR-5C source `fd10ecde5d15283a3421de89e3d3dc2e4e2fec09`, branch `chatgpt/mr5c3c2a-recovery-operator-guard`.
+- Scratch checked-out target `efa8002f08cf4fa1567ae44e3f067c2192c2dee4` (GitHub's ephemeral merge of PR #51 head with PR #50 base; **not** a repository branch merge).
+- **Exactly four textual conflict paths:**
+  1. `.github/workflows/internal-ci.yml` — preserve both tested synthetic suites and avoid running database-mutating tests without disposable PostgreSQL.
+  2. `.github/workflows/isolated-synthetic-e2e.yml` — preserve both MR-5C and MR-5D/E integration test allowlists; verify ordered migrations/DB cleanup.
+  3. `src/lib/billing/stripe-webhook-store.ts` — retain signature-derived `provider_invoice_id` added by MR-5E2C alongside original MR-5C webhook identity/hash/processing controls.
+  4. `src/types/database.ts` — retain all MR-5C lease/reconciliation RPC signatures and MR-5D/E invoice/checkout/customer/review types; regenerate/reconcile schema against a combined disposable database rather than overwriting either side.
+
+**Critical:** The preflight workflow's green result means the probe ran correctly, **not** that the billing chains can merge safely. A future feature-integration branch must resolve all four, run combined security/integration tests, inspect the entire diff and obtain independent review. No integration merge occurred here. No provider TEST credentials were needed.
 
 ## Acceptance gates after MR-5I0
 

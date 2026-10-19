@@ -12,7 +12,7 @@ const paid: PaymentEvidenceSnapshot = {
   periodEnd: '2026-12-01T00:00:00Z', verifiedAt: '2026-11-01T00:00:00Z',
 }
 const context = { organizationId, environment: 'TEST' as const,
-  now: '2026-11-01T00:01:00Z', maxEvidenceAgeMs: 120000 }
+  now: '2026-11-01T00:01:00Z', maxEvidenceAgeMs: 120000, expectedCurrency: 'PHP' }
 
 describe('MR-5E1 payment evidence prerequisite (not entitlement)', () => {
   it('rejects absent evidence', () => {
@@ -30,6 +30,7 @@ describe('MR-5E1 payment evidence prerequisite (not entitlement)', () => {
     [{ invoiceOrganizationId: 'other' }, 'TENANT_MISMATCH'],
     [{ invoiceEnvironment: 'LIVE' }, 'ENVIRONMENT_MISMATCH'],
     [{ invoiceSubscriptionId: 'sub_other' }, 'SUBSCRIPTION_MISMATCH'],
+    [{ invoiceCurrency: 'USD' }, 'CURRENCY_MISMATCH'],
     [{ invoicePaid: false }, 'UNPAID_INVOICE'],
     [{ invoiceAmountRemainingMinor: 10 }, 'UNPAID_INVOICE'],
     [{ paymentStatus: 'pending' }, 'PAYMENT_NOT_SUCCEEDED'],

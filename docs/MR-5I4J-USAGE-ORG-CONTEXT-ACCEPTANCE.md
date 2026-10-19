@@ -1,6 +1,6 @@
 # MR-5I4J — Usage & Trial Tenant Context Consistency and Org-Selection Decision Gate
 
-**State: IN PROGRESS — tests and final diff pending. NOT OWNER ACCEPTED.**  
+**State: ENGINEERING COMPLETE / READY FOR OWNER REVIEW — NOT OWNER ACCEPTED.**  
 **Slice type: bounded fail-closed client page correction + isolated acceptance tests, NOT global organization switcher or real-payment activation.**
 
 ## 1. Latest remote source — 2026-10-20
@@ -49,6 +49,14 @@ A future separately accepted application-wide design must:
 | Admin scoped billing recovery and exceptions | Unchanged: read-only, support-grant/audit gated; no mutation |
 | 30 Free Review Requests | Unchanged |
 | Browser E2E/app-wide org switching/real Stripe TEST | Not done, separate gates |
+
+**Verified CI — code commit `d5ea5fcd`:**
+
+- [Internal CI #39329135431](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39329135431) **PASS**: ESLint, Next.js route type generation, TypeScript, **747/747 synthetic application tests across 55 files** (including 14 new Usage context/page cases), Next.js synthetic build.
+- [Isolated Synthetic E2E #39329135351](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39329135351) **PASS**: **206/206** scoped PostgreSQL tests (27 files), **7/7** retry queue, **2/2** sealed operator, **4/4** signed operator = **219/219 database-backed tests** and disposable container teardown.
+- First Internal CI run failed TypeScript on one *test fixture's* extra property; it was fixed by assigning a separate forged fixture value, preserving the strict domain signature. The actual server/page code and authorization controls were not weakened.
+- Scoped diff compared with unmerged parent PR #63: **six intended files only** — new Usage context helper, updated Usage page, 7-case unit test, 7-case mocked server-render test, two Internal CI allowlist lines and this handoff. No migration, RLS/tenant privilege changes, user data, credentials, provider API, payment route, live billing, trial modification, entitlement grant, production deploy or merge to main.
+- The final documentation-only checkpoint will trigger GitHub CI again; code and test logic are unchanged. **Engineering completion is not owner acceptance.**
 
 **Verification required:** GitHub Internal CI lint/typegen/typecheck, all allowlisted synthetic app tests/build; isolated disposable PostgreSQL integration suite for regression. Full scoped diff review limited to one Usage page, pure resolver, two test files, CI allowlist and this handoff; no provider, real customer or production access. Only claim pass when GitHub jobs succeed.
 

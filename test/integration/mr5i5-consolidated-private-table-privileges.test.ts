@@ -62,21 +62,21 @@ describe.skipIf(!enabled)('MR-5I5 migrated billing private-table role matrix', (
 
   it('all nine new private tables exist and are selectable by isolated service role', async () => {
     for (const table of PRIVATE_BILLING_TABLES) {
-      const { error } = await privileged.from(table).select('id').limit(1)
+      const { error } = await privileged.from(table).select('*').limit(1)
       expect(error, table).toBeNull()
     }
   })
 
   it('all nine new private tables reject direct anonymous SELECT', async () => {
     for (const table of PRIVATE_BILLING_TABLES) {
-      const { error } = await anonymous.from(table).select('id').limit(1)
+      const { error } = await anonymous.from(table).select('*').limit(1)
       expect(error?.code, table).toBe('42501')
     }
   })
 
   it('all nine new private tables reject direct authenticated SELECT', async () => {
     for (const table of PRIVATE_BILLING_TABLES) {
-      const { error } = await member.from(table).select('id').limit(1)
+      const { error } = await member.from(table).select('*').limit(1)
       expect(error?.code, table).toBe('42501')
     }
   })

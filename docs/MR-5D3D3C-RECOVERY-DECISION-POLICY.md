@@ -1,9 +1,9 @@
-# MPG Reputation — MR-5D3D3C Billing Recovery Decision Policy (OWNER REVIEW DRAFT)
+# MPG Reputation — MR-5D3D3C Billing Recovery Decision Policy (OWNER-ACCEPTED POLICY BASELINE)
 
 | Control | State |
 |---|---|
 | Slice | MR-5D3D3C — policy and evidence contract ONLY |
-| Status | READY FOR OWNER REVIEW; NOT ACCEPTED |
+| Status | OWNER ACCEPTED — policy baseline only, 2026-10-19; financial action authority remains unresolved |
 | Product base | MR-5D3D3B at `fbc933061892e9debeb6ed455ea0c4bdeff03951` |
 | Company OS | `03a48a34481f1952a31cd5c4fb980bc381432d8d` |
 | Governance | Company OS records MR-5 PAUSED/INCOMPLETE; later owner instruction permits bounded non-live engineering, not billing activation |
@@ -13,7 +13,7 @@
 
 The MR-5D3D3A private `stripe_test_billing_recovery_reviews` table is append-only, records OPEN requests and is not an approval ledger. The MR-5D3D3B support view exposes a minimal, audited per-organization read model after `authorizeSupportAccess`. Existing MR-6A MPG_ADMIN support grants are organization-scoped and allow investigation only, not financial decision rights. Ordinary tenant OWNER/ADMIN membership can request a review but cannot resolve it.
 
-This document proposes requirements for a future action design. **It does not confer authorization to implement or invoke recovery mutations.** In particular no release, retry with a new idempotency key, overwrite customer mapping, mark-paid, provision entitlement, refund, or close-as-approved operation follows from an OPEN case.
+The owner accepted this policy-only baseline on 2026-10-19. Unresolved action-specific questions below remain explicit gates for future implementation. **It does not confer authorization to implement or invoke recovery mutations.** In particular no release, retry with a new idempotency key, overwrite customer mapping, mark-paid, provision entitlement, refund, or close-as-approved operation follows from an OPEN case.
 
 ## Proposed decision classes (no executable commands yet)
 
@@ -73,4 +73,4 @@ No decision class is equivalent to `PAID`, `SETTLED`, `APPROVED` or `CLOSED`. Ac
 
 ## Next
 
-Owner reviews this policy and resolves the authority/evidence questions. Only then design the smallest safe mutation-specific MR-5D3D3D slice, separately approve its implementation, and test it in isolated synthetic environments. MR-5E verified payment/invoice evidence may be designed independently without granting paid access. Do not claim MR-5 complete or change Company Stage.
+Owner accepted the baseline; before any financial recovery implementation, resolve the remaining authority/evidence questions through a separate explicit decision. Only then design the smallest safe mutation-specific MR-5D3D3D slice, separately approve its implementation, and test it in isolated synthetic environments. MR-5E verified payment/invoice evidence may be designed independently without granting paid access. Do not claim MR-5 complete or change Company Stage.

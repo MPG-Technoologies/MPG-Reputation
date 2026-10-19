@@ -89,6 +89,8 @@ jobs:
             test/domain/stripe-test-customer-provisioning.test.ts \
             test/domain/stripe-test-customer-portal.test.ts \
             test/domain/stripe-test-billing-action-admission.test.ts \
+            test/domain/stripe-test-action-request.test.ts \
+            test/domain/stripe-test-billing-action-route.test.ts \
             test/domain/completion-api.test.ts \
             test/domain/completion-ingestion-schema.test.ts \
             test/domain/completion.test.ts \

@@ -56,7 +56,7 @@ BEGIN
     'checkout_price_id',v_checkout.provider_price_id,
     'checkout_status',v_checkout.status,
     'checkout_expires_at',CASE WHEN v_checkout.id IS NOT NULL
-      THEN pg_catalog.floor(pg_catalog.extract(epoch from v_checkout.session_expires_at))::BIGINT
+      THEN pg_catalog.floor(pg_catalog.date_part('epoch', v_checkout.session_expires_at))::BIGINT
       ELSE NULL END,
     'checkout_origin',v_checkout.return_origin,
     'has_subscription',v_has_subscription

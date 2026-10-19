@@ -82,7 +82,8 @@ describe('MR-5E2D3 provider-agnostic read-only evidence port', () => {
     const {port,fn}=adapter()
     expect(await inspectProviderInvoiceEvidence({binding,port}))
       .toEqual({outcome:'EVIDENCE_ONLY'})
-    expect(fn).toHaveBeenCalledExactlyOnceWith({
+    expect(fn).toHaveBeenCalledTimes(1)
+    expect(fn).toHaveBeenCalledWith({
       invoiceId:'in_fixture',environment:'TEST',
     })
   })

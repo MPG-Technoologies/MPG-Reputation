@@ -1,6 +1,6 @@
 # MR-5I4F — Synthetic Invoice Evidence Schema and Transaction Threat Model
 
-**Status: IN PROGRESS — CI and review pending; NOT OWNER ACCEPTED.**
+**Status: ENGINEERING COMPLETE / READY FOR OWNER REVIEW — NOT OWNER ACCEPTED.**
 
 ## Verified remote start — 2026-10-19
 
@@ -54,7 +54,11 @@ The staged synthetic draft row has **no authority** in the future finalizer and 
 - `test/integration/billing-synthetic-invoice-evidence-drafts.test.ts` covers valid hard-false staging, duplicate invoice with different event IDs, concurrent inserts, cross-tenant account/subscription mismatches, tampered receipt, unsupported event/processed state, wrong Price, malformed/hypothetical terms, forbidden client reads and writes, forbidden service-role update/delete, unchanged 30 Free Review Requests trial, tenant erasure cascade.
 - `.github/workflows/isolated-synthetic-e2e.yml` adds that test to disposable local Supabase only. Migration is applied automatically in ephemeral CI but **NOT** hosted.
 - Internal CI: lint/Next typegen/typecheck, all allowed no-DB unit tests and build; isolated database regressions verify RLS/privileges/semantics. No claim of pass before runs complete.
-- Diff review includes only one SQL migration, `src/types/database.ts`, one new disposable DB test, one CI test allowlist line and this handoff. No credentials, live integration or `main` merge.
+- Full diff review versus stacked MR-5I4E parent shows **exactly 5 intended files**: this handoff; one synthetic-only SQL migration; `src/types/database.ts`; one new 11-case disposable DB integration test; one CI test allowlist line. No credentials, live integration or `main` merge.
+- First disposable CI [run #39269681653](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39269681653) detected a **test-only** concurrency fixture race: two simultaneous insert requests reused the same generated Event ID and failed before invoice-key comparison. Corrected the test fixture to increment its Event sequence synchronously, without relaxing any migration/authorization constraint, in code commit `f63a81e6`.
+- Verified after fix: [Internal CI #39270084887](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39270084887) **PASS** lint, Next typegen, TypeScript typecheck, **711/711 application tests in 50 files**, production compilation/build under synthetic configuration.
+- Verified after fix: [Isolated Synthetic E2E #39270084884](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39270084884) **PASS**, **196/196** scoped disposable PostgreSQL tests in 26 files (including all **11/11** MR-5I4F database security/uniqueness tests), plus **7/7** retry queue, **2/2** sealed operator, **4/4** signed local operator = **209/209 total DB-backed tests**; disposable teardown PASS.
+- This evidence cannot prove a provider payment, does not freeze accepted checkout prices, cannot authorize invoice finality or paid access, and must not be used as a commercial release gate. Final handoff-only commit will re-run CI.
 
 ## NEXT after owner review
 

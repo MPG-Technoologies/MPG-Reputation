@@ -10,7 +10,7 @@ LANGUAGE plpgsql STABLE SECURITY INVOKER
 SET search_path = ''
 AS $$
 DECLARE
-  v_now TIMESTAMPTZ := pg_catalog.clock_timestamp();
+  v_now TIMESTAMPTZ := pg_catalog.statement_timestamp();
   v_customer public.stripe_test_customer_provisioning%ROWTYPE;
   v_checkout public.stripe_test_checkout_reservations%ROWTYPE;
   v_has_account BOOLEAN;

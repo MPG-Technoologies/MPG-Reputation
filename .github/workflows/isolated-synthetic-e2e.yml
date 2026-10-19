@@ -93,7 +93,8 @@ jobs:
             test/integration/stripe-test-checkout-reservations.test.ts \
             test/integration/stripe-test-customer-provisioning.test.ts \
             test/integration/stripe-test-customer-portal.test.ts \
-            test/integration/stripe-test-billing-action-rate-limit.test.ts
+            test/integration/stripe-test-billing-action-rate-limit.test.ts \
+            test/integration/stripe-test-billing-recovery-diagnostics.test.ts
 
       - name: Stop and erase disposable local Supabase containers
         if: always()

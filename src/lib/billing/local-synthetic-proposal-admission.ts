@@ -141,10 +141,12 @@ export async function recordLocalSyntheticLifecycleProposal(args: {
     return { outcome: 'SOURCE_MISMATCH' }
   }
 
+  const validatedEventRecordId: string = webhookEventRecordId
+
   async function prior() {
     const { data, error } = await db.from('billing_paid_entitlement_proposals')
       .select('*')
-      .eq('webhook_event_record_id', webhookEventRecordId)
+      .eq('webhook_event_record_id', validatedEventRecordId)
       .maybeSingle()
     if (error) throw new Error('BILLING_PROPOSAL_REPLAY_READ_FAILED')
     return data

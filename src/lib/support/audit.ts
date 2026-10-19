@@ -7,6 +7,7 @@ type SupportAuditEvent =
   | 'support.organization_inspection'
   | 'support.exception_queue_inspection'
   | 'support.health_snapshot_inspection'
+  | 'support.billing_recovery_inspection'
 
 export type SupportOutboxRetryAuditOutcome =
   | 'REQUESTED'
@@ -78,6 +79,14 @@ export async function recordSupportHealthSnapshotInspection(
     'support.health_snapshot_inspection',
     outcome
   )
+}
+
+/** MR-5D3D3B: mandatory actor-attributed audit before revealing cases. */
+export async function recordSupportBillingRecoveryInspection(
+  access: SupportAccess,
+  outcome: 'AVAILABLE' | 'UNAVAILABLE'
+): Promise<boolean> {
+  return recordSupportAudit(access, 'support.billing_recovery_inspection', outcome)
 }
 
 /**

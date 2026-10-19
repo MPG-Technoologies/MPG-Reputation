@@ -92,6 +92,7 @@ jobs:
             test/domain/stripe-test-action-request.test.ts \
             test/domain/stripe-test-billing-action-route.test.ts \
             test/domain/stripe-test-recovery-diagnostics.test.ts \
+            test/domain/stripe-test-provider-recovery.test.ts \
             test/domain/completion-api.test.ts \
             test/domain/completion-ingestion-schema.test.ts \
             test/domain/completion.test.ts \

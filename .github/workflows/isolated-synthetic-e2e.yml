@@ -93,6 +93,7 @@ jobs:
             test/integration/stripe-webhook-processing-leases.test.ts \
             test/integration/stripe-fenced-reconciliation.test.ts \
             test/integration/stripe-reconciliation-worker.test.ts \
+            test/integration/stripe-signed-synthetic-worker-journey.test.ts \
             test/integration/stripe-test-checkout-preflight.test.ts \
             test/integration/stripe-test-checkout-reservations.test.ts \
             test/integration/stripe-test-customer-provisioning.test.ts \

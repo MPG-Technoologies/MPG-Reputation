@@ -1,6 +1,6 @@
 # MR-5I4K — Application-Wide Active Organization Context: Security Decision Packet
 
-**Status: IN PROGRESS — CI pending; NOT OWNER ACCEPTED.**  
+**Status: ENGINEERING COMPLETE / READY FOR OWNER REVIEW — NOT OWNER ACCEPTED.**  
 **Scope: domain policy proof + architecture / browser acceptance design. NO APPLICATION-WIDE SWITCHER IS ENABLED.**
 
 ## 1. Remote source-of-truth checkpoint (2026-10-20)
@@ -63,3 +63,10 @@ The exact preference/route schema, cross-tab behavior, session lifetime, URL mig
 The unmerged MR-5 billing branch stack is a **large cumulative change**; verify the exact main diff and migration order before any owner-authorized merge. MR-5I4K itself changes only a pure unwired domain module, one test, an Internal CI allowlist line and this document. No UI, database migration/grant/RLS, provider account, real customer data, live API, billing finalizer, messaging, tenant role, deployed service, main branch, Company Stage or legal acceptance changes.
 
 **NEXT — MR-5I4L:** after owner accepts an active-org context approach, implement the first **server-only membership resolver + isolated browser acceptance infrastructure** on another feature branch, retaining independent role/RLS checks; stage migration without touching hosted production. Owner decision is needed **before changing AppLayout/nav globally**. Alternative provider-independent work can continue without this decision. Commercial provider TEST/live integration remains blocked.
+
+## 7. Verified test and diff evidence
+
+- [Internal CI #39330758929](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39330758929): **PASS** lint, Next.js typegen, TypeScript, **760/760 application tests across 56 files** (13 new MR-5I4K domain cases) and synthetic Next.js build.
+- [Isolated Synthetic E2E #39330758934](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39330758934): **PASS**, **206/206** scoped PostgreSQL tests, **7/7** retry queue, **2/2** sealed recovery operator, **4/4** signed operator = **219/219 database-backed tests**. Disposable Supabase stopped and removed.
+- Reviewed full scoped diff against parent MR-5I4J PR #64: **exactly four files** — this architecture/decision packet, pure unwired domain policy, 13-case test and one Internal CI allowlist line. No routes/components/actions/global state, RLS/grants/schema, customer PII, provider SDK/secret, live billing, hosted migrations, entitlements, trial changes, messaging, production deployment or merge to main.
+- The final documentation-only evidence commit triggers a fresh CI run. Neither real authenticated browser sessions nor app-wide tenant switching have been tested or enabled. **ENGINEERING COMPLETE does not mean OWNER ACCEPTED or product release approval.**

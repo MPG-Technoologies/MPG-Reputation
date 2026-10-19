@@ -63,10 +63,11 @@ describe.skipIf(!isDisposableDb)('MR-5E3B paid-entitlement proposal ledger — n
   }
   async function makeEvent(organizationId: string, suffix: string,
     eventType = 'invoice.paid', status: 'PROCESSED' | 'RECEIVED' = 'PROCESSED') {
+    const safeSuffix = suffix.replace(/[^A-Za-z0-9]/g, '')
     const {data, error} = await db.from('billing_webhook_events').insert({
       organization_id: organizationId,provider:'stripe',environment:'TEST',
-      provider_event_id:'evt_mr5e3b'+suffix+nonce,event_type:eventType,
-      provider_invoice_id:eventType==='invoice.paid'?'in_mr5e3b'+suffix+nonce:null,
+      provider_event_id:'evt_mr5e3b'+safeSuffix+nonce,event_type:eventType,
+      provider_invoice_id:eventType==='invoice.paid'?'in_mr5e3b'+safeSuffix+nonce:null,
       processing_status:status,payload_hash:'a'.repeat(64),
       processed_at:status==='PROCESSED'?'2026-10-19T12:00:00Z':null,
     }).select('id').single()
@@ -89,6 +90,8 @@ describe.skipIf(!isDisposableDb)('MR-5E3B paid-entitlement proposal ledger — n
         !url.startsWith('http://localhost:54331')) throw new Error('DISPOSABLE_DB_ONLY')
     orgA=await makeOrg('A')
     orgB=await makeOrg('B')
+    const {error:trialError}=await db.rpc('provision_organization_trial',{p_org_id:orgA})
+    if(trialError) throw new Error('TRIAL_SETUP_FAILED: '+trialError.message)
     subA=await makeSubscription(orgA,'a')
     subB=await makeSubscription(orgB,'b')
     eventA=await makeEvent(orgA,'a')

@@ -23,7 +23,7 @@ import { getConfiguredReputationBillingCatalog } from './pricing'
 import { resolveStripePriceBinding } from './stripe-plan-bindings'
 
 const EVENT = /^evt_[A-Za-z0-9]+$/
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const TOKEN = /^[a-f0-9]{64}$/
 const PLANS = ['monthly', 'annual'] as const
 

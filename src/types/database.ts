@@ -1403,6 +1403,107 @@ export interface Database {
           }
         ]
       }
+      billing_synthetic_invoice_evidence_drafts: {
+        Row: {
+          id: string
+          organization_id: string
+          billing_account_id: string
+          subscription_record_id: string
+          webhook_event_record_id: string
+          provider: 'stripe'
+          environment: 'TEST'
+          provider_invoice_id: string
+          provider_event_id: string
+          source_payload_hash: string
+          candidate_price_id: string
+          candidate_currency: 'PHP'
+          candidate_amount_minor: number
+          candidate_interval: 'month' | 'year'
+          candidate_period_start: string
+          candidate_period_end: string
+          source_kind: 'SYNTHETIC'
+          verification_status: 'UNVERIFIED'
+          financial_finality: false
+          access_authorized: false
+          recorded_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          billing_account_id: string
+          subscription_record_id: string
+          webhook_event_record_id: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          provider_invoice_id: string
+          provider_event_id: string
+          source_payload_hash: string
+          candidate_price_id: string
+          candidate_currency?: 'PHP'
+          candidate_amount_minor: number
+          candidate_interval: 'month' | 'year'
+          candidate_period_start: string
+          candidate_period_end: string
+          source_kind?: 'SYNTHETIC'
+          verification_status?: 'UNVERIFIED'
+          financial_finality?: false
+          access_authorized?: false
+          recorded_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          billing_account_id?: string
+          subscription_record_id?: string
+          webhook_event_record_id?: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          provider_invoice_id?: string
+          provider_event_id?: string
+          source_payload_hash?: string
+          candidate_price_id?: string
+          candidate_currency?: 'PHP'
+          candidate_amount_minor?: number
+          candidate_interval?: 'month' | 'year'
+          candidate_period_start?: string
+          candidate_period_end?: string
+          source_kind?: 'SYNTHETIC'
+          verification_status?: 'UNVERIFIED'
+          financial_finality?: false
+          access_authorized?: false
+          recorded_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_synthetic_invoice_evidence_drafts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mr5i4f_account_identity_fkey"
+            columns: ["billing_account_id", "organization_id", "provider", "environment"]
+            isOneToOne: false
+            referencedRelation: "organization_billing_accounts"
+            referencedColumns: ["id", "organization_id", "provider", "environment"]
+          },
+          {
+            foreignKeyName: "mr5i4f_subscription_identity_fkey"
+            columns: ["subscription_record_id", "organization_id", "provider", "environment"]
+            isOneToOne: false
+            referencedRelation: "organization_subscriptions"
+            referencedColumns: ["id", "organization_id", "provider", "environment"]
+          },
+          {
+            foreignKeyName: "billing_synthetic_invoice_evidence_drafts_webhook_event_record_id_fkey"
+            columns: ["webhook_event_record_id"]
+            isOneToOne: false
+            referencedRelation: "billing_webhook_events"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       billing_paid_entitlement_proposals: {
         Row: {
           id: string

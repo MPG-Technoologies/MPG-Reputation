@@ -120,6 +120,23 @@ describe.skipIf(!hasDb)('MR-5E2D2 fenced invoice event claims', () => {
     })
     expect(await claim(id)).toEqual({outcome:'MANUAL_REVIEW'})
   })
+  it('refuses to finalize a lease that has expired before takeover', async () => {
+    const id = await fixture()
+    const leased = await claim(id)
+    expect(leased.outcome).toBe('CLAIMED')
+    if (leased.outcome !== 'CLAIMED') throw new Error('SETUP_CLAIM_FAILED')
+    const {error} = await db.from('billing_webhook_events')
+      .update({processing_lease_expires_at:'2020-01-01T00:00:00Z'})
+      .eq('provider_event_id',id)
+    expect(error).toBeNull()
+    expect(await fail(id,leased.leaseToken)).toEqual({outcome:'STALE_OR_NOT_CLAIMED'})
+    expect(await row(id)).toMatchObject({processing_status:'PROCESSING',processing_attempt_count:1})
+    const replacement = await claim(id)
+    expect(replacement.outcome).toBe('CLAIMED')
+    if (replacement.outcome !== 'CLAIMED') throw new Error('REPLACEMENT_CLAIM_FAILED')
+    expect(replacement.attempts).toBe(2)
+    expect(await fail(id,replacement.leaseToken)).toEqual({outcome:'FAILED_REQUIRES_REVIEW'})
+  })
   it('blocks further claims after third crashed/expired attempt', async () => {
     const id = await fixture()
     for (let i=1;i<=3;i++) {

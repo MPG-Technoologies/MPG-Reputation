@@ -151,6 +151,7 @@ export async function inspectProviderInvoiceEvidence(args: {
       !Number.isSafeInteger(invoice.amountPaidMinor) ||
       !Number.isSafeInteger(invoice.amountRemainingMinor) ||
       !Number.isSafeInteger(invoice.refundedMinor) ||
+      typeof invoice.currency !== 'string' ||
       invoice.amountDueMinor < 0 || invoice.amountPaidMinor < 0 ||
       invoice.amountRemainingMinor < 0 || invoice.refundedMinor < 0 ||
       validDate(invoice.observedAt) === null ||

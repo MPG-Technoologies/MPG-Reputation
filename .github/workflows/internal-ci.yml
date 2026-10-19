@@ -93,6 +93,7 @@ jobs:
             test/domain/usage-organization-context.test.ts \
             test/domain/usage-organization-page.test.ts \
             test/domain/active-organization-policy.test.ts \
+            test/domain/server-active-organization.test.ts \
             test/domain/subscription-lifecycle-proposals.test.ts \
             test/domain/synthetic-exception-reconciliation.test.ts \
             test/domain/stripe-subscription-candidate.test.ts \

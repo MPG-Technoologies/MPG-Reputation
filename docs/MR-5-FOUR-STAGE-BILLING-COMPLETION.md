@@ -151,3 +151,25 @@ this ingress INSERT guard is a complete settlement invariant.
 A repo-only, service-role-restricted `billing_synthetic_invoice_reconciliation_reviews` table captures **review-required synthetic correlations**, never financial truth. A PostgreSQL INSERT trigger matches the persisted quote, invoice evidence draft, checkout reservation, signed event receipt, billing account and subscription projection for exact TEST org/account/Price/currency/amount/interval. A SECURITY INVOKER RPC `record_mr5_synthetic_invoice_review` inserts one immutable review row per provider TEST invoice using unique constraints and `ON CONFLICT DO NOTHING`, returning `REQUIRES_PROVIDER_ATTESTATION`, `ALREADY_RECORDED` or `REPLAY_CONFLICT`. No paid status, successful invoice finalizer, billing charge, real provider read or entitlement mutation exists. Hard-false SQL checks enforce `financial_finality=false` and `access_authorized=false`.
 
 **This is not an accepted financial-settlement ledger.** It is a durable non-authorizing manual review staging record and still lacks a provider-authenticated invoice-to-checkout association and accepted frozen commercial contract. Synthetic review acceptance must never be used to interpret provider funds received or to promote paid access. This is a candidate migration for disposable CI only, not hosted deployment.
+
+## Stage 1 — idempotent review lookup after webhook failure
+
+The additive, **disposable-CI-only** migration
+`20261020130000_mr5_stage1_stable_synthetic_review_replays.sql`
+addresses a review-replay edge case: after a signed synthetic invoice receipt
+transitions from `PROCESSING` to `FAILED`, the original INSERT trigger
+correctly refuses *new* evidence, but previously the review RPC also retried
+that INSERT before checking an existing immutable row. An exact replay could
+therefore fail instead of returning `ALREADY_RECORDED`.
+
+The updated service-only SECURITY INVOKER RPC first checks for the already
+recorded provider/environment/invoice tuple and returns `ALREADY_RECORDED`
+only for the exact saved quote and draft; a mismatched quote returns
+`REPLAY_CONFLICT`. First-time submissions still pass the unchanged source
+validation INSERT trigger; concurrent first admissions still use the existing
+unique invoice key and `ON CONFLICT DO NOTHING`. Integration regression
+coverage includes post-failure exact replay, conflicting replay and direct
+failed-source INSERT rejection. **These outcomes remain non-authorizing;
+financial_finality and access_authorized stay false.** No hosted migration,
+provider request, successful settlement or paid entitlement is included.
+

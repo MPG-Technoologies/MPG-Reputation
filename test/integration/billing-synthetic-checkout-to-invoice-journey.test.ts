@@ -4,6 +4,7 @@ import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
 import type { Database, Json } from '../../src/types/database'
 import { POST as ingestStripeWebhook } from '../../src/app/api/webhooks/stripe/route'
+import { compareSyntheticFrozenInvoiceCandidates } from '../../src/domain/billing/synthetic-frozen-invoice-consistency'
 
 /**
  * MR-5 integrated, DISPOSABLE-DB-ONLY acceptance: checkout reservation ->
@@ -307,6 +308,34 @@ describe.skipIf(!enabled)('MR-5 signed TEST checkout-to-invoice journey without 
       verification_status: 'UNVERIFIED', financial_finality: false,
       access_authorized: false,
     })
+
+    // Read the ACTUALLY persisted proposed historic quote and invoice draft.
+    // Their matching attributes are not provider invoice-to-checkout provenance.
+    const [savedQuote, savedInvoice] = await Promise.all([
+      db.from('billing_synthetic_checkout_quote_snapshots')
+        .select('organization_id,billing_account_id,provider,environment,provider_price_id,candidate_currency,candidate_amount_minor,candidate_interval,source_kind,approval_status,verification_status,payment_authorized,access_authorized')
+        .eq('checkout_reservation_id', checkoutReservationId).single(),
+      db.from('billing_synthetic_invoice_evidence_drafts')
+        .select('organization_id,billing_account_id,provider,environment,provider_invoice_id,candidate_price_id,candidate_currency,candidate_amount_minor,candidate_interval,source_kind,verification_status,financial_finality,access_authorized')
+        .eq('provider_invoice_id', invoiceId).single(),
+    ])
+    if (savedQuote.error || !savedQuote.data || savedInvoice.error || !savedInvoice.data) {
+      throw new Error('SYNTHETIC_FINANCIAL_SNAPSHOT_READ_FAILED')
+    }
+    expect(compareSyntheticFrozenInvoiceCandidates({
+      quote: savedQuote.data, invoice: savedInvoice.data,
+    })).toEqual({
+      outcome: 'CONSISTENT_SYNTHETIC_ONLY',
+      financialFinality: false, accessAuthorized: false,
+    })
+    expect(compareSyntheticFrozenInvoiceCandidates({
+      quote: savedQuote.data,
+      invoice: { ...savedInvoice.data, candidate_amount_minor: 100000 },
+    })).toEqual({ outcome: 'BLOCKED', reason: 'FROZEN_TERMS_MISMATCH' })
+    expect(compareSyntheticFrozenInvoiceCandidates({
+      quote: savedQuote.data,
+      invoice: { ...savedInvoice.data, organization_id: orgB },
+    })).toEqual({ outcome: 'BLOCKED', reason: 'CROSS_TENANT_OR_ACCOUNT' })
 
     // A foreign organization's account/subscription cannot be substituted.
     const foreign = await db.from('billing_synthetic_invoice_evidence_drafts')

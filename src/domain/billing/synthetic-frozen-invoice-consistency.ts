@@ -56,7 +56,10 @@ const blocked = (
   reason: Extract<SyntheticFrozenInvoiceComparison, { outcome: 'BLOCKED' }>['reason']
 ): SyntheticFrozenInvoiceComparison => ({ outcome: 'BLOCKED', reason })
 
-const validMinor = (value: unknown) =>
+const isUuid = (value: unknown): value is string =>
+  typeof value === 'string' && UUID.test(value)
+
+const validMinor = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) &&
   value > 0 && value <= MAX_MINOR
 
@@ -71,10 +74,10 @@ export function compareSyntheticFrozenInvoiceCandidates(args: {
 }): SyntheticFrozenInvoiceComparison {
   const { quote, invoice } = args
   if (!quote || !invoice) return blocked('MISSING_RECORD')
-  if (!UUID.test(String(quote.organization_id)) ||
-      !UUID.test(String(quote.billing_account_id)) ||
-      !UUID.test(String(invoice.organization_id)) ||
-      !UUID.test(String(invoice.billing_account_id)) ||
+  if (!isUuid(quote.organization_id) ||
+      !isUuid(quote.billing_account_id) ||
+      !isUuid(invoice.organization_id) ||
+      !isUuid(invoice.billing_account_id) ||
       !PRICE.test(String(quote.provider_price_id)) ||
       !PRICE.test(String(invoice.candidate_price_id)) ||
       !INVOICE.test(String(invoice.provider_invoice_id)) ||

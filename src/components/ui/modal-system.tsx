@@ -39,6 +39,7 @@ export interface ModalProviderProps {
   readyLocations: ReadyLocation[]
   isReady: boolean
   readinessError?: boolean
+  blockReason?: 'MULTIPLE_BUSINESSES' | 'READ_ONLY' | 'UNVERIFIED'
 }
 
 export function ModalProvider({
@@ -47,6 +48,7 @@ export function ModalProvider({
   readyLocations,
   isReady,
   readinessError = false,
+  blockReason,
 }: ModalProviderProps) {
   const [isOpen, setIsOpen] = useState(false)
   const previousActiveElement = useRef<HTMLElement | null>(null)
@@ -150,7 +152,15 @@ export function ModalProvider({
 
             {/* Modal Body */}
             <div className="p-6 overflow-y-auto min-h-0 flex-1">
-              {readinessError ? (
+              {blockReason ? (
+                <div role="alert" className="p-4 rounded-lg bg-amber-950/40 border border-amber-800 text-xs text-amber-200 leading-relaxed">
+                  {blockReason === 'MULTIPLE_BUSINESSES'
+                    ? 'Multiple business memberships detected. Quick Complete needs a verified business context; business switching is not yet available.'
+                    : blockReason === 'READ_ONLY'
+                      ? 'Your workspace role is VIEWER (read-only). Ask an owner or administrator for operational access to record completions.'
+                      : 'Your business membership could not be verified. No completion can be recorded.'}
+                </div>
+              ) : readinessError ? (
                 <DataLoadError title="Quick Complete setup status could not be loaded" />
               ) : !isReady && readyLocations.length === 0 ? (
                 <div className="p-4 rounded-lg bg-amber-950/40 border border-amber-800 text-xs text-amber-200 leading-relaxed">

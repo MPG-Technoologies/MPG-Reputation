@@ -12,7 +12,6 @@ const names = [
   'NEXT_PUBLIC_SUPABASE_URL',
   'ENABLE_LIVE_BILLING',
   'VERCEL_ENV',
-  'NODE_ENV',
 ] as const
 const original = Object.fromEntries(names.map(name => [name, process.env[name]]))
 
@@ -20,7 +19,6 @@ function localTest() {
   process.env.ENABLE_STRIPE_TEST_RECOVERY_DISPATCHER = 'true'
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://127.0.0.1:54331'
   process.env.ENABLE_LIVE_BILLING = 'false'
-  process.env.NODE_ENV = 'test'
   delete process.env.VERCEL_ENV
 }
 
@@ -48,9 +46,11 @@ function fixture() {
 describe('Standalone TEST billing recovery entry points cannot escape local mode', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubEnv('NODE_ENV', 'test')
     localTest()
   })
   afterEach(() => {
+    vi.unstubAllEnvs()
     for (const name of names) {
       const value = original[name]
       if (value === undefined) delete process.env[name]

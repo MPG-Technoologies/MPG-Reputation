@@ -37,7 +37,7 @@ function form() {
 function fixture(input: Fixture = {}) {
   const filters: { table: string; column: string; value: unknown }[] = []
   const from = vi.fn((table: string) => ({
-    select: (_columns: string) => {
+    select: () => {
       const query = {
         eq(column: string, value: unknown) {
           filters.push({ table, column, value })

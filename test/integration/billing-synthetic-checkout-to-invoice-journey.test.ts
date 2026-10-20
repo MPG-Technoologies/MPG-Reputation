@@ -471,6 +471,21 @@ describe.skipIf(!enabled)('MR-5 signed TEST checkout-to-invoice journey without 
     expect((await reviewAnon.from('billing_synthetic_invoice_reconciliation_reviews')
       .select('id')).error?.code).toBe('42501')
 
+    // A replay of the exact source tuple stays idempotent after admission.
+    const repeatReview = await reviewDb.rpc('record_mr5_synthetic_invoice_review', reviewArgs)
+    expect(repeatReview.error).toBeNull()
+    expect(repeatReview.data).toMatchObject({
+      outcome: 'ALREADY_RECORDED',
+      financial_finality: false,
+      access_authorized: false,
+    })
+    const { count: replayCount, error: replayCountError } = await reviewDb
+      .from('billing_synthetic_invoice_reconciliation_reviews')
+      .select('id', { count: 'exact', head: true })
+      .eq('provider_invoice_id', invoiceId)
+    expect(replayCountError).toBeNull()
+    expect(replayCount).toBe(1)
+
     // A foreign organization's account/subscription cannot be substituted.
     const foreign = await db.from('billing_synthetic_invoice_evidence_drafts')
       .insert({

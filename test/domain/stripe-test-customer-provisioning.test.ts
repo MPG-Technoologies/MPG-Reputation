@@ -116,6 +116,16 @@ describe('MR-5D3B1 synthetic Customer provisioning', () => {
     })
     expect(f.admin.rpc).not.toHaveBeenCalled()
   })
+  it('rejects a signed-in Supabase anonymous identity before any billing or provider call', async () => {
+    const f=fixture()
+    f.user.auth.getUser.mockResolvedValueOnce({
+      data:{user:{id:userId,is_anonymous:true}},error:null,
+    })
+    expect(await f.run()).toEqual({outcome:'BLOCKED',reason:'NOT_AUTHENTICATED'})
+    expect(f.user.rpc).not.toHaveBeenCalled()
+    expect(f.admin.rpc).not.toHaveBeenCalled()
+    expect(f.createCustomer).not.toHaveBeenCalled()
+  })
   it('creates with a frozen trusted name and an immutable idempotency key', async () => {
     const f = fixture()
     expect(await f.run()).toEqual({ outcome: 'READY', alreadyLinked: false })

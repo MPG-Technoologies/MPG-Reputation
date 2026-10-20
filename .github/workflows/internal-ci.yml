@@ -111,6 +111,7 @@ jobs:
             test/domain/synthetic-invoice-projection-correlation.test.ts \
             test/domain/synthetic-invoice-finality-plan.test.ts \
             test/domain/synthetic-frozen-invoice-consistency.test.ts \
+            test/domain/synthetic-invoice-evidence-chain.test.ts \
             test/domain/mr5i4e-invoice-finality-nonactivation.test.ts \
             test/domain/mr5i4h-billing-surface-nonactivation.test.ts \
             test/domain/billing-workspace-organization-selection.test.ts \

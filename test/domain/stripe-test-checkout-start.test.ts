@@ -22,7 +22,8 @@ const expiry = '2026-10-18T20:00:00.000Z'
 const expiryUnix = Math.floor(Date.parse(expiry) / 1000)
 const stripeUrl = 'https://checkout.stripe.com/c/pay/cs_test_SyntheticABC'
 const knownVars = ['ENABLE_STRIPE_TEST_CHECKOUT_CREATE','ENABLE_LIVE_BILLING',
-  'MPG_BILLING_CHECKOUT_RETURN_ORIGIN','STRIPE_SECRET_KEY'] as const
+  'MPG_BILLING_CHECKOUT_RETURN_ORIGIN','STRIPE_SECRET_KEY',
+  'NEXT_PUBLIC_SUPABASE_URL','VERCEL_ENV'] as const
 const original = Object.fromEntries(knownVars.map(k => [k, process.env[k]]))
 const mockPreflight = vi.mocked(prepareStripeTestCheckout)
 
@@ -74,6 +75,8 @@ describe('MR-5D2 synthetic TEST checkout idempotency and provider validation', (
     process.env.ENABLE_STRIPE_TEST_CHECKOUT_CREATE='true'
     process.env.ENABLE_LIVE_BILLING='false'
     process.env.MPG_BILLING_CHECKOUT_RETURN_ORIGIN='http://localhost:3000'
+    process.env.NEXT_PUBLIC_SUPABASE_URL='http://127.0.0.1:54331'
+    delete process.env.VERCEL_ENV
     mockPreflight.mockResolvedValue({
       outcome:'READY',
       intent:{
@@ -84,6 +87,7 @@ describe('MR-5D2 synthetic TEST checkout idempotency and provider validation', (
     })
   })
   afterEach(() => {
+    vi.unstubAllEnvs()
     for(const k of knownVars) {
       const old=original[k]
       if(old===undefined)delete process.env[k]
@@ -102,6 +106,29 @@ describe('MR-5D2 synthetic TEST checkout idempotency and provider validation', (
     process.env.ENABLE_LIVE_BILLING='true'
     const s=fixtures()
     expect(await s.run()).toEqual({outcome:'DISABLED'})
+  })
+  it('refuses hosted and preview direct checkout calls before preflight or provider effects',async()=>{
+    for(const patch of [
+      {NEXT_PUBLIC_SUPABASE_URL:'https://hosted.supabase.co'},
+      {NEXT_PUBLIC_SUPABASE_URL:'http://127.0.0.1:54321'},
+      {VERCEL_ENV:'preview'},
+    ]) {
+      process.env.NEXT_PUBLIC_SUPABASE_URL='http://127.0.0.1:54331'
+      delete process.env.VERCEL_ENV
+      Object.assign(process.env,patch)
+      const f=fixtures()
+      expect(await f.run()).toEqual({outcome:'DISABLED'})
+      expect(mockPreflight).not.toHaveBeenCalled()
+      expect(f.trustedBillingSupabase.rpc).not.toHaveBeenCalled()
+      expect(f.createSession).not.toHaveBeenCalled()
+    }
+  })
+  it('refuses a production runtime even with local DB and TEST checkout enabled',async()=>{
+    vi.stubEnv('NODE_ENV','production')
+    const f=fixtures()
+    expect(await f.run()).toEqual({outcome:'DISABLED'})
+    expect(mockPreflight).not.toHaveBeenCalled()
+    expect(f.createSession).not.toHaveBeenCalled()
   })
   it('returns preflight denial without opening checkout reservation',async()=>{
     mockPreflight.mockResolvedValue({outcome:'BLOCKED',reason:'NOT_AUTHORIZED'})

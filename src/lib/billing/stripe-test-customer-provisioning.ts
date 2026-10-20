@@ -40,6 +40,7 @@ function provisioningEnabled(): boolean {
   return process.env.ENABLE_STRIPE_TEST_CUSTOMER_PROVISIONING === 'true' &&
     process.env.MPG_STRIPE_TEST_PROVISIONING_TARGET === 'LOCAL_SYNTHETIC' &&
     process.env.ENABLE_LIVE_BILLING !== 'true' &&
+    process.env.NODE_ENV !== 'production' &&
     process.env.VERCEL_ENV === undefined &&
     ['http://127.0.0.1:54331', 'http://localhost:54331']
       .includes(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '')

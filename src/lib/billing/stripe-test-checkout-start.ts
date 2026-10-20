@@ -89,8 +89,14 @@ export async function startStripeTestCheckout(args: {
   retrievePrice: (priceId: string) => Promise<ProviderRecurringPriceSnapshot>
   createSession: (input: StripeTestCheckoutCreateOptions) => Promise<StripeTestCheckoutSession>
 }): Promise<StripeTestCheckoutStartResult> {
+  // Direct helper calls must obey the same LOCAL_SYNTHETIC boundary as the
+  // internal HTTP route before any RLS read, privileged reservation or provider.
   if (process.env.ENABLE_STRIPE_TEST_CHECKOUT_CREATE !== 'true' ||
-      process.env.ENABLE_LIVE_BILLING === 'true') return { outcome: 'DISABLED' }
+      process.env.ENABLE_LIVE_BILLING === 'true' ||
+      process.env.NODE_ENV === 'production' ||
+      process.env.VERCEL_ENV !== undefined ||
+      !['http://127.0.0.1:54331', 'http://localhost:54331']
+        .includes(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '')) return { outcome: 'DISABLED' }
 
   const preflight: StripeTestCheckoutPreparation = await prepareStripeTestCheckout({
     supabase: args.userSupabase,

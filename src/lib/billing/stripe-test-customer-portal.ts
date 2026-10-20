@@ -74,6 +74,7 @@ export async function prepareStripeTestPortalSession(args: {
   if (process.env.ENABLE_STRIPE_TEST_PORTAL !== 'true' ||
       process.env.MPG_STRIPE_TEST_PORTAL_TARGET !== 'LOCAL_SYNTHETIC' ||
       process.env.ENABLE_LIVE_BILLING === 'true' ||
+      process.env.NODE_ENV === 'production' ||
       process.env.VERCEL_ENV !== undefined ||
       !['http://127.0.0.1:54331', 'http://localhost:54331']
         .includes(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '')) {

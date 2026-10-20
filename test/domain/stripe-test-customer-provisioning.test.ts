@@ -77,6 +77,7 @@ describe('MR-5D3B1 synthetic Customer provisioning', () => {
     enableLocal()
   })
   afterEach(() => {
+    vi.unstubAllEnvs()
     for (const k of keys) {
       const old = original[k]
       if (old === undefined) delete process.env[k]
@@ -100,6 +101,14 @@ describe('MR-5D3B1 synthetic Customer provisioning', () => {
       expect(f.admin.rpc).not.toHaveBeenCalled()
       expect(f.createCustomer).not.toHaveBeenCalled()
     }
+  })
+  it('refuses standalone TEST Customer creation in production runtime',async()=>{
+    vi.stubEnv('NODE_ENV','production')
+    const f=fixture()
+    expect(await f.run()).toEqual({outcome:'DISABLED'})
+    expect(f.user.auth.getUser).not.toHaveBeenCalled()
+    expect(f.admin.rpc).not.toHaveBeenCalled()
+    expect(f.createCustomer).not.toHaveBeenCalled()
   })
   it('checks session, organization UUID and owner/admin role before privilege', async () => {
     for (const options of [

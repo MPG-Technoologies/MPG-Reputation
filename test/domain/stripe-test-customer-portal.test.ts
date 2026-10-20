@@ -98,6 +98,7 @@ describe('MR-5D3B2 safe TEST Customer Portal preparation', () => {
     enableTest()
   })
   afterEach(() => {
+    vi.unstubAllEnvs()
     for (const name of names) {
       if (old[name] === undefined) delete process.env[name]
       else process.env[name] = old[name]
@@ -118,6 +119,14 @@ describe('MR-5D3B2 safe TEST Customer Portal preparation', () => {
       expect(f.userSupabase.auth.getUser).not.toHaveBeenCalled()
       expect(f.createSession).not.toHaveBeenCalled()
     }
+  })
+  it('refuses standalone TEST customer portal in production runtime',async()=>{
+    vi.stubEnv('NODE_ENV','production')
+    const f=fixture()
+    expect(await f.run()).toEqual({outcome:'DISABLED'})
+    expect(f.userSupabase.auth.getUser).not.toHaveBeenCalled()
+    expect(f.retrieveConfiguration).not.toHaveBeenCalled()
+    expect(f.createSession).not.toHaveBeenCalled()
   })
   it('authenticates before any privileged provider call or account lookup', async () => {
     const f = fixture({ authenticated: false })

@@ -30,14 +30,30 @@ jobs:
     steps:
       - name: Checkout (read-only)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Keep the existing required job name, but skip Docker only when every
+      # PR change is allowlisted Markdown. Any uncertain scope runs full E2E.
+      - name: Classify PR change scope (fail closed)
+        id: scope
+        shell: bash
+        run: bash .github/scripts/classify-ci-changes.sh
+
+      - name: Documentation-only verification
+        if: steps.scope.outputs.docs_only == 'true'
+        run: |
+          echo "Markdown-only PR: disposable database work not needed."
 
       - name: Install pnpm
+        if: steps.scope.outputs.docs_only != 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 10.33.2
           run_install: false
 
       - name: Setup Node.js
+        if: steps.scope.outputs.docs_only != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -57,18 +73,21 @@ jobs:
           fi
 
       - name: Install locked dependencies
+        if: steps.scope.outputs.docs_only != 'true'
         run: pnpm install --frozen-lockfile
 
       # Runner-owned ephemeral Docker network/database. The CLI uses the
       # repository's migrations and seed fixtures; no project linking, db push,
       # remote reset, hosted account, or provider credential is used.
       - name: Start disposable local Supabase
+        if: steps.scope.outputs.docs_only != 'true'
         timeout-minutes: 25
         run: |
           pnpm dlx supabase@2.117.0 start \
             -x studio,imgproxy,edge-runtime,logflare,vector,realtime,storage-api,postgres-meta,supavisor,mailpit
 
       - name: Load ephemeral local API credentials
+        if: steps.scope.outputs.docs_only != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -86,9 +105,10 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Run scoped synthetic database-backed E2E test
+        if: steps.scope.outputs.docs_only != 'true'
         run: pnpm exec vitest run test/integration/true-e2e.test.ts
 
       - name: Stop and erase disposable local Supabase containers
-        if: always()
+        if: always() && steps.scope.outputs.docs_only != 'true'
         continue-on-error: true
         run: pnpm dlx supabase@2.117.0 stop --no-backup

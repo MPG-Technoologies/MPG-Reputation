@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js'
 import type { Database, Json } from '../../src/types/database'
 import { POST as ingestStripeWebhook } from '../../src/app/api/webhooks/stripe/route'
 import { compareSyntheticFrozenInvoiceCandidates } from '../../src/domain/billing/synthetic-frozen-invoice-consistency'
+import { inspectSyntheticInvoiceEvidenceChain } from '../../src/domain/billing/synthetic-invoice-evidence-chain'
 
 /**
  * MR-5 integrated, DISPOSABLE-DB-ONLY acceptance: checkout reservation ->
@@ -313,10 +314,10 @@ describe.skipIf(!enabled)('MR-5 signed TEST checkout-to-invoice journey without 
     // Their matching attributes are not provider invoice-to-checkout provenance.
     const [savedQuote, savedInvoice] = await Promise.all([
       db.from('billing_synthetic_checkout_quote_snapshots')
-        .select('organization_id,billing_account_id,provider,environment,provider_price_id,candidate_currency,candidate_amount_minor,candidate_interval,source_kind,approval_status,verification_status,payment_authorized,access_authorized')
+        .select('checkout_reservation_id,plan_id,organization_id,billing_account_id,provider,environment,provider_price_id,candidate_currency,candidate_amount_minor,candidate_interval,source_kind,approval_status,verification_status,payment_authorized,access_authorized')
         .eq('checkout_reservation_id', checkoutReservationId).single(),
       db.from('billing_synthetic_invoice_evidence_drafts')
-        .select('organization_id,billing_account_id,provider,environment,provider_invoice_id,candidate_price_id,candidate_currency,candidate_amount_minor,candidate_interval,source_kind,verification_status,financial_finality,access_authorized')
+        .select('subscription_record_id,webhook_event_record_id,provider_event_id,source_payload_hash,organization_id,billing_account_id,provider,environment,provider_invoice_id,candidate_price_id,candidate_currency,candidate_amount_minor,candidate_interval,source_kind,verification_status,financial_finality,access_authorized')
         .eq('provider_invoice_id', invoiceId).single(),
     ])
     if (savedQuote.error || !savedQuote.data || savedInvoice.error || !savedInvoice.data) {
@@ -336,6 +337,50 @@ describe.skipIf(!enabled)('MR-5 signed TEST checkout-to-invoice journey without 
       quote: savedQuote.data,
       invoice: { ...savedInvoice.data, organization_id: orgB },
     })).toEqual({ outcome: 'BLOCKED', reason: 'CROSS_TENANT_OR_ACCOUNT' })
+
+    // Six REAL disposable PostgreSQL source records, exact-ID correlated.
+    // This is a security review diagnostic, not Stripe-authenticated checkout
+    // linkage, settled money, a successful invoice or a paid subscription.
+    const [storedReservation, storedAccount, storedSubscription, storedReceipt] =
+      await Promise.all([
+        db.from('stripe_test_checkout_reservations')
+          .select('id,organization_id,billing_account_id,provider,environment,provider_customer_id,provider_price_id,plan_id,status,stripe_session_id')
+          .eq('id', checkoutReservationId).single(),
+        db.from('organization_billing_accounts')
+          .select('id,organization_id,provider,environment,provider_customer_id')
+          .eq('id',accountA).single(),
+        db.from('organization_subscriptions')
+          .select('id,organization_id,billing_account_id,provider,environment,provider_price_id,provider_subscription_id,normalized_status')
+          .eq('id',subscriptionRecordA).single(),
+        db.from('billing_webhook_events')
+          .select('id,provider,environment,provider_event_id,event_type,provider_invoice_id,payload_hash,processing_status,organization_id,processed_at')
+          .eq('id',original.id).single(),
+      ])
+    if (storedReservation.error || !storedReservation.data ||
+        storedAccount.error || !storedAccount.data ||
+        storedSubscription.error || !storedSubscription.data ||
+        storedReceipt.error || !storedReceipt.data) {
+      throw new Error('SYNTHETIC_CHAIN_PRIVATE_SOURCE_READ_FAILED')
+    }
+    const chain = {
+      quote:savedQuote.data,invoice:savedInvoice.data,
+      reservation:storedReservation.data,account:storedAccount.data,
+      subscription:storedSubscription.data,receipt:storedReceipt.data,
+    }
+    expect(inspectSyntheticInvoiceEvidenceChain(chain)).toEqual({
+      outcome:'SYNTHETIC_CHAIN_ONLY',
+      unresolved:'INVOICE_TO_CHECKOUT_PROVIDER_PROVENANCE_NOT_ESTABLISHED',
+      paymentAuthorized:false,financialFinality:false,accessAuthorized:false,
+    })
+    expect(inspectSyntheticInvoiceEvidenceChain({
+      ...chain,receipt:{...chain.receipt,payload_hash:'b'.repeat(64)},
+    })).toEqual({outcome:'REVIEW_REQUIRED',reason:'RECEIPT_MISMATCH'})
+    expect(inspectSyntheticInvoiceEvidenceChain({
+      ...chain,subscription:{...chain.subscription,billing_account_id:accountB},
+    })).toEqual({outcome:'REVIEW_REQUIRED',reason:'SUBSCRIPTION_MISMATCH'})
+    expect(inspectSyntheticInvoiceEvidenceChain({
+      ...chain,reservation:{...chain.reservation,status:'PREPARING'},
+    })).toEqual({outcome:'REVIEW_REQUIRED',reason:'CHECKOUT_NOT_READY'})
 
     // A foreign organization's account/subscription cannot be substituted.
     const foreign = await db.from('billing_synthetic_invoice_evidence_drafts')

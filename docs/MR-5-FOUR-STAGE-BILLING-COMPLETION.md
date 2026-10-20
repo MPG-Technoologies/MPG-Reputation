@@ -51,4 +51,36 @@ Use four **outcome-based grouped engineering stages**, not four automatic approv
 
 Add a pure, untrusted-candidate comparison for saved private synthetic checkout quotes and synthetic invoice drafts. Require exact tenant/account/Price/currency/amount/interval plus hard-false finance and access status. Return `CONSISTENT_SYNTHETIC_ONLY` only; **no positive payment or entitlement authorization**. Add negative evidence tests and use it in existing disposable-db checkout-to-invoice acceptance. Does NOT create financial ledger, successful finalization RPC, DB migration, provider connector, real charge or trial mutation.
 
+## Batch 1 second bounded slice — read-only invoice evidence chain
+
+The existing signed local invoice journey reads six **real disposable PostgreSQL records**:
+the tenant's saved checkout quote, exact checkout reservation, billing account,
+subscription projection, private synthetic invoice draft, and signed receipt.
+`inspectSyntheticInvoiceEvidenceChain` validates record IDs, account/tenant/
+provider/environment, Price, existing checkout session shape, subscription and
+receipt event ID/hash/invoice and invoice event status. It refuses altered sources,
+foreign tenants, non-READY checkout, processed/failed receipts, unknown session
+IDs and missing sources.
+
+**Even a six-record match returns only `SYNTHETIC_CHAIN_ONLY`**, with
+`paymentAuthorized=false`, `financialFinality=false` and
+`accessAuthorized=false`. Crucially, neither matching local amount nor event
+signature proves that an actual Stripe invoice belongs to that checkout session.
+**An accepted provider-authenticated invoice → checkout → subscription/Price
+association is still missing and must never be inferred.** No hosted database,
+provider credentials, financial SQL migration, production call or live entitlement
+is included.
+
+### Settlement contract sign-off packet (owner decisions still OPEN)
+
+| Decision | Default fail-closed engineering posture |
+|---|---|
+| Exact money event | Require approved independent provider payment/charge evidence; signed invoice webhook and subscription ACTIVE are not enough |
+| Invoice/checkout link | Require authenticated provider references to exact intended checkout/session, Customer, Subscription and Price; local equality is insufficient |
+| Frozen price authority | Require independently accepted immutable terms, currency and billing period; current configurable catalog and synthetic quotes are not contracts |
+| Partial, zero, tax, discount, proration and multi-line invoices | Manual review until explicitly accepted and specified |
+| Refund, dispute, chargeback, payment reversal | Manual review / no automatic entitlement extension until owner-approved state and clawback rules |
+| Concurrency, retries, duplicate Event IDs or different Event IDs for same invoice | Single atomic DB invoice key and fenced transaction, independent verification and rollback proof before permission to mark successful |
+| Audits, retention, PII and credential trust | Least-privilege service boundary, provenance timestamp and audit retention policy require review |
+
 **Open owner decision before Stage 1 can actually finalize money:** provider TEST access, what constitutes settled/captured money, supported invoice shapes/tax/discount/proration/refund cases, frozen terms retention and evidence freshness, and recovery/reversal policy. These are separate from permission to organize and start Stage 1.

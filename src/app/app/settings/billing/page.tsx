@@ -18,7 +18,7 @@ import { isLocalTestBillingActionEndpointEnabled } from '@/lib/billing/stripe-te
 export default async function BillingSettingsPage() {
   const supabase = await createClient()
   const { data: auth, error: authError } = await supabase.auth.getUser()
-  if (authError || !auth.user) redirect('/login')
+  if (authError || !auth.user || auth.user.is_anonymous) redirect('/login')
 
   const { data: memberships, error: membershipError } = await supabase
     .from('organization_users')
@@ -99,9 +99,9 @@ export default async function BillingSettingsPage() {
   ])
 
   const summary = getBillingWorkspaceSummary({
-    hasTestAccount: account !== null,
+    hasTestAccount: Boolean(account),
     subscription: subscriptions?.[0] ?? null,
-    dataUnavailable: Boolean(accountError || subscriptionsError || !subscriptions),
+    dataUnavailable: Boolean(accountError || subscriptionsError || !subscriptions || account === undefined),
   })
   // Pricing is *not approved for publication*. Rendering proposed amounts
   // requires explicit local-only opt-in; production cannot override this.
@@ -112,7 +112,7 @@ export default async function BillingSettingsPage() {
   // This is a read-only production page regardless of feature flags.
   // Interactive billing actions require explicit local-only synthetic gates.
   const localActionsEnabled = pricingPreviewEnabled &&
-    !accountError && !subscriptionsError && isLocalTestBillingActionEndpointEnabled()
+    summary.status !== 'UNAVAILABLE' && isLocalTestBillingActionEndpointEnabled()
 
   const name = selection.organizationName
 

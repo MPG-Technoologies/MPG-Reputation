@@ -75,7 +75,15 @@ export async function dispatchStripeTestRecoveryBatch(args: {
     deferred: 0, lostLease: 0, errors: 0, inventory: null,
   } as const
 
-  if (process.env.ENABLE_STRIPE_TEST_RECOVERY_DISPATCHER !== 'true') {
+  // This exported worker may be called without the higher-level sealed
+  // operator. Independently enforce the same non-hosted, non-LIVE boundary
+  // BEFORE querying the private recovery queue or reaching provider code.
+  if (process.env.ENABLE_STRIPE_TEST_RECOVERY_DISPATCHER !== 'true' ||
+      process.env.NODE_ENV === 'production' ||
+      process.env.VERCEL_ENV !== undefined ||
+      process.env.ENABLE_LIVE_BILLING === 'true' ||
+      !['http://127.0.0.1:54331', 'http://localhost:54331']
+        .includes(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '')) {
     return { outcome: 'DISABLED', ...empty }
   }
 

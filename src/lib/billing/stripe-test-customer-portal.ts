@@ -81,7 +81,7 @@ export async function prepareStripeTestPortalSession(args: {
   }
 
   const { data: auth, error: authError } = await args.userSupabase.auth.getUser()
-  if (authError || !auth.user?.id || !UUID.test(auth.user.id)) {
+  if (authError || !auth.user?.id || auth.user.is_anonymous === true || !UUID.test(auth.user.id)) {
     return { outcome: 'BLOCKED', reason: 'NOT_AUTHENTICATED' }
   }
   if (typeof args.organizationId !== 'string' || !UUID.test(args.organizationId)) {

@@ -89,6 +89,12 @@ describe('MR-5 Stage 1 signed receipt to checkout synthetic chain (non-settling)
   ] as const)('blocks mismatched %s record %#', (table, patch, reason) => {
     expectDenied({[table]:{...base[table],...patch}},reason)
   })
+  it('uses exact five-segment UUIDs and denies malformed source record IDs', () => {
+    expect(inspectSyntheticInvoiceEvidenceChain(base).outcome)
+      .toBe('SYNTHETIC_CHAIN_ONLY')
+    expectDenied({reservation:{...reservation,id:'33333333-3333-3333-333333333333'}},'IDENTITY_INVALID')
+    expectDenied({invoice:{...i,webhook_event_record_id:'not-a-uuid'}},'IDENTITY_INVALID')
+  })
   it('cannot mutate private inputs or infer an accepted quote from a matching projection', () => {
     const before = JSON.stringify(base)
     expect(inspectSyntheticInvoiceEvidenceChain(base).outcome).toBe('SYNTHETIC_CHAIN_ONLY')

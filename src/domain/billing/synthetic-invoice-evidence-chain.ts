@@ -71,7 +71,7 @@ export type SyntheticEvidenceChainReview =
       readonly paymentAuthorized: false; readonly financialFinality: false;
       readonly accessAuthorized: false }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const HASH = /^[0-9a-f]{64}$/
 const EVENT = /^evt_[A-Za-z0-9]+$/
 const SUB = /^sub_[A-Za-z0-9]+$/

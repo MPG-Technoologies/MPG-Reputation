@@ -34,11 +34,15 @@ vi.mock('@/lib/billing/stripe-test-action-request', () => ({
 }))
 vi.mock('../../src/app/app/settings/billing/plan-preview', async () => {
   const { createElement } = await import('react')
-  return { BillingPlanPreview: () => createElement('div', null, 'TEST plan preview') }
+  return { BillingPlanPreview: ({ localActionsEnabled }: { localActionsEnabled: boolean }) =>
+    createElement('div', null, 'TEST plan preview:', localActionsEnabled
+      ? 'TEST billing actions enabled' : 'TEST billing actions blocked') }
 })
 
 import BillingSettingsPage from '../../src/app/app/settings/billing/page'
 import { createClient } from '../../src/lib/supabase/server'
+import { isLocalTestBillingActionEndpointEnabled } from '../../src/lib/billing/stripe-test-action-request'
+import { getConfiguredReputationBillingCatalog } from '../../src/lib/billing/pricing'
 
 const a = { organization_id: '11111111-1111-4111-8111-111111111111',
   role: 'OWNER', organizations: { name: 'Synthetic Plumbing' } }
@@ -49,6 +53,10 @@ function setup(options: {
   memberships: unknown
   membershipError?: boolean
   authenticated?: boolean
+  anonymous?: boolean
+  subscriptionData?: unknown
+  accountData?: unknown
+  accountUndefined?: boolean
 }) {
   const from = vi.fn((table: string) => {
     if (table === 'organization_users') return {
@@ -60,7 +68,11 @@ function setup(options: {
     if (table === 'organization_billing_accounts') {
       const query = {
         eq: () => query,
-        maybeSingle: async () => ({ data: null, error: null }),
+        maybeSingle: async () => ({
+          data: options.accountUndefined ? undefined
+            : options.accountData === undefined ? null : options.accountData,
+          error: null,
+        }),
       }
       return { select: () => query }
     }
@@ -68,7 +80,10 @@ function setup(options: {
       const query = {
         eq: () => query,
         order: () => query,
-        limit: async () => ({ data: [], error: null }),
+        limit: async () => ({
+          data: options.subscriptionData === undefined ? [] : options.subscriptionData,
+          error: null,
+        }),
       }
       return { select: () => query }
     }
@@ -77,7 +92,8 @@ function setup(options: {
   const client = {
     auth: { getUser: vi.fn(async () => ({
       data: { user: options.authenticated === false
-        ? null : { id: '33333333-3333-4333-8333-333333333333' } },
+        ? null : { id: '33333333-3333-4333-8333-333333333333',
+          is_anonymous: options.anonymous === true } },
       error: null,
     })) },
     from,
@@ -87,7 +103,12 @@ function setup(options: {
 }
 
 describe('MR-5I4I actual BillingSettingsPage synthetic context and auth behavior', () => {
-  afterEach(() => { vi.resetAllMocks() })
+  const originalPreviewFlag = process.env.ENABLE_MR5D_BILLING_UI_PREVIEW
+  afterEach(() => {
+    if (originalPreviewFlag === undefined) delete process.env.ENABLE_MR5D_BILLING_UI_PREVIEW
+    else process.env.ENABLE_MR5D_BILLING_UI_PREVIEW = originalPreviewFlag
+    vi.resetAllMocks()
+  })
 
   it('never loads billing rows or exposes either tenant from two valid organizations', async () => {
     const db = setup({ memberships: [a, b] })
@@ -153,6 +174,42 @@ describe('MR-5I4I actual BillingSettingsPage synthetic context and auth behavior
     const db = setup({ memberships: [a], authenticated: false })
     await expect(BillingSettingsPage()).rejects.toThrow('TEST_REDIRECT:/login')
     expect(db.from).not.toHaveBeenCalled()
+  })
+
+  it('rejects Supabase anonymous-authenticated sessions before membership or billing reads', async () => {
+    const db = setup({ memberships: [a], anonymous: true })
+    await expect(BillingSettingsPage()).rejects.toThrow('TEST_REDIRECT:/login')
+    expect(db.from).not.toHaveBeenCalled()
+  })
+
+  it('never enables local TEST actions when the subscription read returns null without an error', async () => {
+    process.env.ENABLE_MR5D_BILLING_UI_PREVIEW = 'true'
+    vi.mocked(isLocalTestBillingActionEndpointEnabled).mockReturnValue(true)
+    vi.mocked(getConfiguredReputationBillingCatalog).mockReturnValue({
+      monthly: { id: 'monthly', amountMinor: 150000, interval: 'month', currency: 'PHP' },
+      annual: { id: 'annual', amountMinor: 100000, interval: 'year', currency: 'PHP' },
+    } as never)
+    const db = setup({ memberships: [a], subscriptionData: null })
+    const html = renderToStaticMarkup(createElement('div', null, await BillingSettingsPage()))
+    expect(html).toContain('Billing status unavailable')
+    expect(html).toContain('TEST billing actions blocked')
+    expect(html).not.toContain('TEST billing actions enabled')
+    expect(db.from).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not enable local TEST actions when account lookup returns undefined', async () => {
+    process.env.ENABLE_MR5D_BILLING_UI_PREVIEW = 'true'
+    vi.mocked(isLocalTestBillingActionEndpointEnabled).mockReturnValue(true)
+    vi.mocked(getConfiguredReputationBillingCatalog).mockReturnValue({
+      monthly: { id: 'monthly', amountMinor: 150000, interval: 'month', currency: 'PHP' },
+      annual: { id: 'annual', amountMinor: 100000, interval: 'year', currency: 'PHP' },
+    } as never)
+    const db = setup({ memberships: [a], accountUndefined: true })
+    const html = renderToStaticMarkup(createElement('div', null, await BillingSettingsPage()))
+    expect(html).toContain('Billing status unavailable')
+    expect(html).toContain('TEST billing actions blocked')
+    expect(html).not.toContain('TEST billing actions enabled')
+    expect(db.from).toHaveBeenCalledTimes(3)
   })
 
   it('redirects only genuinely empty membership lists to onboarding', async () => {

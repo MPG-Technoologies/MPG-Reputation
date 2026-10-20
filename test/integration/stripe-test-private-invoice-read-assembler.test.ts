@@ -146,13 +146,19 @@ describe.skipIf(!hasDisposableDb)('MR-5I4C private synthetic DB-backed read asse
       .toEqual({outcome:'BLOCKED',reason:'SOURCE_NOT_READY'})
   })
 
-  it('rejects failed invoice, in-flight receipt and replayed PROCESSING/PROCESSED', async () => {
-    for (const processing_status of ['PROCESSING','PROCESSED','FAILED'] as const) {
+  it('rejects failed/in-flight receipts and prevents synthetic terminal invoice mutation', async () => {
+    for (const processing_status of ['PROCESSING','FAILED'] as const) {
       const {error}=await db.from('billing_webhook_events').update({processing_status})
         .eq('provider_event_id',providerEventId)
       if (error) throw new Error('MR5I4C_EVENT_MUTATION_FAILED')
       expect(await inspect()).toEqual({outcome:'BLOCKED',reason:'SOURCE_NOT_READY'})
     }
+    // Successful invoice finality must not be invented by a privileged UPDATE.
+    // This denial is from the newer Stage 1 quarantine, not from this assembler.
+    const forbidden = await db.from('billing_webhook_events')
+      .update({processing_status:'PROCESSED'}).eq('provider_event_id',providerEventId)
+    expect(forbidden.error?.code).toBe('23514')
+    expect(await inspect()).toEqual({outcome:'BLOCKED',reason:'SOURCE_NOT_READY'})
     const {error}=await db.from('billing_webhook_events').update({
       processing_status:'RECEIVED',processing_attempt_count:1,
     }).eq('provider_event_id',providerEventId)

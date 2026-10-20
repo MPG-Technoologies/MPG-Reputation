@@ -87,22 +87,27 @@ is included.
 
 ## Stage 1 — TEST invoice-success quarantine (security finding and remediation)
 
-**Finding:** The existing MR-5C3A generic TEST webhook lease and completion
-functions originally accepted `invoice.paid` and `invoice.payment_failed`
-events. A trusted service-role caller could mark such events `PROCESSED`
-without independently accepted provider settlement or an immutable invoice
-finality ledger. This creates an unsupported financial-success status, even
-though actual paid product access remains separately gated.
+**Finding after chronological migration review:** MR-5C3A originally had
+a generic TEST webhook finalizer that could process an invoice event; however,
+**MR-5C3C1 already removed that legacy path** by excluding all `invoice.*`
+events from both generic lease and completion RPCs. It also introduced
+retry cooldown, age gates and exponential scheduling; those existing
+protections must not be overwritten. The first candidate migration
+accidentally copied older MR-5C3A functions, and disposable CI caught
+that regression. The final candidate therefore **does NOT replace either
+existing generic function**.
 
-**Scoped candidate fix:** New repo-only migration
-`20261020123000_mr5_stage1_invoice_completion_quarantine.sql` changes the
-existing generic webhook lease/completion predicates to exclude both invoice
-types and adds a SQL guard against TEST invoice `PROCESSED` or `IGNORED`
-**UPDATE transitions**, including direct service-role UPDATE. The already
-existing service-only invoice-specific claim/fail RPCs continue working;
-ordinary subscription webhook processing still works. Disposable tests assert
-rejected generic claims, direct SQL success transitions, cross-handler
-completion, no altered event status, and private grants.
+**Scoped candidate fix:** The repo-only migration
+`20261020123000_mr5_stage1_invoice_completion_quarantine.sql` adds a
+database-level defense against privileged `UPDATE` from an in-flight TEST
+invoice to `PROCESSED` or `IGNORED`, even if a new code path bypasses
+the existing generic queue exclusions. The existing invoice-specific
+service-only claim/fail RPCs and later MR-5C3C1 cooldown/queue behavior
+remain unchanged. Disposable tests assert forbidden terminal updates,
+existing invoice-specific fail-only handling, generic invoice non-admission
+and unrelated subscription-event completion. One legacy source-read
+integration fixture now verifies that a fabricated invoice
+`PROCESSED` transition is denied rather than requiring it to succeed.
 
 **Scope limitation:** This patch does not retroactively invalidate historical
 synthetic fixture rows seeded directly as `PROCESSED`, and does not yet ban

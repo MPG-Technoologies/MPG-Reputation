@@ -123,6 +123,7 @@ jobs:
             test/domain/stripe-subscription-candidate.test.ts \
             test/domain/stripe-recovery-preflight.test.ts \
             test/domain/stripe-recovery-operator.test.ts \
+            test/domain/stripe-test-worker-environment-gates.test.ts \
             test/domain/stripe-test-checkout-preflight.test.ts \
             test/domain/stripe-test-checkout-start.test.ts \
             test/domain/billing-ui-state.test.ts \

@@ -39,7 +39,7 @@ function fixture(options: {
   const user = {
     auth: {
       getUser: vi.fn(async () => ({
-        data: { user: options.authenticated === false ? null : { id: userId } },
+        data: { user: options.authenticated === false ? null : { id: userId, is_anonymous: false } },
         error: null,
       })),
     },

@@ -231,6 +231,36 @@ describe('Related readiness consumers do not invent missing setup on query failu
   })
 })
 
+describe('Global Quick Complete modal respects the verified operational business context', () => {
+  it('does not activate recording for a read-only VIEWER even when setup is ready', async () => {
+    rows.organization_users[0].role = 'VIEWER'
+    renderToString(await AppLayout({ children: React.createElement('p', null, 'Workspace') }))
+    expect(harness.modalProps.blockReason).toBe('READ_ONLY')
+  })
+
+  it('does not select an arbitrary first business when a user belongs to two', async () => {
+    rows.organization_users.push({
+      organization_id: '22222222-2222-4222-8222-222222222222',
+      role: 'OWNER',
+      organizations: { id: '22222222-2222-4222-8222-222222222222', name: 'Second Synthetic' },
+    })
+    renderToString(await AppLayout({ children: React.createElement('p', null, 'Workspace') }))
+    expect(harness.modalProps.blockReason).toBe('MULTIPLE_BUSINESSES')
+  })
+
+  it('allows an operational single-business OWNER to open a ready form', async () => {
+    renderToString(await AppLayout({ children: React.createElement('p', null, 'Workspace') }))
+    expect(harness.modalProps.blockReason).toBeUndefined()
+    expect(harness.modalProps.isReady).toBe(true)
+  })
+
+  it('fails closed for a malformed membership role before opening a modal', async () => {
+    rows.organization_users[0].role = 'UNKNOWN_ROLE'
+    renderToString(await AppLayout({ children: React.createElement('p', null, 'Workspace') }))
+    expect(harness.modalProps.blockReason).toBe('UNVERIFIED')
+  })
+})
+
 describe('Dashboard desktop height propagation', () => {
   it('uses date-neutral footer copy even when displaying historical activity', () => {
     const html = renderToString(React.createElement(ActivityPanel, {

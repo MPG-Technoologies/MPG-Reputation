@@ -38,6 +38,16 @@ export function getBillingWorkspaceSummary(args: {
     }
   }
   const current = args.subscription
+  // Orphan provider projections must not display ACTIVE without an account.
+  if (current && !args.hasTestAccount) {
+    return {
+      status: 'UNAVAILABLE',
+      headline: 'Billing status unavailable',
+      description: 'The subscription cannot be matched to a verified billing account. No payment or plan change has been made.',
+      supportRequired: true,
+      periodEnd: null,
+    }
+  }
   if (!current) {
     return {
       status: 'NOT_CONFIGURED',

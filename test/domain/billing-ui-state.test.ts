@@ -36,6 +36,11 @@ describe('MR-5D3A TEST-only billing workspace model', () => {
     expect(status.description).toContain('does not confirm payment settlement')
     expect(status.periodEnd).toBe(testSub.current_period_end)
   })
+  it('never reports an orphan subscription as active billing', () => {
+    expect(getBillingWorkspaceSummary({
+      subscription: testSub, hasTestAccount: false,
+    })).toMatchObject({ status: 'UNAVAILABLE', supportRequired: true, periodEnd: null })
+  })
   it('handles pending provider verification without invented payment confirmation', () => {
     const status = getBillingWorkspaceSummary({
       subscription: { ...testSub, normalized_status: 'PENDING' },

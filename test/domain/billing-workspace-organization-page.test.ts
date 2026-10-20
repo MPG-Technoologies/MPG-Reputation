@@ -212,6 +212,41 @@ describe('MR-5I4I actual BillingSettingsPage synthetic context and auth behavior
     expect(db.from).toHaveBeenCalledTimes(3)
   })
 
+  it('blocks ambiguous TEST subscriptions rather than selecting newest ACTIVE', async () => {
+    process.env.ENABLE_MR5D_BILLING_UI_PREVIEW = 'true'
+    vi.mocked(isLocalTestBillingActionEndpointEnabled).mockReturnValue(true)
+    vi.mocked(getConfiguredReputationBillingCatalog).mockReturnValue({
+      monthly: { id: 'monthly', amountMinor: 150000, interval: 'month', currency: 'PHP' },
+      annual: { id: 'annual', amountMinor: 100000, interval: 'year', currency: 'PHP' },
+    } as never)
+    const db = setup({ memberships: [a], accountData: { id: 'acctA' },
+      subscriptionData: [
+        { billing_account_id: 'acctA', normalized_status: 'ACTIVE', environment: 'TEST' },
+        { billing_account_id: 'acctA', normalized_status: 'SUSPENDED', environment: 'TEST' },
+      ] })
+    const html = renderToStaticMarkup(createElement('div', null, await BillingSettingsPage()))
+    expect(html).toContain('Billing status unavailable')
+    expect(html).not.toContain('Provider reports active')
+    expect(html).toContain('TEST billing actions blocked')
+    expect(db.from).toHaveBeenCalledTimes(3)
+  })
+
+  it('blocks TEST subscriptions that do not match the tenant billing account', async () => {
+    process.env.ENABLE_MR5D_BILLING_UI_PREVIEW = 'true'
+    vi.mocked(isLocalTestBillingActionEndpointEnabled).mockReturnValue(true)
+    vi.mocked(getConfiguredReputationBillingCatalog).mockReturnValue({
+      monthly: { id: 'monthly', amountMinor: 150000, interval: 'month', currency: 'PHP' },
+      annual: { id: 'annual', amountMinor: 100000, interval: 'year', currency: 'PHP' },
+    } as never)
+    const db = setup({ memberships: [a], accountData: { id: 'acctA' },
+      subscriptionData: [{ billing_account_id: 'acctB', normalized_status: 'ACTIVE', environment: 'TEST' }] })
+    const html = renderToStaticMarkup(createElement('div', null, await BillingSettingsPage()))
+    expect(html).toContain('Billing status unavailable')
+    expect(html).not.toContain('Provider reports active')
+    expect(html).toContain('TEST billing actions blocked')
+    expect(db.from).toHaveBeenCalledTimes(3)
+  })
+
   it('redirects only genuinely empty membership lists to onboarding', async () => {
     const db = setup({ memberships: [] })
     await expect(BillingSettingsPage()).rejects.toThrow('TEST_REDIRECT:/onboarding')

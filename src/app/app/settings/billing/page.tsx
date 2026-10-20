@@ -90,18 +90,25 @@ export default async function BillingSettingsPage() {
       .eq('environment', 'TEST')
       .maybeSingle(),
     supabase.from('organization_subscriptions')
-      .select('normalized_status, current_period_end, cancel_at_period_end, environment')
+      .select('billing_account_id, normalized_status, current_period_end, cancel_at_period_end, environment')
       .eq('organization_id', orgId)
       .eq('provider', 'stripe')
       .eq('environment', 'TEST')
       .order('created_at', { ascending: false })
-      .limit(1),
+      .limit(2),
   ])
 
+  // Never silently select the newest of multiple subscription identities.
+  // The sole TEST subscription must belong to the same linked billing account.
+  const ambiguousSubscriptions = (subscriptions?.length ?? 0) > 1
+  const subscriptionAccountMismatch = Boolean(subscriptions?.length &&
+    (!account || subscriptions[0].billing_account_id !== account.id))
   const summary = getBillingWorkspaceSummary({
     hasTestAccount: Boolean(account),
-    subscription: subscriptions?.[0] ?? null,
-    dataUnavailable: Boolean(accountError || subscriptionsError || !subscriptions || account === undefined),
+    subscription: ambiguousSubscriptions || subscriptionAccountMismatch
+      ? null : subscriptions?.[0] ?? null,
+    dataUnavailable: Boolean(accountError || subscriptionsError || !subscriptions ||
+      account === undefined || ambiguousSubscriptions || subscriptionAccountMismatch),
   })
   // Pricing is *not approved for publication*. Rendering proposed amounts
   // requires explicit local-only opt-in; production cannot override this.
@@ -160,9 +167,11 @@ export default async function BillingSettingsPage() {
                   : 'A Stripe TEST billing account has not been linked to this business.'}
             </p>
             <p className="mt-3 text-sm leading-relaxed text-slate-400">
-              {account
-                ? 'Automated payment changes and the customer portal will become available after TEST integration is approved.'
-                : 'A secure account provisioning step is required before subscription checkout. Automatic provisioning is being developed; no manual payment details are needed here.'}
+              {summary.status === 'UNAVAILABLE'
+                ? 'No TEST payment action is available until the billing records can be verified.'
+                : account
+                  ? 'Automated payment changes and the customer portal will become available after TEST integration is approved.'
+                  : 'A secure account provisioning step is required before subscription checkout. Automatic provisioning is being developed; no manual payment details are needed here.'}
             </p>
             <div className="mt-5 border-t border-[#1C2846] pt-4 text-xs text-slate-400">
               Need help with billing setup? Contact MPG support through your usual business support channel.

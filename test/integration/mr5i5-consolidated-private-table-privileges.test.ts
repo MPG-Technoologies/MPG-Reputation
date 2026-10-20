@@ -32,6 +32,18 @@ const PRIVATE_BILLING_TABLES = [
 ] as const
 
 
+// Only these internal evidence/review tables are intentionally append-only
+// for service_role. Lease, reservation and rate-limit tables require bounded
+// state transitions and must NOT be included in this immutability matrix.
+const APPEND_ONLY_BILLING_TABLES = [
+  'stripe_test_billing_recovery_reviews',
+  'billing_paid_entitlement_proposals',
+  'billing_synthetic_subscription_exception_reviews',
+  'billing_synthetic_invoice_evidence_drafts',
+  'billing_synthetic_checkout_quote_snapshots',
+  'billing_synthetic_invoice_reconciliation_reviews',
+] as const
+
 // Explicit named argument sets match the protected SQL function signatures
 // from the candidate's 17 migrations. Keep this manifest in sync when adding
 // a new private billing RPC. Trigger-only functions are included to detect
@@ -149,6 +161,23 @@ describe.skipIf(!enabled)('MR-5I5 migrated billing private-table role matrix', (
     for (const table of PRIVATE_BILLING_TABLES) {
       const { error } = await member.from(table).select('*').limit(1)
       expect(error?.code, table).toBe('42501')
+    }
+  })
+
+  it('six private billing evidence and review tables reject service-role UPDATE/DELETE', async () => {
+    // Always target a new nonexistent UUID, so even a regression in GRANTs
+    // cannot mutate legitimate synthetic rows while this assertion runs.
+    // SELECT/INSERT is intentionally allowed for the internal service worker;
+    // mutation of historical review/evidence is not.
+    for (const table of APPEND_ONLY_BILLING_TABLES) {
+      const missingId = randomUUID()
+      const replacementId = randomUUID()
+      const { error: updateError } = await privileged.from(table)
+        .update({ id: replacementId }).eq('id', missingId)
+      expect(updateError?.code, table + ' UPDATE').toBe('42501')
+      const { error: deleteError } = await privileged.from(table)
+        .delete().eq('id', missingId)
+      expect(deleteError?.code, table + ' DELETE').toBe('42501')
     }
   })
 

@@ -84,3 +84,32 @@ is included.
 | Audits, retention, PII and credential trust | Least-privilege service boundary, provenance timestamp and audit retention policy require review |
 
 **Open owner decision before Stage 1 can actually finalize money:** provider TEST access, what constitutes settled/captured money, supported invoice shapes/tax/discount/proration/refund cases, frozen terms retention and evidence freshness, and recovery/reversal policy. These are separate from permission to organize and start Stage 1.
+
+## Stage 1 — TEST invoice-success quarantine (security finding and remediation)
+
+**Finding:** The existing MR-5C3A generic TEST webhook lease and completion
+functions originally accepted `invoice.paid` and `invoice.payment_failed`
+events. A trusted service-role caller could mark such events `PROCESSED`
+without independently accepted provider settlement or an immutable invoice
+finality ledger. This creates an unsupported financial-success status, even
+though actual paid product access remains separately gated.
+
+**Scoped candidate fix:** New repo-only migration
+`20261020123000_mr5_stage1_invoice_completion_quarantine.sql` changes the
+existing generic webhook lease/completion predicates to exclude both invoice
+types and adds a SQL guard against TEST invoice `PROCESSED` or `IGNORED`
+**UPDATE transitions**, including direct service-role UPDATE. The already
+existing service-only invoice-specific claim/fail RPCs continue working;
+ordinary subscription webhook processing still works. Disposable tests assert
+rejected generic claims, direct SQL success transitions, cross-handler
+completion, no altered event status, and private grants.
+
+**Scope limitation:** This patch does not retroactively invalidate historical
+synthetic fixture rows seeded directly as `PROCESSED`, and does not yet ban
+fresh privileged INSERT of terminal invoice rows. Before real financial
+settlement, an owner-accepted immutable provider evidence and success
+admission architecture must close INSERT bypasses, establish invoice
+ledger uniqueness and transactional rollback, and define legitimate
+`PROCESSED` transitions. No invoice finality success RPC exists in this
+slice and none is authorized by the generic queue. No hosted/production
+migration is approved.

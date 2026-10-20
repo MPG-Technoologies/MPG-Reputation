@@ -126,6 +126,7 @@ jobs:
             test/integration/stripe-invoice-webhook-reference.test.ts \
             test/integration/stripe-test-invoice-inbox.test.ts \
             test/integration/stripe-test-invoice-processing.test.ts \
+            test/integration/billing-invoice-completion-quarantine.test.ts \
             test/integration/stripe-test-private-invoice-read-assembler.test.ts \
             test/integration/billing-paid-entitlement-proposals.test.ts \
             test/integration/billing-synthetic-invoice-evidence-drafts.test.ts \

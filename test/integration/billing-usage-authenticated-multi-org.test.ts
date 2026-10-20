@@ -73,9 +73,11 @@ let orgB = ''
 let orgC = ''
 let ownerAId = ''
 
-function requireData<T>(res: { data: T | null; error: unknown }, why: string): T {
-  if (res.error || !res.data) throw new Error('SYNTHETIC_MULTI_ORG_' + why)
-  return res.data
+function requireData<T extends { data: unknown; error: unknown }>(
+  res: T, why: string
+): NonNullable<T['data']> {
+  if (res.error || res.data === null) throw new Error('SYNTHETIC_MULTI_ORG_' + why)
+  return res.data as NonNullable<T['data']>
 }
 async function makeUser(label: string, client: typeof admin) {
   const email = 'mr5-multi-' + label + '-' + token + '@example.test'

@@ -109,6 +109,15 @@ describe('MR-5D2 synthetic TEST checkout idempotency and provider validation', (
     expect(await s.run()).toEqual({outcome:'BLOCKED',reason:'NOT_AUTHORIZED'})
     expect(s.trustedBillingSupabase.rpc).not.toHaveBeenCalled()
   })
+  it('rejects a signed-in Supabase anonymous identity before reservation or provider session',async()=>{
+    const s=fixtures()
+    vi.mocked(s.userSupabase.auth.getUser).mockResolvedValueOnce({
+      data:{user:{id:userId,is_anonymous:true}},error:null,
+    } as never)
+    expect(await s.run()).toEqual({outcome:'BLOCKED',reason:'NOT_AUTHENTICATED'})
+    expect(s.trustedBillingSupabase.rpc).not.toHaveBeenCalled()
+    expect(s.createSession).not.toHaveBeenCalled()
+  })
   it('uses trusted IDs, fixed return URLs and stable Stripe idempotency',async()=>{
     const s=fixtures()
     expect(await s.run()).toEqual({outcome:'READY',sessionUrl:stripeUrl,reused:false})

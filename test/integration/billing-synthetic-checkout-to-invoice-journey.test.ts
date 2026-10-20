@@ -400,6 +400,25 @@ describe.skipIf(!enabled)('MR-5 signed TEST checkout-to-invoice journey without 
       .select('id',{count:'exact',head:true}).eq('provider_invoice_id',invoiceId)
     expect(before).toBe(0)
 
+    // Direct privileged INSERT must not bypass exact signed invoice identity.
+    // The trigger must reject a fabricated invoice ID before a review exists.
+    const forged = await reviewDb
+      .from('billing_synthetic_invoice_reconciliation_reviews')
+      .insert({
+        organization_id: orgA,
+        billing_account_id: accountA,
+        checkout_quote_snapshot_id: savedQuote.data.id,
+        invoice_evidence_draft_id: savedInvoice.data.id,
+        provider_invoice_id: 'in_Forged' + run,
+      })
+    expect(forged.error?.code).toBe('23514')
+    const { count: forgedCount, error: forgedCountError } = await reviewDb
+      .from('billing_synthetic_invoice_reconciliation_reviews')
+      .select('id', { count: 'exact', head: true })
+      .eq('provider_invoice_id', 'in_Forged' + run)
+    expect(forgedCountError).toBeNull()
+    expect(forgedCount).toBe(0)
+
     const [firstReview,secondReview] = await Promise.all([
       reviewDb.rpc('record_mr5_synthetic_invoice_review',reviewArgs),
       reviewDb.rpc('record_mr5_synthetic_invoice_review',reviewArgs),

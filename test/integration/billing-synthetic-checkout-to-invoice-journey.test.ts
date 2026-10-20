@@ -400,6 +400,44 @@ describe.skipIf(!enabled)('MR-5 signed TEST checkout-to-invoice journey without 
       .select('id',{count:'exact',head:true}).eq('provider_invoice_id',invoiceId)
     expect(before).toBe(0)
 
+    // Direct privileged INSERT must not bypass exact signed invoice identity.
+    // The trigger must reject a fabricated invoice ID before a review exists.
+    const forged = await reviewDb
+      .from('billing_synthetic_invoice_reconciliation_reviews')
+      .insert({
+        organization_id: orgA,
+        billing_account_id: accountA,
+        checkout_quote_snapshot_id: savedQuote.data.id,
+        invoice_evidence_draft_id: savedInvoice.data.id,
+        provider_invoice_id: 'in_Forged' + run,
+      })
+    expect(forged.error?.code).toBe('23514')
+    const { count: forgedCount, error: forgedCountError } = await reviewDb
+      .from('billing_synthetic_invoice_reconciliation_reviews')
+      .select('id', { count: 'exact', head: true })
+      .eq('provider_invoice_id', 'in_Forged' + run)
+    expect(forgedCountError).toBeNull()
+    expect(forgedCount).toBe(0)
+
+    // A privileged caller cannot claim this tenant's signed invoice under
+    // another organization's billing account, even by direct table INSERT.
+    const crossTenantReview = await reviewDb
+      .from('billing_synthetic_invoice_reconciliation_reviews')
+      .insert({
+        organization_id: orgB,
+        billing_account_id: accountB,
+        checkout_quote_snapshot_id: savedQuote.data.id,
+        invoice_evidence_draft_id: savedInvoice.data.id,
+        provider_invoice_id: invoiceId,
+      })
+    expect(crossTenantReview.error?.code).toBe('23514')
+    const { count: crossTenantCount, error: crossTenantCountError } = await reviewDb
+      .from('billing_synthetic_invoice_reconciliation_reviews')
+      .select('id', { count: 'exact', head: true })
+      .eq('provider_invoice_id', invoiceId)
+    expect(crossTenantCountError).toBeNull()
+    expect(crossTenantCount).toBe(0)
+
     const [firstReview,secondReview] = await Promise.all([
       reviewDb.rpc('record_mr5_synthetic_invoice_review',reviewArgs),
       reviewDb.rpc('record_mr5_synthetic_invoice_review',reviewArgs),
@@ -432,6 +470,21 @@ describe.skipIf(!enabled)('MR-5 signed TEST checkout-to-invoice journey without 
         .error?.code)
     expect((await reviewAnon.from('billing_synthetic_invoice_reconciliation_reviews')
       .select('id')).error?.code).toBe('42501')
+
+    // A replay of the exact source tuple stays idempotent after admission.
+    const repeatReview = await reviewDb.rpc('record_mr5_synthetic_invoice_review', reviewArgs)
+    expect(repeatReview.error).toBeNull()
+    expect(repeatReview.data).toMatchObject({
+      outcome: 'ALREADY_RECORDED',
+      financial_finality: false,
+      access_authorized: false,
+    })
+    const { count: replayCount, error: replayCountError } = await reviewDb
+      .from('billing_synthetic_invoice_reconciliation_reviews')
+      .select('id', { count: 'exact', head: true })
+      .eq('provider_invoice_id', invoiceId)
+    expect(replayCountError).toBeNull()
+    expect(replayCount).toBe(1)
 
     // A foreign organization's account/subscription cannot be substituted.
     const foreign = await db.from('billing_synthetic_invoice_evidence_drafts')
@@ -472,6 +525,48 @@ describe.skipIf(!enabled)('MR-5 signed TEST checkout-to-invoice journey without 
     expect(after).toMatchObject({
       processing_status: 'FAILED', processed_at: null, organization_id: null,
     })
+
+    // The signed receipt has now FAILED. Re-reading an existing immutable
+    // review must stay idempotent without re-admitting failed source evidence.
+    const afterFailureReplay = await reviewDb.rpc(
+      'record_mr5_synthetic_invoice_review', reviewArgs,
+    )
+    expect(afterFailureReplay.error).toBeNull()
+    expect(afterFailureReplay.data).toMatchObject({
+      outcome: 'ALREADY_RECORDED', financial_finality: false,
+      access_authorized: false,
+    })
+
+    // A different quote cannot replace the recorded invoice association.
+    const conflictingReplay = await reviewDb.rpc(
+      'record_mr5_synthetic_invoice_review', {
+        ...reviewArgs, p_quote_id: randomUUID(),
+      },
+    )
+    expect(conflictingReplay.error).toBeNull()
+    expect(conflictingReplay.data).toMatchObject({ outcome: 'REPLAY_CONFLICT' })
+
+    // Direct inserts must still pass the original source-state trigger.
+    const inadmissibleInsert = await reviewDb
+      .from('billing_synthetic_invoice_reconciliation_reviews')
+      .insert({
+        organization_id: orgA,
+        billing_account_id: accountA,
+        checkout_quote_snapshot_id: savedQuote.data.id,
+        invoice_evidence_draft_id: savedInvoice.data.id,
+        provider_invoice_id: invoiceId,
+      })
+    expect(inadmissibleInsert.error?.code).toBe('23514')
+    const { data: stableRows, count: stableCount, error: stableError } =
+      await reviewDb.from('billing_synthetic_invoice_reconciliation_reviews')
+        .select('review_status,financial_finality,access_authorized', { count: 'exact' })
+        .eq('provider_invoice_id', invoiceId)
+    expect(stableError).toBeNull()
+    expect(stableCount).toBe(1)
+    expect(stableRows).toMatchObject([{
+      review_status: 'REQUIRES_PROVIDER_ATTESTATION',
+      financial_finality: false, access_authorized: false,
+    }])
 
     // No tenant OWNER or anonymous session can read synthetic financial tables.
     const privateRead = await anonymous.from('billing_synthetic_invoice_evidence_drafts')

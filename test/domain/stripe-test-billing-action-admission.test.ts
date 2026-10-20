@@ -116,6 +116,15 @@ describe('MR-5D3C1 local billing mutation request admission',()=>{
     expect(await viewer.run()).toEqual({outcome:'DENIED',reason:'NOT_AUTHORIZED'})
     expect(viewer.admin.rpc).not.toHaveBeenCalled()
   })
+  it('rejects a signed-in Supabase anonymous identity before role or rate claim',async()=>{
+    const f=fixtures()
+    f.user.auth.getUser.mockResolvedValueOnce({
+      data:{user:{id:userId,is_anonymous:true}},error:null,
+    })
+    expect(await f.run()).toEqual({outcome:'DENIED',reason:'NOT_AUTHENTICATED'})
+    expect(f.user.rpc).not.toHaveBeenCalled()
+    expect(f.admin.rpc).not.toHaveBeenCalled()
+  })
   it('uses signed-in identity and fixed shared rate budget',async()=>{
     const f=fixtures()
     expect(await f.run()).toEqual({outcome:'ALLOWED',remaining:4})

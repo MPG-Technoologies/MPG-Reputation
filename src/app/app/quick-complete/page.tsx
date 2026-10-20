@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { deriveActivationReadiness } from '@/domain/activation'
 import { QuickCompleteForm } from './form'
@@ -6,29 +7,50 @@ import { PageShell, PageHeader } from '@/components/layout/page-shell'
 import { Panel } from '@/components/layout/panels'
 import { PlusCircleIcon } from '@/components/ui/icons'
 import { DataLoadError } from '@/components/ui/data-load-error'
+import { resolveOperationalPageContext } from '@/domain/workspace/operational-page-context'
 
 export default async function QuickCompletePage() {
   const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user || user.is_anonymous) redirect('/login')
 
-  if (!user) return null
-
-  const { data: userOrgs } = await supabase
+  const { data: userOrgs, error: membershipsError } = await supabase
     .from('organization_users')
-    .select('organization_id')
+    .select('organization_id, role')
     .eq('user_id', user.id)
 
-  const orgId = userOrgs?.[0]?.organization_id
-
-  if (!orgId) {
+  const context = resolveOperationalPageContext(membershipsError ? null : userOrgs)
+  if (context.outcome !== 'SELECTED') {
+    const message = context.outcome === 'MULTIPLE_BUSINESSES'
+      ? 'Multiple business memberships detected. Recording a completion requires a verified business context; business switching is not yet available.'
+      : context.outcome === 'NO_MEMBERSHIP'
+        ? 'No business workspace found. Complete onboarding to record your first completion.'
+        : 'Your business membership could not be verified. No customer or review-request data was accessed.'
     return (
       <PageShell>
-        <div className="p-8 text-center text-slate-400">No organization found.</div>
+        <PageHeader title="Quick Complete" subtitle="Record a genuine completed service." />
+        <div role="alert" className="rounded-xl border border-amber-800 bg-amber-950/30 p-5 text-sm text-amber-100">
+          <p>{message}</p>
+          {context.outcome === 'NO_MEMBERSHIP' && (
+            <Link href="/onboarding" className="mt-3 inline-block font-semibold underline">Start onboarding</Link>
+          )}
+        </div>
       </PageShell>
     )
   }
+
+  if (!context.canEdit) {
+    return (
+      <PageShell>
+        <PageHeader title="Quick Complete" subtitle="Record a genuine completed service." />
+        <div role="alert" className="rounded-xl border border-amber-800 bg-amber-950/30 p-5 text-sm text-amber-100">
+          Your workspace role is VIEWER (read-only). Ask a business owner or administrator for operational access to record completions.
+        </div>
+      </PageShell>
+    )
+  }
+
+  const orgId = context.organizationId
 
   const [{ data: locations, error: locationsError }, { data: destinations, error: destinationsError }] = await Promise.all([
     supabase

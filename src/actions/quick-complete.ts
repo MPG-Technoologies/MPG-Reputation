@@ -33,7 +33,8 @@ export async function submitQuickComplete(formData: FormData): Promise<QuickComp
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-  if (authError || !user) {
+  // Anonymous Supabase sessions are not business-operator identities.
+  if (authError || !user || user.is_anonymous) {
     return { success: false, error: 'Authentication required' }
   }
 
@@ -51,6 +52,12 @@ export async function submitQuickComplete(formData: FormData): Promise<QuickComp
 
   if (membership.role === 'VIEWER') {
     return { success: false, error: 'Access denied: Viewers have read-only permissions' }
+  }
+
+  // Fail closed on unknown/malformed role data rather than treating every
+  // non-VIEWER value as an operator. Database RPC/RLS must also enforce role.
+  if (membership.role !== 'OWNER' && membership.role !== 'ADMIN' && membership.role !== 'OPERATOR') {
+    return { success: false, error: 'Access denied: Operational membership required' }
   }
 
   // Cross-tenant integrity: verify location belongs to organization

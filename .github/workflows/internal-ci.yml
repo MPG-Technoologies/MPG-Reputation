@@ -139,6 +139,7 @@ jobs:
             test/domain/stripe-test-recovery-review.test.ts \
             test/domain/support-billing-recovery.test.ts \
             test/domain/support-subscription-exceptions.test.ts \
+            test/domain/admin-billing-review-pages.test.ts \
             test/domain/completion-api.test.ts \
             test/domain/completion-ingestion-schema.test.ts \
             test/domain/completion.test.ts \

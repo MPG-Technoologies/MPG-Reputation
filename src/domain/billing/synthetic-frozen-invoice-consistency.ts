@@ -7,7 +7,7 @@
  * charge a customer, or authorize access. No database/provider/network calls.
  * A consistent candidate must remain UNVERIFIED and non-authorizing.
  */
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const PRICE = /^price_[A-Za-z0-9]+$/
 const INVOICE = /^in_[A-Za-z0-9]+$/
 const MAX_MINOR = Number.MAX_SAFE_INTEGER

@@ -29,7 +29,7 @@ export default async function BusinessChooserPage() {
 
   return <PageShell>
     <PageHeader title="Choose a business"
-      subtitle="Select a business to review its TEST billing or trial usage. Each page rechecks your current access." />
+      subtitle="Select a business to review its operational dashboard, customers, locations, Google destinations, trial usage and TEST billing. Every page verifies current membership." />
     <div className="grid gap-4 sm:grid-cols-2">
       {organizations.map(org => {
         const base = `/workspace/organizations/${org.organizationId}`
@@ -38,7 +38,15 @@ export default async function BusinessChooserPage() {
           <h2 className="text-lg font-semibold text-white">{org.organizationName}</h2>
           <p className="mt-1 text-xs text-slate-400">Membership role: {org.role}</p>
           <div className="mt-5 flex flex-wrap gap-4 text-sm">
-            <Link href={`${base}/usage`} className="text-blue-300 hover:text-white underline">
+            {[
+              ['dashboard','Dashboard'],
+              ['customers','Customers'],
+              ['locations','Locations'],
+              ['review-destination','Google Destination'],
+            ].map(([slug,label]) =>
+              <Link key={slug} href={`${base}/${slug}`}
+                className="text-blue-300 hover:text-white underline">{label}</Link>)}
+            <Link href={`${base}/usage` className="text-blue-300 hover:text-white underline">
               Usage &amp; Trial
             </Link>
             {canViewBilling

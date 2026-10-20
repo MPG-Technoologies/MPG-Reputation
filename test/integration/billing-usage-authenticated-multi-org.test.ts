@@ -59,6 +59,10 @@ import UsageSettingsPage from '../../src/app/app/settings/usage/page'
 import BusinessChooserPage from '../../src/app/workspace/organizations/page'
 import ScopedBillingPage from '../../src/app/workspace/organizations/[organizationId]/billing/page'
 import ScopedUsagePage from '../../src/app/workspace/organizations/[organizationId]/usage/page'
+import ScopedDashboard from '../../src/app/workspace/organizations/[organizationId]/dashboard/page'
+import ScopedCustomers from '../../src/app/workspace/organizations/[organizationId]/customers/page'
+import ScopedLocations from '../../src/app/workspace/organizations/[organizationId]/locations/page'
+import ScopedDestinations from '../../src/app/workspace/organizations/[organizationId]/review-destination/page'
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
@@ -75,6 +79,8 @@ let orgA = ''
 let orgB = ''
 let orgC = ''
 let ownerAId = ''
+let locationA = ''
+let locationB = ''
 
 function requireData<T extends { data: unknown; error: unknown }>(
   res: T, why: string
@@ -118,6 +124,13 @@ async function scopedUsage(id: string) {
   return renderToStaticMarkup(createElement('div', null,
     await ScopedUsagePage({ params: Promise.resolve({ organizationId: id }) })))
 }
+async function operationalPage(
+  handler: (props: {params: Promise<{organizationId:string}>}) => Promise<ReactNode>,
+  id: string,
+) {
+  return renderToStaticMarkup(createElement('div', null,
+    await handler({params:Promise.resolve({organizationId:id})})))
+}
 
 describe('MR-5 authenticated two-business Billing and Usage access continuity (disposable DB)', () => {
   const oldPreview = process.env.ENABLE_MR5D_BILLING_UI_PREVIEW
@@ -149,6 +162,16 @@ describe('MR-5 authenticated two-business Billing and Usage access continuity (d
       organization_id: orgA, environment: 'TEST', provider: 'stripe',
       provider_customer_id: 'cus_Mr5Multi' + token,
     }).select('id').single(), 'CREATE_TEST_ACCOUNT')
+    locationA = requireData(await admin.from('locations').insert({
+      organization_id:orgA,name:'Tenant Alpha Synthetic Location',status:'ACTIVE',
+    }).select('id').single(),'CREATE_LOCATION_A').id
+    locationB = requireData(await admin.from('locations').insert({
+      organization_id:orgB,name:'Tenant Beta Synthetic Location',status:'INACTIVE',
+    }).select('id').single(),'CREATE_LOCATION_B').id
+    requireData(await admin.from('customers').insert([
+      {organization_id:orgA,location_id:locationA,first_name:'AlphaSynthetic',permission_email:'unknown'},
+      {organization_id:orgB,location_id:locationB,first_name:'BetaSynthetic',permission_email:'denied'},
+    ]).select('id'),'CREATE_CUSTOMERS')
     currentSession = userA
   }, 30000)
 
@@ -202,6 +225,10 @@ describe('MR-5 authenticated two-business Billing and Usage access continuity (d
     expect(chooser).toContain('Test A')
     expect(chooser).toContain('Test B')
     expect(chooser).toContain('/workspace/organizations/' + orgA + '/billing')
+    for (const view of ['dashboard','customers','locations','review-destination']) {
+      expect(chooser).toContain('/workspace/organizations/' + orgA + '/' + view)
+      expect(chooser).toContain('/workspace/organizations/' + orgB + '/' + view)
+    }
     expect(chooser).toContain('/workspace/organizations/' + orgB + '/usage')
     expect(chooser).not.toContain('/workspace/organizations/' + orgB + '/billing')
 
@@ -229,6 +256,34 @@ describe('MR-5 authenticated two-business Billing and Usage access continuity (d
       expect(invalidBilling + invalidUsage).not.toContain('Test B')
     }
 
+    const dashA = await operationalPage(ScopedDashboard,orgA)
+    const customersA = await operationalPage(ScopedCustomers,orgA)
+    const locationsA = await operationalPage(ScopedLocations,orgA)
+    const destinationA = await operationalPage(ScopedDestinations,orgA)
+    expect(dashA).toContain('Test A')
+    expect(dashA).toContain('Recorded completions')
+    expect(dashA).not.toContain('Test B')
+    expect(customersA).toContain('AlphaSynthetic')
+    expect(customersA).not.toContain('BetaSynthetic')
+    expect(locationsA).toContain('Tenant Alpha Synthetic Location')
+    expect(locationsA).not.toContain('Tenant Beta Synthetic Location')
+    expect(destinationA).toContain('No Google review destinations configured')
+    const dashB = await operationalPage(ScopedDashboard,orgB)
+    const customersB = await operationalPage(ScopedCustomers,orgB)
+    const locationsB = await operationalPage(ScopedLocations,orgB)
+    expect(dashB).toContain('Test B')
+    expect(customersB).toContain('BetaSynthetic')
+    expect(customersB).not.toContain('AlphaSynthetic')
+    expect(locationsB).toContain('Tenant Beta Synthetic Location')
+    expect(locationsB).not.toContain('Tenant Alpha Synthetic Location')
+    for (const handler of [ScopedDashboard,ScopedCustomers,ScopedLocations,ScopedDestinations]) {
+      for (const id of [orgC, 'not-a-uuid']) {
+        const unavailable = await operationalPage(handler,id)
+        expect(unavailable).toContain('Business access could not be verified')
+        expect(unavailable).not.toContain('AlphaSynthetic')
+        expect(unavailable).not.toContain('BetaSynthetic')
+      }
+    }
     const ownUsage = await getOrganizationUsageSummary(orgA)
     const viewerUsage = await getOrganizationUsageSummary(orgB)
     expect(ownUsage).toMatchObject({
@@ -256,6 +311,11 @@ describe('MR-5 authenticated two-business Billing and Usage access continuity (d
     const revokedScoped = await scopedUsage(orgB)
     expect(revokedScoped).toContain('Business access could not be verified')
     expect(revokedScoped).not.toContain('Test B')
+    for (const handler of [ScopedDashboard,ScopedCustomers,ScopedLocations,ScopedDestinations]) {
+      const denied = await operationalPage(handler,orgB)
+      expect(denied).toContain('Business access could not be verified')
+      expect(denied).not.toContain('BetaSynthetic')
+    }
     const reselected = await resolveCurrentServerOrganization()
     expect(reselected).toMatchObject({
       outcome:'SELECTED',organization:{organizationId:orgA,role:'OWNER'},
@@ -277,6 +337,9 @@ describe('MR-5 authenticated two-business Billing and Usage access continuity (d
     expect((await getOrganizationUsageSummary(orgB)).success).toBe(true)
     expect(await billingPage()).not.toContain('Test A')
     expect(await scopedBilling(orgB)).toContain('Test B')
+    expect(await operationalPage(ScopedCustomers,orgB)).toContain('BetaSynthetic')
+    expect(await operationalPage(ScopedCustomers,orgA))
+      .toContain('Business access could not be verified')
     expect(await scopedUsage(orgB)).toContain('30 remaining of 30 review requests')
     expect(await scopedBilling(orgA)).toContain('Business access could not be verified')
     expect(await usagePage()).toContain('data-usage-org="' + orgB + '"')
@@ -290,6 +353,10 @@ describe('MR-5 authenticated two-business Billing and Usage access continuity (d
     await expect(BillingSettingsPage()).rejects.toThrow('SYNTHETIC_REDIRECT:/login')
     await expect(UsageSettingsPage()).rejects.toThrow('SYNTHETIC_REDIRECT:/login')
     await expect(BusinessChooserPage()).rejects.toThrow('SYNTHETIC_REDIRECT:/login')
+    for (const handler of [ScopedDashboard,ScopedCustomers,ScopedLocations,ScopedDestinations]) {
+      await expect(handler({params:Promise.resolve({organizationId:orgA})}))
+        .rejects.toThrow('SYNTHETIC_REDIRECT:/login')
+    }
     await expect(ScopedBillingPage({params:Promise.resolve({organizationId:orgA})}))
       .rejects.toThrow('SYNTHETIC_REDIRECT:/login')
     await expect(ScopedUsagePage({params:Promise.resolve({organizationId:orgA})}))

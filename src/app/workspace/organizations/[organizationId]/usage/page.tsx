@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { ScopedBusinessNav } from '@/components/workspace/scoped-business-nav'
 import { redirect } from 'next/navigation'
 import { PageHeader, PageShell } from '@/components/layout/page-shell'
 import { Panel } from '@/components/layout/panels'
@@ -33,19 +34,13 @@ export default async function ScopedUsagePage({
   }
 
   const { entitlement, ledgerCounts } = usage.data
-  const base = `/workspace/organizations/${org.organizationId}`
   return <PageShell>
     <PageHeader title="Usage & Trial"
       subtitle={`${org.organizationName} · ${org.role} · server-authoritative 30 Free Review Requests trial`}
       actions={<Link href="/workspace/organizations" className="text-blue-300 underline">
         Change business
       </Link>} />
-    <nav aria-label="Business financial views" className="mb-5 flex gap-5 text-sm">
-      {(org.role === 'OWNER' || org.role === 'ADMIN') &&
-        <Link href={`${base}/billing`} className="text-blue-300 underline">
-          Billing overview
-        </Link>}
-    </nav>
+    <ScopedBusinessNav org={org} current="usage" />
     <div className="grid gap-4 sm:grid-cols-2">
       <Panel className="p-6">
         <h2 className="font-semibold">Trial entitlement</h2>

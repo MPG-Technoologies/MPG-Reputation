@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { ScopedBusinessNav } from '@/components/workspace/scoped-business-nav'
 import { redirect } from 'next/navigation'
 import { PageHeader, PageShell } from '@/components/layout/page-shell'
 import { Panel } from '@/components/layout/panels'
@@ -54,19 +55,13 @@ export default async function ScopedBillingPage({
     dataUnavailable: Boolean(accountError || subscriptionsError ||
       !subscriptions || account === undefined || ambiguous || mismatch),
   })
-  const base = `/workspace/organizations/${org.organizationId}`
-
   return <PageShell>
     <PageHeader title="Billing & subscription"
       subtitle={`${org.organizationName} · TEST billing overview · 30 Free Review Requests`}
       actions={<Link href="/workspace/organizations" className="text-blue-300 underline">
         Change business
       </Link>} />
-    <nav aria-label="Business financial views" className="mb-5 flex gap-5 text-sm">
-      <Link href={`${base}/usage`} className="text-blue-300 underline">
-        Usage &amp; Trial
-      </Link>
-    </nav>
+    <ScopedBusinessNav org={org} current="billing" />
     <Panel className="p-6">
       <h2 className="font-semibold">Subscription status</h2>
       <p role="status" className="mt-3 text-lg font-semibold text-blue-200">{summary.headline}</p>

@@ -29,7 +29,7 @@ const goodRequest={
 function fixtures(opts:{auth?:boolean;role?:boolean;reply?:Record<string,unknown>;error?:boolean}={}){
   const user={
     auth:{getUser:vi.fn(async()=>({
-      data:{user:opts.auth===false?null:{id:userId}},error:null,
+      data:{user:opts.auth===false?null:{id:userId,is_anonymous:false}},error:null,
     }))},
     rpc:vi.fn(async()=>({data:opts.role!==false,error:null})),
   }

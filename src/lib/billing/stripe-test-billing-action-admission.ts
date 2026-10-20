@@ -85,6 +85,28 @@ export async function admitStripeTestBillingAction(args: {
   if (authError || !auth.user?.id || auth.user.is_anonymous === true || !UUID.test(auth.user.id)) {
     return { outcome: 'DENIED', reason: 'NOT_AUTHENTICATED' }
   }
+  // Billing UI intentionally refuses an implicit "first organization" for
+  // multi-org users. Enforce the same boundary here: an otherwise authorized
+  // organizationId in a JSON request is NOT an active-organization selection.
+  // Read current memberships using the signed-in user's RLS-scoped client,
+  // never service-role access or mutable client-side metadata. Two rows are
+  // enough to prove ambiguity without exposing other organization details.
+  const { data: memberships, error: membershipError } = await args.userSupabase
+    .from('organization_users')
+    .select('organization_id, role')
+    .eq('user_id', auth.user.id)
+    .limit(2)
+  if (membershipError || !memberships || memberships.length !== 1) {
+    return { outcome: 'DENIED', reason: 'NOT_AUTHORIZED' }
+  }
+  const membership = memberships[0]
+  if (!membership ||
+      typeof membership.organization_id !== 'string' ||
+      membership.organization_id.toLowerCase() !== args.organizationId.toLowerCase() ||
+      (membership.role !== 'OWNER' && membership.role !== 'ADMIN')) {
+    return { outcome: 'DENIED', reason: 'NOT_AUTHORIZED' }
+  }
+
   const { data: permitted, error: roleError } = await args.userSupabase.rpc(
     'user_has_role',
     { org_id: args.organizationId, allowed_roles: ['OWNER', 'ADMIN'] }

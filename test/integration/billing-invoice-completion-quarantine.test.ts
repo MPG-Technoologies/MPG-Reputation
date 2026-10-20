@@ -104,6 +104,9 @@ describe.skipIf(!enabled)('MR-5 Stage 1 invoice success quarantine: generic RPC 
     expect(acquired.error).toBeNull()
     const lease=asResult(acquired.data)
     expect(lease.outcome).toBe('LEASED')
+    if (typeof lease.lease_token !== 'string') {
+      throw new Error('MR5_STAGE1_NONINVOICE_LEASE_MISSING')
+    }
     const result=await db.rpc('complete_stripe_webhook_processing',{
       p_event_id:x.id,p_lease_token:lease.lease_token,p_status:'IGNORED',
       p_organization_id:null,p_error_code:null,

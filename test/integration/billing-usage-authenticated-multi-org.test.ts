@@ -260,10 +260,10 @@ describe('MR-5 authenticated two-business Billing and Usage access continuity (d
     expect(reselected).toMatchObject({
       outcome:'SELECTED',organization:{organizationId:orgA,role:'OWNER'},
     })
-    const billingA = await billingPage()
-    expect(billingA).toContain('Test A')
-    expect(billingA).not.toContain('Test B')
-    expect(billingA).toContain('30 Free Review Requests')
+    const legacyBillingA = await billingPage()
+    expect(legacyBillingA).toContain('Test A')
+    expect(legacyBillingA).not.toContain('Test B')
+    expect(legacyBillingA).toContain('30 Free Review Requests')
     const usageA = await usagePage()
     expect(usageA).toContain('data-usage-org="' + orgA + '"')
     expect(usageA).toContain('data-usage-role="OWNER"')

@@ -44,6 +44,10 @@ jobs:
         shell: bash
         run: bash .github/scripts/classify-ci-changes.sh
 
+      - name: Verify change-scope classifier fixtures
+        shell: bash
+        run: bash .github/scripts/test-ci-change-scope.sh
+
       - name: Documentation-only verification
         if: steps.scope.outputs.docs_only == 'true'
         run: echo "Markdown-only PR verified by safe change classifier; executable checks preserved for other changes."

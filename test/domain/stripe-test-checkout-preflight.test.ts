@@ -145,6 +145,18 @@ describe('MR-5D1 Stripe TEST checkout preflight', () => {
     expect(s.retrievePrice).not.toHaveBeenCalled()
   })
 
+  it('refuses Supabase anonymous-authenticated sessions before tenant or provider lookup', async () => {
+    const s = scenario()
+    s.auth.getUser.mockResolvedValueOnce({
+      data: { user: { id: userId, is_anonymous: true } },
+      error: null,
+    } as never)
+    expect(await s.run()).toEqual({ outcome: 'BLOCKED', reason: 'NOT_AUTHENTICATED' })
+    expect(s.rpc).not.toHaveBeenCalled()
+    expect(s.from).not.toHaveBeenCalled()
+    expect(s.retrievePrice).not.toHaveBeenCalled()
+  })
+
   it('blocks cross-organization members, operators or viewers', async () => {
     const s = scenario({ allowed: false })
     expect(await s.run(otherOrg)).toEqual({ outcome: 'BLOCKED', reason: 'NOT_AUTHORIZED' })

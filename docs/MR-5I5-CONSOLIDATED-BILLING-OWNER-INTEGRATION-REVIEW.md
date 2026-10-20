@@ -62,3 +62,24 @@ The **main-base draft integration PR must run its own CI at the exact tip**, inc
 2. Produce the **owner acceptance decision packet**, separating (A) permission to integrate provider-OFF engineering into main from (B) permission for provider TEST acceptance and (C) separately gated production billing. These are distinct authorizations.
 3. If approved, merge only by owner-controlled action after complete security review; then test an isolated local application with synthetic users and an authenticated browser. Any defects discovered must be fixed in bounded branches before acceptance.
 4. Keep financial finality and real-provider changes blocked until owner/account/legal/commercial prerequisites are resolved. Continue non-payment roadmap where authorized.
+
+## 6. Updated integrated checkpoint — 2026-10-21
+
+**Status: READY FOR CONTINUED INTEGRATION / OWNER REVIEW; NOT OWNER ACCEPTED OR APPROVED FOR MAIN MERGE.** The historical October 20 checkpoint and its earlier counts above are retained as historical evidence, not current branch measurements.
+
+- Company OS `main`: `7a1fb412c5640ee95273f86dcdd4bff5a13a6b9c` (accepted MPG-DEC-052 accelerated delivery, without changing release gates).
+- Product `main`: `2eac67089a2e9d9c0e95ed636d3dc8b040fe4823` (unchanged). Cumulative billing candidate `chatgpt/mr5i5-integrated-billing-review-20261020`: `d208a7312028464ccf4d6cf556ce78331bf66e55`, **444 ahead / 0 behind main**, **221 distinct changed files**, including **21 additive SQL migrations**. This candidate is not deployed or merged to `main`.
+- Child [PR #70](https://github.com/MPG-Technoologies/MPG-Reputation/pull/70) integrated as `f7f55e416c06aef2cd95535ee7fdad5acb643c7e`: signed synthetic invoice review replay after failed webhook stays idempotent and non-authorizing. Exact-tip [Internal CI #222](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39512768285) and [Isolated E2E #214](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39512768290) **PASS**.
+- Child [PR #71](https://github.com/MPG-Technoologies/MPG-Reputation/pull/71) integrated as `d208a7312028464ccf4d6cf556ce78331bf66e55`: the existing migrated private-table test matrix now also verifies service-role `UPDATE`/`DELETE` denial on six append-only invoice, proposal, exception and recovery review tables. Exact-tip [Internal CI #224](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39517378140) and [Isolated E2E #216](https://github.com/MPG-Technoologies/MPG-Reputation/actions/runs/39517378293) **PASS**; Vercel status **SUCCESS**.
+- A review of the 21 candidate migration files' permission declarations found explicit RLS/grant controls on the added private tables and no new active `SECURITY DEFINER` execution path in these migrations; this is **targeted inspection, not a full independent database security audit**. Existing E2E covers ten private-table read boundaries and 24 service-only RPCs. Stage 1 review evidence stays synthetic, `UNVERIFIED`, `financial_finality=false`, and `access_authorized=false`.
+- No live Stripe account, authenticated provider TEST invoice settlement, settled-invoice financial finalizer, owner-accepted commercial terms, actual paid entitlement, or authenticated mobile/desktop end-to-end browser acceptance has been demonstrated. Existing CI proves repository checks and disposable PostgreSQL behavior only.
+
+### Distinct owner decisions (no implied authorization)
+
+**A — Provider-OFF engineering integration to `main`: OPEN.** Requires independent full cumulative 221-file diff and 21-migration privilege/tenant/replay review, complete branch/PR reconciliation, authenticated synthetic client/admin browser journey, and explicit owner approval for main merge. No historical stacked billing branch should be independently merged into `main` as a shortcut.
+
+**B — Provider TEST account and payment evidence acceptance: BLOCKED.** Requires an eligible connected provider account, authorized TEST-only credentials and environment, approved settlement/finality and refund/dispute handling contract, immutable accepted terms, and actual provider-authenticated invoice/checkout/charge tests. Current local mock signatures are not provider acceptance.
+
+**C — Production paid billing / launch: NOT AUTHORIZED.** Requires separately accepted technical, commercial, legal/privacy, customer pilot, messaging, and activation gates. Neither decision A nor B grants permission for real charges, paid-access activation, deployment or market launch.
+
+**Next engineering work permitted now:** continue provider-independent security, browser acceptance and independent cumulative diff review in bounded branches. Do not treat this checkpoint or successful synthetic CI as MR-5 milestone closure or OWNER ACCEPTED.

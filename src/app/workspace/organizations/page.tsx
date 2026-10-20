@@ -46,7 +46,7 @@ export default async function BusinessChooserPage() {
             ].map(([slug,label]) =>
               <Link key={slug} href={`${base}/${slug}`}
                 className="text-blue-300 hover:text-white underline">{label}</Link>)}
-            <Link href={`${base}/usage` className="text-blue-300 hover:text-white underline">
+            <Link href={`${base}/usage`} className="text-blue-300 hover:text-white underline">
               Usage &amp; Trial
             </Link>
             {canViewBilling

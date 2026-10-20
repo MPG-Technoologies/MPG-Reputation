@@ -118,3 +118,30 @@ ledger uniqueness and transactional rollback, and define legitimate
 `PROCESSED` transitions. No invoice finality success RPC exists in this
 slice and none is authorized by the generic queue. No hosted/production
 migration is approved.
+
+## Stage 1 — conservative unlinked invoice INSERT admission (incremental)
+
+The candidate `20261020124000_mr5_stage1_invoice_terminal_insert_quarantine.sql`
+adds a service-side PostgreSQL `BEFORE INSERT` guard for Stripe TEST
+`invoice.paid` / `invoice.payment_failed` events whose
+`organization_id IS NULL` and whose initial state claims
+`PROCESSED` or `IGNORED`. This mirrors normal signed incoming
+webhook receipts, which must enter unlinked/RECEIVED and use fenced
+evidence review. A failed INSERT is rolled back, with no event or
+entitlement created.
+
+A stricter blanket invoice terminal INSERT prohibition **failed 21
+pre-existing database tests**, because earlier non-authorizing
+lifecycle-proposal tests deliberately seed tenant-attributed, already
+PROCESSED synthetic invoice records to exercise replay, ordering,
+cross-tenant source binding and reviewer holds. No service-role
+testing bypass, disable-trigger switch or removal of that established
+coverage was accepted.
+
+**Open financial admission gap:** a privileged actor can still
+construct a tenant-attributed synthetic invoice with PROCESSED status;
+this remains *untrusted*, not a proof of funds or a real paid
+entitlement. Closure requires owner approval of the real
+provider-attested atomic ledger/finalizer design and a reworked
+historical-fixture strategy. Neither the original UPDATE trigger nor
+this ingress INSERT guard is a complete settlement invariant.

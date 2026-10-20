@@ -161,7 +161,11 @@ describe.skipIf(!hasDb)('MR-5E2D2 fenced invoice event claims', () => {
     const unsupported = await fixture({eventType:'customer.subscription.updated'})
     const noInvoice = await fixture({invoiceId:null})
     const legacy = await fixture({status:'PROCESSING'})
-    const processed = await fixture({status:'PROCESSED'})
+    // Historical noninvoice terminal event remains a valid fixture.
+    // An unlinked invoice cannot be inserted already PROCESSED.
+    const processed = await fixture({
+      status:'PROCESSED',eventType:'customer.subscription.updated',
+    })
     for(const id of [live,unsupported,noInvoice,processed]) {
       expect(await claim(id)).toEqual({outcome: id===live?'NOT_FOUND':'NOT_ELIGIBLE'})
     }

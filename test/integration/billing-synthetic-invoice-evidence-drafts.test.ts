@@ -177,7 +177,10 @@ describe.skipIf(!enabled)('MR-5I4F unverified invoice evidence staging (disposab
     const failed=await event({eventType:'invoice.payment_failed'})
     expect((await insert(draft(failed))).error?.message)
       .toContain('MR5I4F_SOURCE_RECEIPT_MISMATCH')
-    const complete=await event({status:'PROCESSED'})
+    // Tenant-attributed historical synthetic terminal fixture:
+    // candidate draft source still rejects a processed receipt, while
+    // unlinked incoming invoice receipts cannot arrive already terminal.
+    const complete=await event({status:'PROCESSED',organizationId:orgA})
     expect((await insert(draft(complete))).error?.message)
       .toContain('MR5I4F_SOURCE_RECEIPT_MISMATCH')
     const live=await event({environment:'LIVE'})

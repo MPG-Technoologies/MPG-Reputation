@@ -419,6 +419,25 @@ describe.skipIf(!enabled)('MR-5 signed TEST checkout-to-invoice journey without 
     expect(forgedCountError).toBeNull()
     expect(forgedCount).toBe(0)
 
+    // A privileged caller cannot claim this tenant's signed invoice under
+    // another organization's billing account, even by direct table INSERT.
+    const crossTenantReview = await reviewDb
+      .from('billing_synthetic_invoice_reconciliation_reviews')
+      .insert({
+        organization_id: orgB,
+        billing_account_id: accountB,
+        checkout_quote_snapshot_id: savedQuote.data.id,
+        invoice_evidence_draft_id: savedInvoice.data.id,
+        provider_invoice_id: invoiceId,
+      })
+    expect(crossTenantReview.error?.code).toBe('23514')
+    const { count: crossTenantCount, error: crossTenantCountError } = await reviewDb
+      .from('billing_synthetic_invoice_reconciliation_reviews')
+      .select('id', { count: 'exact', head: true })
+      .eq('provider_invoice_id', invoiceId)
+    expect(crossTenantCountError).toBeNull()
+    expect(crossTenantCount).toBe(0)
+
     const [firstReview,secondReview] = await Promise.all([
       reviewDb.rpc('record_mr5_synthetic_invoice_review',reviewArgs),
       reviewDb.rpc('record_mr5_synthetic_invoice_review',reviewArgs),

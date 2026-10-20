@@ -102,7 +102,7 @@ export async function startStripeTestCheckout(args: {
 
   // This identity must be from the *user session*, never a caller-supplied ID.
   const { data: auth, error: authError } = await args.userSupabase.auth.getUser()
-  if (authError || !auth.user?.id || !UUID.test(auth.user.id)) {
+  if (authError || !auth.user?.id || auth.user.is_anonymous === true || !UUID.test(auth.user.id)) {
     return { outcome: 'BLOCKED', reason: 'NOT_AUTHENTICATED' }
   }
   const origin = getStripeTestCheckoutReturnOrigin()

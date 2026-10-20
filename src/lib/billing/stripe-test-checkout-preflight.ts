@@ -58,7 +58,7 @@ export async function prepareStripeTestCheckout(args: {
   // The authenticated Supabase session is the only user identity source.
   // A privileged/service-role client MUST NEVER be supplied to this function.
   const { data: auth, error: authError } = await supabase.auth.getUser()
-  if (authError || !auth.user) {
+  if (authError || !auth.user || auth.user.is_anonymous === true) {
     return { outcome: 'BLOCKED', reason: 'NOT_AUTHENTICATED' }
   }
   if (typeof organizationId !== 'string' || !UUID.test(organizationId)) {

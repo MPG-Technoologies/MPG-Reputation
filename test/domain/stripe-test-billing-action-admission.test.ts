@@ -26,11 +26,28 @@ const goodRequest={
   fetchSite:'same-origin',fetchMode:'cors',
   contentType:'application/json',actionHeader:'1',
 }
-function fixtures(opts:{auth?:boolean;role?:boolean;reply?:Record<string,unknown>;error?:boolean}={}){
+function fixtures(opts:{
+  auth?:boolean;role?:boolean;reply?:Record<string,unknown>;error?:boolean
+  membershipRows?:Array<{organization_id:string;role:string}> | null
+  membershipError?:boolean
+}={}){
+  const membershipQuery = {
+    select:vi.fn(),
+    eq:vi.fn(),
+    limit:vi.fn(async () => ({
+      data:opts.membershipRows===undefined
+        ? [{organization_id:orgId,role:'OWNER'}]
+        : opts.membershipRows,
+      error:opts.membershipError?{message:'membership lookup failed'}:null,
+    })),
+  }
+  membershipQuery.select.mockReturnValue(membershipQuery)
+  membershipQuery.eq.mockReturnValue(membershipQuery)
   const user={
     auth:{getUser:vi.fn(async()=>({
       data:{user:opts.auth===false?null:{id:userId,is_anonymous:false}},error:null,
     }))},
+    from:vi.fn(() => membershipQuery),
     rpc:vi.fn(async()=>({data:opts.role!==false,error:null})),
   }
   const admin={
@@ -123,6 +140,49 @@ describe('MR-5D3C1 local billing mutation request admission',()=>{
     })
     expect(await f.run()).toEqual({outcome:'DENIED',reason:'NOT_AUTHENTICATED'})
     expect(f.user.rpc).not.toHaveBeenCalled()
+    expect(f.admin.rpc).not.toHaveBeenCalled()
+  })
+  it('denies ambiguous multi-business users before billing rate claims or provider side effects',async()=>{
+    const otherOrg='33333333-3333-4333-8333-333333333333'
+    const f=fixtures({membershipRows:[
+      {organization_id:orgId,role:'OWNER'},
+      {organization_id:otherOrg,role:'OWNER'},
+    ]})
+    expect(await f.run()).toEqual({outcome:'DENIED',reason:'NOT_AUTHORIZED'})
+    expect(f.user.from).toHaveBeenCalledWith('organization_users')
+    expect(f.user.rpc).not.toHaveBeenCalled()
+    expect(f.admin.rpc).not.toHaveBeenCalled()
+  })
+  it('denies a mismatched org ID and a nonbilling role despite a valid-looking request',async()=>{
+    for(const membershipRows of [
+      [{organization_id:'33333333-3333-4333-8333-333333333333',role:'OWNER'}],
+      [{organization_id:orgId,role:'VIEWER'}],
+      [{organization_id:orgId,role:'OPERATOR'}],
+      [{organization_id:orgId,role:'UNKNOWN'}],
+    ]){
+      const f=fixtures({membershipRows})
+      expect(await f.run()).toEqual({outcome:'DENIED',reason:'NOT_AUTHORIZED'})
+      expect(f.user.rpc).not.toHaveBeenCalled()
+      expect(f.admin.rpc).not.toHaveBeenCalled()
+    }
+  })
+  it('fails closed when membership data is absent, malformed or unavailable',async()=>{
+    for(const options of [
+      {membershipRows:[]},
+      {membershipRows:null},
+      {membershipRows:[{organization_id:'invalid',role:'OWNER'}]},
+      {membershipError:true},
+    ]){
+      const f=fixtures(options)
+      expect(await f.run()).toEqual({outcome:'DENIED',reason:'NOT_AUTHORIZED'})
+      expect(f.user.rpc).not.toHaveBeenCalled()
+      expect(f.admin.rpc).not.toHaveBeenCalled()
+    }
+  })
+  it('does not consult tenant memberships until a real user is authenticated',async()=>{
+    const f=fixtures({auth:false})
+    expect(await f.run()).toEqual({outcome:'DENIED',reason:'NOT_AUTHENTICATED'})
+    expect(f.user.from).not.toHaveBeenCalled()
     expect(f.admin.rpc).not.toHaveBeenCalled()
   })
   it('uses signed-in identity and fixed shared rate budget',async()=>{

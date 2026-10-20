@@ -47,6 +47,9 @@ function json(value: Json | null): Record<string, Json | undefined> {
 describe.skipIf(!enabled)('MR-5 signed TEST checkout-to-invoice journey without paid entitlement', () => {
   const db = createClient<Database>(url, serviceKey, opts)
   const anonymous = createClient<Database>(url, anonKey, opts)
+  // Synthetic review SQL intentionally has no payment-authorizing API.
+  const reviewDb = createClient(url, serviceKey, opts)
+  const reviewAnon = createClient(url, anonKey, opts)
   const organizations: string[] = []
   let ownerId = ''
   let orgA = ''
@@ -314,10 +317,10 @@ describe.skipIf(!enabled)('MR-5 signed TEST checkout-to-invoice journey without 
     // Their matching attributes are not provider invoice-to-checkout provenance.
     const [savedQuote, savedInvoice] = await Promise.all([
       db.from('billing_synthetic_checkout_quote_snapshots')
-        .select('checkout_reservation_id,plan_id,organization_id,billing_account_id,provider,environment,provider_price_id,candidate_currency,candidate_amount_minor,candidate_interval,source_kind,approval_status,verification_status,payment_authorized,access_authorized')
+        .select('id,checkout_reservation_id,plan_id,organization_id,billing_account_id,provider,environment,provider_price_id,candidate_currency,candidate_amount_minor,candidate_interval,source_kind,approval_status,verification_status,payment_authorized,access_authorized')
         .eq('checkout_reservation_id', checkoutReservationId).single(),
       db.from('billing_synthetic_invoice_evidence_drafts')
-        .select('subscription_record_id,webhook_event_record_id,provider_event_id,source_payload_hash,organization_id,billing_account_id,provider,environment,provider_invoice_id,candidate_price_id,candidate_currency,candidate_amount_minor,candidate_interval,source_kind,verification_status,financial_finality,access_authorized')
+        .select('id,subscription_record_id,webhook_event_record_id,provider_event_id,source_payload_hash,organization_id,billing_account_id,provider,environment,provider_invoice_id,candidate_price_id,candidate_currency,candidate_amount_minor,candidate_interval,source_kind,verification_status,financial_finality,access_authorized')
         .eq('provider_invoice_id', invoiceId).single(),
     ])
     if (savedQuote.error || !savedQuote.data || savedInvoice.error || !savedInvoice.data) {
@@ -381,6 +384,54 @@ describe.skipIf(!enabled)('MR-5 signed TEST checkout-to-invoice journey without 
     expect(inspectSyntheticInvoiceEvidenceChain({
       ...chain,reservation:{...chain.reservation,status:'PREPARING'},
     })).toEqual({outcome:'REVIEW_REQUIRED',reason:'CHECKOUT_NOT_READY'})
+
+    // Atomic synthetic review ONLY: this is not provider-backed settlement.
+    const reviewArgs = {
+      p_quote_id: savedQuote.data.id,
+      p_draft_id: savedInvoice.data.id,
+    }
+    // A rejected source must roll back entirely.
+    const wrong = await reviewDb.rpc('record_mr5_synthetic_invoice_review',{
+      ...reviewArgs, p_quote_id: randomUUID(),
+    })
+    expect(wrong.error?.code).toBe('23514')
+    const {count:before} = await reviewDb
+      .from('billing_synthetic_invoice_reconciliation_reviews')
+      .select('id',{count:'exact',head:true}).eq('provider_invoice_id',invoiceId)
+    expect(before).toBe(0)
+
+    const [firstReview,secondReview] = await Promise.all([
+      reviewDb.rpc('record_mr5_synthetic_invoice_review',reviewArgs),
+      reviewDb.rpc('record_mr5_synthetic_invoice_review',reviewArgs),
+    ])
+    expect(firstReview.error).toBeNull()
+    expect(secondReview.error).toBeNull()
+    expect([firstReview.data?.outcome,secondReview.data?.outcome].sort())
+      .toEqual(['ALREADY_RECORDED','REQUIRES_PROVIDER_ATTESTATION'])
+    for (const result of [firstReview.data,secondReview.data]) {
+      expect(result).toMatchObject({financial_finality:false,access_authorized:false})
+    }
+    const {data:rows,count,error:rowsError} =
+      await reviewDb.from('billing_synthetic_invoice_reconciliation_reviews')
+        .select('organization_id,billing_account_id,review_status,financial_finality,access_authorized',
+          {count:'exact'}).eq('provider_invoice_id',invoiceId)
+    expect(rowsError).toBeNull()
+    expect(count).toBe(1)
+    expect(rows).toMatchObject([{
+      organization_id:orgA,billing_account_id:accountA,
+      review_status:'REQUIRES_PROVIDER_ATTESTATION',
+      financial_finality:false,access_authorized:false,
+    }])
+    expect((await reviewDb.from('billing_synthetic_invoice_reconciliation_reviews')
+      .update({financial_finality:true}).eq('provider_invoice_id',invoiceId))
+      .error?.code).toBe('42501')
+    expect((await reviewDb.from('billing_synthetic_invoice_reconciliation_reviews')
+      .delete().eq('provider_invoice_id',invoiceId)).error?.code).toBe('42501')
+    expect(['42501','PGRST202']).toContain(
+      (await reviewAnon.rpc('record_mr5_synthetic_invoice_review',reviewArgs))
+        .error?.code)
+    expect((await reviewAnon.from('billing_synthetic_invoice_reconciliation_reviews')
+      .select('id')).error?.code).toBe('42501')
 
     // A foreign organization's account/subscription cannot be substituted.
     const foreign = await db.from('billing_synthetic_invoice_evidence_drafts')

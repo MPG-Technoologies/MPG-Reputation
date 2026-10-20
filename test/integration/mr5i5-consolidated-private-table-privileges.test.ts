@@ -16,7 +16,7 @@ const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
 const enabled = Boolean(serviceKey && anonKey && serviceKey !== 'dummy_service_role_key')
 const opts = { auth: { persistSession: false, autoRefreshToken: false } }
 
-// Exact set of private tables added by the 17 new MR-5 migrations.
+// Cumulative private MR-5 tables, including read-only review evidence.
 // These are internal staging/lease/exception structures, NOT client invoices.
 const PRIVATE_BILLING_TABLES = [
   'stripe_subscription_reconciliation_leases',
@@ -28,6 +28,7 @@ const PRIVATE_BILLING_TABLES = [
   'billing_synthetic_subscription_exception_reviews',
   'billing_synthetic_invoice_evidence_drafts',
   'billing_synthetic_checkout_quote_snapshots',
+  'billing_synthetic_invoice_reconciliation_reviews',
 ] as const
 
 
@@ -96,6 +97,8 @@ const PRIVATE_BILLING_RPC_ARGS = {
   validate_billing_synthetic_exception_review_source: [],
   validate_mr5i4f_invoice_evidence_draft: [],
   validate_mr5i4g_checkout_quote_snapshot: [],
+  validate_mr5_synthetic_invoice_review: [],
+  record_mr5_synthetic_invoice_review: ['p_quote_id','p_draft_id'],
 } as const
 
 describe.skipIf(!enabled)('MR-5I5 migrated billing private-table role matrix', () => {
@@ -128,28 +131,28 @@ describe.skipIf(!enabled)('MR-5I5 migrated billing private-table role matrix', (
     }
   })
 
-  it('all nine new private tables exist and are selectable by isolated service role', async () => {
+  it('all ten private billing tables exist and are selectable by isolated service role', async () => {
     for (const table of PRIVATE_BILLING_TABLES) {
       const { error } = await privileged.from(table).select('*').limit(1)
       expect(error, table).toBeNull()
     }
   })
 
-  it('all nine new private tables reject direct anonymous SELECT', async () => {
+  it('all ten private billing tables reject direct anonymous SELECT', async () => {
     for (const table of PRIVATE_BILLING_TABLES) {
       const { error } = await anonymous.from(table).select('*').limit(1)
       expect(error?.code, table).toBe('42501')
     }
   })
 
-  it('all nine new private tables reject direct authenticated SELECT', async () => {
+  it('all ten private billing tables reject direct authenticated SELECT', async () => {
     for (const table of PRIVATE_BILLING_TABLES) {
       const { error } = await member.from(table).select('*').limit(1)
       expect(error?.code, table).toBe('42501')
     }
   })
 
-  it('all 22 private billing RPCs reject direct anonymous execution', async () => {
+  it('all 24 private billing RPCs reject direct anonymous execution', async () => {
     for (const [rpc, argNames] of Object.entries(PRIVATE_BILLING_RPC_ARGS)) {
       const args = Object.fromEntries(argNames.map(name => [name, null]))
       const { error } = await anonymous.rpc(rpc, args)
@@ -160,7 +163,7 @@ describe.skipIf(!enabled)('MR-5I5 migrated billing private-table role matrix', (
     }
   })
 
-  it('all 22 private billing RPCs reject direct signed-in execution', async () => {
+  it('all 24 private billing RPCs reject direct signed-in execution', async () => {
     for (const [rpc, argNames] of Object.entries(PRIVATE_BILLING_RPC_ARGS)) {
       const args = Object.fromEntries(argNames.map(name => [name, null]))
       const { error } = await member.rpc(rpc, args)
@@ -173,6 +176,7 @@ describe.skipIf(!enabled)('MR-5I5 migrated billing private-table role matrix', (
       'billing_paid_entitlement_proposals',
       'billing_synthetic_invoice_evidence_drafts',
       'billing_synthetic_checkout_quote_snapshots',
+      'billing_synthetic_invoice_reconciliation_reviews',
     ] as const) {
       // An empty object should fail on GRANT before reaching any data checks.
       const { error } = await member.from(table).insert({})

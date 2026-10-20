@@ -1,3 +1,5 @@
+import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { deriveActivationReadiness } from '@/domain/activation'
 import { deriveTrialLifecycle, type TrialStatus } from '@/domain/entitlement'
@@ -6,28 +8,39 @@ import { DestinationReadyBanner } from './ready-banner'
 import { DestinationForm } from './form'
 import { LinkIcon } from '@/components/ui/icons'
 import { DataLoadError } from '@/components/ui/data-load-error'
+import { resolveOperationalPageContext } from '@/domain/workspace/operational-page-context'
 
 export default async function ReviewDestinationPage() {
   const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user || user.is_anonymous) redirect('/login')
 
-  if (!user) return null
-
-  const { data: userOrgs } = await supabase
+  const { data: userOrgs, error: membershipsError } = await supabase
     .from('organization_users')
-    .select('organization_id')
+    .select('organization_id, role')
     .eq('user_id', user.id)
 
-  const orgId = userOrgs?.[0]?.organization_id
-  if (!orgId) {
+  const context = resolveOperationalPageContext(membershipsError ? null : userOrgs)
+  if (context.outcome !== 'SELECTED') {
+    const message = context.outcome === 'MULTIPLE_BUSINESSES'
+      ? 'Multiple business memberships detected. Review-link setup needs a verified business context; business switching is not yet available.'
+      : context.outcome === 'NO_MEMBERSHIP'
+        ? 'No business workspace found. Complete onboarding to configure a review link.'
+        : 'Your business membership could not be verified. Review-link settings were not accessed.'
     return (
       <PageShell>
-        <div className="p-8 text-center text-slate-400">No organization found.</div>
+        <PageHeader title="Google Review Destination" subtitle="Configure your business review link." />
+        <div role="alert" className="rounded-xl border border-amber-800 bg-amber-950/30 p-5 text-sm text-amber-100">
+          <p>{message}</p>
+          {context.outcome === 'NO_MEMBERSHIP' && (
+            <Link href="/onboarding" className="mt-3 inline-block font-semibold underline">Start onboarding</Link>
+          )}
+        </div>
       </PageShell>
     )
   }
+
+  const orgId = context.organizationId
 
   // Parallelize locations and destinations queries
   const [{ data: locations, error: locationsError }, { data: destinations, error: destinationsError }] = await Promise.all([
@@ -142,11 +155,17 @@ export default async function ReviewDestinationPage() {
           </div>
         </section>
 
-        <DestinationForm
-          organizationId={orgId}
-          locations={locations || []}
-          destinations={destinations || []}
-        />
+        {context.canEdit ? (
+          <DestinationForm
+            organizationId={orgId}
+            locations={locations}
+            destinations={destinations}
+          />
+        ) : (
+          <div role="status" className="rounded-xl border border-slate-700 bg-slate-900/50 p-5 text-sm text-slate-300">
+            Your workspace role is VIEWER (read-only). An owner, administrator or operator must configure and confirm the business review link.
+          </div>
+        )}
       </div>
     </PageShell>
   )

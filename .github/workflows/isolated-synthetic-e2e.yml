@@ -42,7 +42,8 @@ jobs:
 
       - name: Documentation-only verification
         if: steps.scope.outputs.docs_only == 'true'
-        run: echo "Markdown-only PR: disposable database work not needed."
+        run: |
+          echo "Markdown-only PR: disposable database work not needed."
 
       - name: Install pnpm
         if: steps.scope.outputs.docs_only != 'true'

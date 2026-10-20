@@ -1,6 +1,7 @@
 import 'server-only'
 
 import Stripe from 'stripe'
+import { isDisposableStripeTestProviderRuntime } from './local-stripe-test-provider-gate'
 import type {
   StripeTestCheckoutCreateOptions,
   StripeTestCheckoutSession,
@@ -11,7 +12,7 @@ export function createStripeTestCheckoutSessionCreator():
   (options: StripeTestCheckoutCreateOptions) => Promise<StripeTestCheckoutSession> {
   const key = process.env.STRIPE_SECRET_KEY?.trim()
   if (process.env.ENABLE_STRIPE_TEST_CHECKOUT_CREATE !== 'true' ||
-      process.env.ENABLE_LIVE_BILLING === 'true' ||
+      !isDisposableStripeTestProviderRuntime() ||
       !key || !/^sk_test_[A-Za-z0-9]+$/.test(key)) {
     throw new Error('BILLING_CHECKOUT_TEST_PROVIDER_DISABLED')
   }

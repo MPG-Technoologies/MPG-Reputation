@@ -1,6 +1,7 @@
 import 'server-only'
 
 import Stripe from 'stripe'
+import { isDisposableStripeTestProviderRuntime } from './local-stripe-test-provider-gate'
 import type {
   StripeTestPortalConfiguration,
   StripeTestPortalSession,
@@ -14,10 +15,7 @@ export function createStripeTestPortalProvider() {
   const key = process.env.STRIPE_SECRET_KEY?.trim()
   if (process.env.ENABLE_STRIPE_TEST_PORTAL !== 'true' ||
       process.env.MPG_STRIPE_TEST_PORTAL_TARGET !== 'LOCAL_SYNTHETIC' ||
-      process.env.ENABLE_LIVE_BILLING === 'true' ||
-      process.env.VERCEL_ENV !== undefined ||
-      !['http://127.0.0.1:54331', 'http://localhost:54331']
-        .includes(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '') ||
+      !isDisposableStripeTestProviderRuntime() ||
       !key || !/^sk_test_[A-Za-z0-9]+$/.test(key)) {
     throw new Error('BILLING_PORTAL_TEST_PROVIDER_DISABLED')
   }

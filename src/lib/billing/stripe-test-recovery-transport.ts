@@ -1,6 +1,7 @@
 import 'server-only'
 
 import Stripe from 'stripe'
+import { isDisposableStripeTestProviderRuntime } from './local-stripe-test-provider-gate'
 import type {
   StripeRecoveryEventRetriever,
   StripeRecoverySubscriptionRetriever,
@@ -21,7 +22,8 @@ export interface StripeTestRecoveryTransport {
  */
 export function createStripeTestRecoveryTransport(): StripeTestRecoveryTransport {
   const key = process.env.STRIPE_SECRET_KEY?.trim()
-  if (!key || !/^sk_test_[A-Za-z0-9]+$/.test(key)) {
+  if (!isDisposableStripeTestProviderRuntime() ||
+      !key || !/^sk_test_[A-Za-z0-9]+$/.test(key)) {
     throw new Error('BILLING_STRIPE_TEST_RECOVERY_KEY_REQUIRED')
   }
   const stripe = new Stripe(key)

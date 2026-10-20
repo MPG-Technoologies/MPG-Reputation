@@ -19,7 +19,7 @@ import {
  * The mutex must be acquired BEFORE the current provider-state fetch.
  */
 export type StripeReconciliationWorkerResult =
-  | { outcome: 'NO_WORK' | 'LOST_LEASE' | 'RETRY_REQUIRED' }
+  | { outcome: 'DISABLED' | 'NO_WORK' | 'LOST_LEASE' | 'RETRY_REQUIRED' }
   | { outcome: 'IGNORED' }
   | { outcome: 'COMMITTED'; projectionOutcome: 'CREATED' | 'UPDATED' | 'UNCHANGED' }
   | { outcome: 'FAILED'; errorCode: 'PROVIDER_UNAVAILABLE' | 'UNRESOLVED_CUSTOMER' |
@@ -47,6 +47,17 @@ export async function processDurableStripeTestEvent(args: {
   retrieveSubscription: StripeRecoverySubscriptionRetriever
 }): Promise<StripeReconciliationWorkerResult> {
   const { supabase, eventRecordId, retrieveEvent, retrieveSubscription } = args
+
+  // This function is exported and can be called independently of the sealed
+  // operator and dispatcher. A standalone invocation must never lease or
+  // mutate hosted/LIVE billing state, even if handed a privileged client.
+  if (process.env.NODE_ENV === 'production' ||
+      process.env.VERCEL_ENV !== undefined ||
+      process.env.ENABLE_LIVE_BILLING === 'true' ||
+      !['http://127.0.0.1:54331', 'http://localhost:54331']
+        .includes(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '')) {
+    return { outcome: 'DISABLED' }
+  }
 
   const lease = await call(() => supabase.rpc('lease_stripe_webhook_processing', {
     p_event_id: eventRecordId,

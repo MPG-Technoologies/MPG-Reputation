@@ -28,6 +28,9 @@ CREATE TABLE public.billing_synthetic_invoice_reconciliation_reviews (
         ON DELETE CASCADE
 );
 
+-- The quote/draft source tables are append-only by grants (SELECT/INSERT),
+-- so their reads intentionally do not request row locks that would require
+-- granting UPDATE. Unique invoice indexes serialize concurrent review writes.
 -- Protect even direct privileged INSERT, not only the RPC.
 -- The event/quote/draft/checkout records are local synthetic sources and
 -- remain intrinsically insufficient for provider-authenticated settlement.
@@ -44,9 +47,9 @@ DECLARE
     v_sub public.organization_subscriptions%ROWTYPE;
 BEGIN
     SELECT * INTO v_quote FROM public.billing_synthetic_checkout_quote_snapshots
-    WHERE id=NEW.checkout_quote_snapshot_id FOR SHARE;
+    WHERE id=NEW.checkout_quote_snapshot_id;
     SELECT * INTO v_invoice FROM public.billing_synthetic_invoice_evidence_drafts
-    WHERE id=NEW.invoice_evidence_draft_id FOR SHARE;
+    WHERE id=NEW.invoice_evidence_draft_id;
 
     IF v_quote.id IS NULL OR v_invoice.id IS NULL OR
        v_quote.organization_id IS DISTINCT FROM NEW.organization_id OR
@@ -139,7 +142,7 @@ BEGIN
         RETURN pg_catalog.jsonb_build_object('outcome','INVALID_INPUT');
     END IF;
     SELECT * INTO v_draft FROM public.billing_synthetic_invoice_evidence_drafts
-    WHERE id=p_draft_id FOR SHARE;
+    WHERE id=p_draft_id;
     IF NOT FOUND THEN
         RETURN pg_catalog.jsonb_build_object('outcome','SOURCE_NOT_FOUND');
     END IF;

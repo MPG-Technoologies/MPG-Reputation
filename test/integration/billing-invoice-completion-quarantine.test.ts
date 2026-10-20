@@ -98,6 +98,27 @@ describe.skipIf(!enabled)('MR-5 Stage 1 invoice success quarantine: generic RPC 
     }
   )
 
+  it.each(['invoice.paid','invoice.payment_failed'] as const)(
+    'denies terminal invoice INSERT without any accepted settlement for %s', async kind => {
+      for (const status of ['PROCESSED','IGNORED'] as const) {
+        const providerEventId = prefix + 'terminal' + String(++index)
+        const attempted = await db.from('billing_webhook_events').insert({
+          provider:'stripe',environment:'TEST',
+          provider_event_id:providerEventId,
+          provider_invoice_id:'in_' + prefix.slice(4) + index,
+          event_type:kind,processing_status:status,
+          processed_at:status==='PROCESSED' ? new Date().toISOString() : null,
+          payload_hash:'a'.repeat(64),
+        })
+        expect(attempted.error?.code).toBe('23514')
+        const { count, error } = await db.from('billing_webhook_events')
+          .select('id',{count:'exact',head:true})
+          .eq('provider_event_id',providerEventId)
+        expect(error).toBeNull()
+        expect(count).toBe(0)
+      }
+    }
+  )
   it('keeps the existing generic noninvoice worker lease and IGNORE finality functional',async()=>{
     const x=await event('customer.subscription.updated')
     const acquired=await db.rpc('lease_stripe_webhook_processing',{p_event_id:x.id})

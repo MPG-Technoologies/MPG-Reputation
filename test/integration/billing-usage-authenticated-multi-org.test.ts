@@ -56,6 +56,9 @@ import { getOrganizationUsageSummary, startOrganizationTrialAction } from '../..
 import { createAdminClient } from '../../src/lib/supabase/admin'
 import BillingSettingsPage from '../../src/app/app/settings/billing/page'
 import UsageSettingsPage from '../../src/app/app/settings/usage/page'
+import BusinessChooserPage from '../../src/app/workspace/organizations/page'
+import ScopedBillingPage from '../../src/app/workspace/organizations/[organizationId]/billing/page'
+import ScopedUsagePage from '../../src/app/workspace/organizations/[organizationId]/usage/page'
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
@@ -103,6 +106,17 @@ async function billingPage() {
 }
 async function usagePage() {
   return renderToStaticMarkup(createElement('div', null, await UsageSettingsPage()))
+}
+async function chooserPage() {
+  return renderToStaticMarkup(createElement('div', null, await BusinessChooserPage()))
+}
+async function scopedBilling(id: string) {
+  return renderToStaticMarkup(createElement('div', null,
+    await ScopedBillingPage({ params: Promise.resolve({ organizationId: id }) })))
+}
+async function scopedUsage(id: string) {
+  return renderToStaticMarkup(createElement('div', null,
+    await ScopedUsagePage({ params: Promise.resolve({ organizationId: id }) })))
 }
 
 describe('MR-5 authenticated two-business Billing and Usage access continuity (disposable DB)', () => {
@@ -182,6 +196,39 @@ describe('MR-5 authenticated two-business Billing and Usage access continuity (d
       expect(markup).not.toContain('TEST plan preview')
     }
 
+    // The new isolated URLs are explicit, independently revalidated and
+    // detached from /app's arbitrary first-membership shell.
+    const chooser = await chooserPage()
+    expect(chooser).toContain('Test A')
+    expect(chooser).toContain('Test B')
+    expect(chooser).toContain('/workspace/organizations/' + orgA + '/billing')
+    expect(chooser).toContain('/workspace/organizations/' + orgB + '/usage')
+    expect(chooser).not.toContain('/workspace/organizations/' + orgB + '/billing')
+
+    const billingA = await scopedBilling(orgA)
+    expect(billingA).toContain('Test A')
+    expect(billingA).toContain('30 Free Review Requests')
+    expect(billingA).not.toContain('Test B')
+    expect(billingA).not.toContain('1500')
+    expect(billingA).not.toContain('Open TEST checkout')
+    const usageB = await scopedUsage(orgB)
+    expect(usageB).toContain('Test B')
+    expect(usageB).toContain('VIEWER')
+    expect(usageB).toContain('30 remaining of 30 review requests')
+    expect(usageB).not.toContain('Test A')
+    expect(usageB).not.toContain('Billing overview')
+    const billingDenied = await scopedBilling(orgB)
+    expect(billingDenied).toContain('Owner or administrator access required')
+    expect(billingDenied).not.toContain('Test B')
+    for (const id of [orgC, 'not-a-uuid']) {
+      const invalidBilling = await scopedBilling(id)
+      const invalidUsage = await scopedUsage(id)
+      expect(invalidBilling).toContain('Business access could not be verified')
+      expect(invalidUsage).toContain('Business access could not be verified')
+      expect(invalidBilling + invalidUsage).not.toContain('Test A')
+      expect(invalidBilling + invalidUsage).not.toContain('Test B')
+    }
+
     const ownUsage = await getOrganizationUsageSummary(orgA)
     const viewerUsage = await getOrganizationUsageSummary(orgB)
     expect(ownUsage).toMatchObject({
@@ -206,6 +253,9 @@ describe('MR-5 authenticated two-business Billing and Usage access continuity (d
     expect(await resolveCurrentServerOrganization(orgB))
       .toEqual({outcome:'SELECTION_DENIED'})
     expect((await getOrganizationUsageSummary(orgB)).success).toBe(false)
+    const revokedScoped = await scopedUsage(orgB)
+    expect(revokedScoped).toContain('Business access could not be verified')
+    expect(revokedScoped).not.toContain('Test B')
     const reselected = await resolveCurrentServerOrganization()
     expect(reselected).toMatchObject({
       outcome:'SELECTED',organization:{organizationId:orgA,role:'OWNER'},
@@ -226,6 +276,9 @@ describe('MR-5 authenticated two-business Billing and Usage access continuity (d
     expect((await getOrganizationUsageSummary(orgA)).success).toBe(false)
     expect((await getOrganizationUsageSummary(orgB)).success).toBe(true)
     expect(await billingPage()).not.toContain('Test A')
+    expect(await scopedBilling(orgB)).toContain('Test B')
+    expect(await scopedUsage(orgB)).toContain('30 remaining of 30 review requests')
+    expect(await scopedBilling(orgA)).toContain('Business access could not be verified')
     expect(await usagePage()).toContain('data-usage-org="' + orgB + '"')
   }, 45000)
 
@@ -236,6 +289,11 @@ describe('MR-5 authenticated two-business Billing and Usage access continuity (d
     expect((await getOrganizationUsageSummary(orgA)).success).toBe(false)
     await expect(BillingSettingsPage()).rejects.toThrow('SYNTHETIC_REDIRECT:/login')
     await expect(UsageSettingsPage()).rejects.toThrow('SYNTHETIC_REDIRECT:/login')
+    await expect(BusinessChooserPage()).rejects.toThrow('SYNTHETIC_REDIRECT:/login')
+    await expect(ScopedBillingPage({params:Promise.resolve({organizationId:orgA})}))
+      .rejects.toThrow('SYNTHETIC_REDIRECT:/login')
+    await expect(ScopedUsagePage({params:Promise.resolve({organizationId:orgA})}))
+      .rejects.toThrow('SYNTHETIC_REDIRECT:/login')
     expect(createAdminClient).not.toHaveBeenCalled()
   })
 })

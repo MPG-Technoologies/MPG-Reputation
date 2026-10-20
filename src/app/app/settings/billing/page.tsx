@@ -44,11 +44,15 @@ export default async function BillingSettingsPage() {
         <Panel className="p-6">
           <h2 className="font-semibold text-white">Multiple businesses detected</h2>
           <p role="alert" className="mt-2 text-sm text-amber-200">
-            Billing is unavailable until an authorized business selection is supported.
+            Billing is unavailable in the legacy workspace until you choose a business.
             No billing details or payment actions are shown for an arbitrary business.
           </p>
+          <Link href="/workspace/organizations"
+            className="mt-4 inline-block text-sm text-blue-300 hover:text-white underline">
+            Choose a business
+          </Link>
           <p className="mt-3 text-sm text-slate-400">
-            Contact MPG support for assistance. Subscription changes and payments remain disabled.
+            The scoped business overview is read-only. Subscription changes and payments remain disabled.
           </p>
         </Panel>
       </PageShell>

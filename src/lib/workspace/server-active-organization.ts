@@ -6,7 +6,9 @@ import {
 } from '@/domain/workspace/active-organization-policy'
 
 /**
- * MR-5I4L — UNWIRED authenticated membership read boundary.
+ * MR-5I4L — authenticated membership read boundary.
+ * Opted in only by isolated /workspace organization-scoped read-only pages.
+ * The global /app shell and mutation handlers have NOT adopted this context.
  *
  * This function must run in a Next.js server context, with the existing
  * cookie-backed *user* Supabase client. No service-role client, privileged
@@ -16,8 +18,9 @@ import {
  * selection is only view context, never proof of an action permission:
  * every later operation must independently check fresh auth/role/RLS.
  *
- * Do not mount this behind an unauthenticated endpoint exposing choice
- * lists. No route, layout, cookie or mutation calls this yet.
+ * Membership choices are exposed only to authenticated server-rendered
+ * business chooser pages. No cookie, app-wide layout or mutation adopts this
+ * read context as authorization.
  */
 export type ServerActiveOrganizationResolution =
   | { readonly outcome: 'AUTH_REQUIRED' }

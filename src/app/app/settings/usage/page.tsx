@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { getOrganizationUsageSummary } from '@/actions/usage'
 import { UsageClient } from './client'
@@ -35,6 +36,12 @@ export default async function UsageSettingsPage() {
       <PageShell>
         <PageHeader title="Usage & Trial" subtitle="Business-specific usage and trial information." />
         <div role="alert" className="p-8 text-center text-amber-200">{message}</div>
+        {selection.outcome === 'AMBIGUOUS_ORGANIZATION' && (
+          <Link href="/workspace/organizations"
+            className="mx-8 text-sm text-blue-300 hover:text-white underline">
+            Choose a business
+          </Link>
+        )}
       </PageShell>
     )
   }

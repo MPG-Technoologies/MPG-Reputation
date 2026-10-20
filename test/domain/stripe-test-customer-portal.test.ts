@@ -125,6 +125,17 @@ describe('MR-5D3B2 safe TEST Customer Portal preparation', () => {
     expect(f.userSupabase.from).not.toHaveBeenCalled()
     expect(f.retrieveConfiguration).not.toHaveBeenCalled()
   })
+  it('rejects a signed-in Supabase anonymous identity before portal/account lookup', async () => {
+    const f=fixture()
+    vi.mocked(f.userSupabase.auth.getUser).mockResolvedValueOnce({
+      data:{user:{id:userId,is_anonymous:true}},error:null,
+    } as never)
+    expect(await f.run()).toEqual({outcome:'BLOCKED',reason:'NOT_AUTHENTICATED'})
+    expect(f.userSupabase.rpc).not.toHaveBeenCalled()
+    expect(f.userSupabase.from).not.toHaveBeenCalled()
+    expect(f.retrieveConfiguration).not.toHaveBeenCalled()
+    expect(f.createSession).not.toHaveBeenCalled()
+  })
   it('rejects malformed organization and non-owner access before account read', async () => {
     const f = fixture({ role: false })
     expect(await f.run()).toEqual({ outcome: 'BLOCKED', reason: 'NOT_AUTHORIZED' })

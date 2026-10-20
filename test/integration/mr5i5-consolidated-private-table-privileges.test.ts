@@ -30,6 +30,74 @@ const PRIVATE_BILLING_TABLES = [
   'billing_synthetic_checkout_quote_snapshots',
 ] as const
 
+
+// Explicit named argument sets match the protected SQL function signatures
+// from the candidate's 17 migrations. Keep this manifest in sync when adding
+// a new private billing RPC. Trigger-only functions are included to detect
+// mistakenly public EXECUTE privileges on SECURITY DEFINER code.
+const PRIVATE_BILLING_RPC_ARGS = {
+  reconcile_stripe_subscription_projection: [
+    'p_org_id', 'p_billing_account_id', 'p_provider_customer_id',
+    'p_environment', 'p_provider_subscription_id', 'p_provider_price_id',
+    'p_provider_status', 'p_normalized_status', 'p_current_period_start',
+    'p_current_period_end', 'p_cancel_at_period_end', 'p_canceled_at',
+  ],
+  lease_stripe_webhook_processing: ['p_event_id'],
+  complete_stripe_webhook_processing: [
+    'p_event_id', 'p_lease_token', 'p_status',
+    'p_organization_id', 'p_error_code',
+  ],
+  lease_stripe_subscription_reconciliation: [
+    'p_event_id', 'p_event_lease_token', 'p_subscription_id',
+  ],
+  release_stripe_subscription_reconciliation: [
+    'p_subscription_id', 'p_lease_token',
+  ],
+  commit_stripe_subscription_reconciliation: [
+    'p_event_id', 'p_event_lease_token', 'p_subscription_lease_token',
+    'p_org_id', 'p_billing_account_id', 'p_provider_customer_id',
+    'p_environment', 'p_provider_subscription_id', 'p_provider_price_id',
+    'p_provider_status', 'p_normalized_status', 'p_current_period_start',
+    'p_current_period_end', 'p_cancel_at_period_end', 'p_canceled_at',
+  ],
+  inspect_stripe_test_webhook_recovery: ['p_limit'],
+  reserve_stripe_test_checkout: [
+    'p_user_id', 'p_organization_id', 'p_billing_account_id',
+    'p_provider_customer_id', 'p_provider_price_id', 'p_plan_id',
+    'p_return_origin',
+  ],
+  finalize_stripe_test_checkout: [
+    'p_user_id', 'p_reservation_id', 'p_lease_token', 'p_session_id',
+    'p_session_url', 'p_session_expires_at',
+  ],
+  reserve_stripe_test_customer: ['p_user_id', 'p_organization_id'],
+  finalize_stripe_test_customer: [
+    'p_user_id', 'p_organization_id', 'p_reservation_id', 'p_lease_token',
+    'p_provider_customer_id',
+  ],
+  claim_stripe_test_billing_action: [
+    'p_user_id', 'p_organization_id', 'p_action',
+  ],
+  inspect_stripe_test_billing_recovery: [
+    'p_user_id', 'p_organization_id',
+  ],
+  read_stripe_test_provider_recovery_context: [
+    'p_user_id', 'p_organization_id',
+  ],
+  request_stripe_test_billing_recovery_review: [
+    'p_user_id', 'p_organization_id', 'p_kind',
+  ],
+  claim_stripe_test_invoice_processing: ['p_provider_event_id'],
+  fail_stripe_test_invoice_processing: [
+    'p_provider_event_id', 'p_lease_token', 'p_error_code',
+  ],
+  validate_billing_paid_entitlement_proposal_source: [],
+  enforce_synthetic_paid_proposal_event_order: [],
+  validate_billing_synthetic_exception_review_source: [],
+  validate_mr5i4f_invoice_evidence_draft: [],
+  validate_mr5i4g_checkout_quote_snapshot: [],
+} as const
+
 describe.skipIf(!enabled)('MR-5I5 migrated billing private-table role matrix', () => {
   const privileged = createClient(url, serviceKey, opts)
   const anonymous = createClient(url, anonKey, opts)
@@ -78,6 +146,25 @@ describe.skipIf(!enabled)('MR-5I5 migrated billing private-table role matrix', (
     for (const table of PRIVATE_BILLING_TABLES) {
       const { error } = await member.from(table).select('*').limit(1)
       expect(error?.code, table).toBe('42501')
+    }
+  })
+
+  it('all 22 private billing RPCs reject direct anonymous execution', async () => {
+    for (const [rpc, argNames] of Object.entries(PRIVATE_BILLING_RPC_ARGS)) {
+      const args = Object.fromEntries(argNames.map(name => [name, null]))
+      const { error } = await anonymous.rpc(rpc, args)
+      // PostgREST either denies an exposed RPC (42501) or hides the function
+      // from its schema cache (PGRST202). Any successful invocation or
+      // different database error indicates the boundary may be bypassed.
+      expect(['42501', 'PGRST202'], rpc).toContain(error?.code)
+    }
+  })
+
+  it('all 22 private billing RPCs reject direct signed-in execution', async () => {
+    for (const [rpc, argNames] of Object.entries(PRIVATE_BILLING_RPC_ARGS)) {
+      const args = Object.fromEntries(argNames.map(name => [name, null]))
+      const { error } = await member.rpc(rpc, args)
+      expect(['42501', 'PGRST202'], rpc).toContain(error?.code)
     }
   })
 

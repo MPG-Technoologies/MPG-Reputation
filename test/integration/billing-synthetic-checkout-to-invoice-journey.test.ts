@@ -27,7 +27,7 @@ const subscriptionA = 'sub_Mr5JourneyA' + run
 const subscriptionB = 'sub_Mr5JourneyB' + run
 const invoiceId = 'in_Mr5Journey' + run
 const eventPrefix = 'evt_Mr5Journey' + run
-const payloadHashFallback = 'b'.repeat(64)
+const syntheticEventCreatedAt = Math.floor(Date.now() / 1000)
 
 const oldSecrets = {
   stripeKey: process.env.STRIPE_SECRET_KEY,
@@ -116,7 +116,7 @@ describe.skipIf(!enabled)('MR-5 signed TEST checkout-to-invoice journey without 
     const body = JSON.stringify({
       id: providerEventId,
       object: 'event',
-      created: Math.floor(Date.now() / 1000),
+      created: syntheticEventCreatedAt,
       livemode: false,
       type: 'invoice.paid',
       data: { object: {

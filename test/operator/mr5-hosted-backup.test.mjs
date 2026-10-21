@@ -106,17 +106,17 @@ test('exact hosted ledger detects historic substitutions, omissions, duplicates 
     '20261010010000',
     '20261011120000',
   ]
-  const original = accepted.join('\\n') + '\\n'
+  const original = accepted.join('\n') + '\n'
   assert.deepEqual(parseMigrationInventory(original), {
     count: 26, last: '20261011120000',
   })
-  assert.deepEqual(parseMigrationInventory(original.replace(/\\n/g, '\\r\\n')), {
+  assert.deepEqual(parseMigrationInventory(original.replace(/\n/g, '\r\n')), {
     count: 26, last: '20261011120000',
   })
   const mutate = (index, version) => {
     const modified = [...accepted]
     modified[index] = version
-    return modified.join('\\n') + '\\n'
+    return modified.join('\n') + '\n'
   }
   const swapped = [...accepted]
   ;[swapped[5], swapped[6]] = [swapped[6], swapped[5]]
@@ -124,10 +124,10 @@ test('exact hosted ledger detects historic substitutions, omissions, duplicates 
     mutate(0, '20260917000002'),
     mutate(12, '20260919180001'), // Existing count and latest version would have passed.
     mutate(25, '20261011120001'),
-    accepted.slice(1).join('\\n'),
-    accepted.concat('20261011120001').join('\\n'),
+    accepted.slice(1).join('\n'),
+    accepted.concat('20261011120001').join('\n'),
     mutate(10, accepted[9]),
-    swapped.join('\\n'),
+    swapped.join('\n'),
     '',
     '26|20261011120000',
   ]) assert.throws(() => parseMigrationInventory(result), /HOSTED_MIGRATION_HISTORY_DRIFT_STOP/)

@@ -6,7 +6,7 @@
 
 MR-5I12 verified a **disposable synthetic** backup/restore. This operator command prepares a **private logical export of the real MPG Reputation engineering/test database** when, and only when, the authorized owner executes it on their secured Windows workstation. The program is never invoked in CI and never performs migrations or restores.
 
-Target: MPG Reputation Supabase project **awvqtwkzprygsoyfspuz**, on the Free plan. Expected existing migration history: **26**, last version **20261011120000**. The candidate has 22 additional migrations which remain unapplied.
+Target: MPG Reputation Supabase project **awvqtwkzprygsoyfspuz**, on the Free plan. Expected existing migration history: **the exact ordered set of all 26 accepted `main` migration version IDs**, last version **20261011120000**. The tool reads this full ledger before and after the dump; merely matching the count and latest version is insufficient. The candidate has 22 additional migrations which remain unapplied.
 
 Prerequisites: Node.js 20+, PostgreSQL 17 client tools (pg_dump, pg_restore, psql), BitLocker or other encrypted local storage, a restricted backup folder, sufficient disk space, a restricted PostgreSQL password file **outside the Git repository**, and the correct session-pooler host from Supabase Dashboard → Connect. Never paste passwords, database URLs, or backup files in this chat or GitHub.
 

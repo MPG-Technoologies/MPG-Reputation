@@ -169,9 +169,11 @@ jobs:
             test/integration/redirect-safety.test.ts \
             test/integration/staging-readiness.test.ts
 
-      - name: Test hosted backup operator fail-closed guards
+      - name: Test hosted backup operator and offline package integrity guards
         if: steps.scope.outputs.docs_only != 'true'
-        run: node --test test/operator/mr5-hosted-backup.test.mjs
+        run: |
+          node --test test/operator/mr5-hosted-backup.test.mjs
+          node --test test/operator/mr5-offline-backup-integrity.test.mjs
 
       - name: Production compile and build (synthetic configuration)
         if: steps.scope.outputs.docs_only != 'true'

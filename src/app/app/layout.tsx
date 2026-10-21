@@ -8,6 +8,7 @@ import { AppShell } from '@/components/ui/app-shell'
 import { ModalProvider } from '@/components/ui/modal-system'
 import { NavigationProvider } from './nav-context'
 import { TopProgressBar } from './progress-bar'
+import { resolveOperationalPageContext } from '@/domain/workspace/operational-page-context'
 
 export default async function AppLayout({
   children,
@@ -31,7 +32,18 @@ export default async function AppLayout({
     redirect('/onboarding')
   }
 
-  // Active organization: default to first membership
+  // Existing shared shell has no approved global business switcher. Never
+  // allow its first-membership default to activate the Quick Complete modal
+  // for an ambiguous or read-only context. Actions still recheck authority.
+  const operationalContext = resolveOperationalPageContext(memberships)
+  const quickCompleteBlockReason =
+    operationalContext.outcome === 'MULTIPLE_BUSINESSES' ? 'MULTIPLE_BUSINESSES' as const :
+    operationalContext.outcome === 'SELECTED'
+      ? operationalContext.canEdit ? undefined : 'READ_ONLY' as const
+      : 'UNVERIFIED' as const
+
+  // Active organization: default to first membership (other app pages still
+  // await a separately approved app-wide organization-selection design).
   const activeMembership = memberships[0]
   const orgId = activeMembership.organization_id
   const orgData = activeMembership.organizations as { id: string; name: string; slug: string } | null
@@ -75,6 +87,7 @@ export default async function AppLayout({
         readyLocations={readyLocations}
         isReady={readiness?.ready ?? false}
         readinessError={readinessError}
+        blockReason={quickCompleteBlockReason}
       >
         <AppShell
           orgName={orgName}

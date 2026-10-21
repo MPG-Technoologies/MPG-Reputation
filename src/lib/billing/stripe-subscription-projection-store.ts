@@ -31,7 +31,16 @@ export async function persistVerifiedStripeSubscriptionCandidate(args: {
   providerCustomerId: string
 }): Promise<SubscriptionProjectionPersistenceResult> {
   const { supabase, candidate, providerCustomerId } = args
-  if (candidate.environment !== 'TEST') {
+  // This legacy standalone helper is callable independently of the newer
+  // fenced reconciliation worker. Do not let a future caller accidentally
+  // persist synthetic provider projections in hosted/preview/production,
+  // even when handed a privileged Supabase client.
+  if (candidate.environment !== 'TEST' ||
+      process.env.NODE_ENV === 'production' ||
+      process.env.VERCEL_ENV !== undefined ||
+      process.env.ENABLE_LIVE_BILLING === 'true' ||
+      !['http://127.0.0.1:54331', 'http://localhost:54331']
+        .includes(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '')) {
     return { outcome: 'BLOCKED', reason: 'ENVIRONMENT_DISABLED' }
   }
 

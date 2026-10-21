@@ -68,8 +68,18 @@ async function login(page, actor) {
   ])
 }
 async function visibleText(page, included, excluded = []) {
+  // Next.js client navigation and streamed RSC updates can finish after a
+  // link click settles. Wait on visible DOM truth instead of a fixed sleep.
+  try {
+    await page.waitForFunction(
+      required => required.every(part => document.body.innerText.includes(part)),
+      included, { timeout: 30000 },
+    )
+  } catch {
+    throw new Error('BROWSER_VIEW_NOT_READY: ' + included.join(' | ') +
+      ' PATH=' + new URL(page.url()).pathname)
+  }
   const body = await page.locator('body').innerText()
-  for (const part of included) assert(body.includes(part), 'MISSING_EXPECTED_TEXT: ' + part)
   for (const part of excluded) assert(!body.includes(part), 'UNEXPECTED_TEXT: ' + part)
 }
 

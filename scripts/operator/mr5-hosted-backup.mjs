@@ -9,7 +9,36 @@ import { fileURLToPath } from 'node:url'
 const PROJECT_REF = 'awvqtwkzprygsoyfspuz'
 const BASELINE_COUNT = 26
 const BASELINE_LAST = '20261011120000'
-const SQL = "SELECT COUNT(*)::text || '|' || MAX(version)::text FROM supabase_migrations.schema_migrations"
+const BASELINE_VERSIONS = Object.freeze([
+  '20260917000001',
+  '20260918235000',
+  '20260919003000',
+  '20260919010000',
+  '20260919020000',
+  '20260919030000',
+  '20260919031000',
+  '20260919040000',
+  '20260919040100',
+  '20260919050000',
+  '20260919060000',
+  '20260919170000',
+  '20260919180000',
+  '20260921174500',
+  '20260921203000',
+  '20260921212000',
+  '20260922071808',
+  '20261007000000',
+  '20261008000000',
+  '20261008010000',
+  '20261009000000',
+  '20261009120000',
+  '20261009140000',
+  '20261010000000',
+  '20261010010000',
+  '20261011120000',
+])
+// Inspect every historical migration ID: count and MAX(version) alone can miss a substituted row.
+const SQL = 'SELECT version FROM supabase_migrations.schema_migrations ORDER BY version'
 const SCRIPT = fileURLToPath(import.meta.url)
 const REPOSITORY = path.resolve(path.dirname(SCRIPT), '../..')
 
@@ -98,8 +127,9 @@ export function makeChildEnv(env) {
 }
 
 export function parseMigrationInventory(value) {
-  const text = value.trim()
-  if (text !== BASELINE_COUNT + '|' + BASELINE_LAST) {
+  const actual = value.trim().split(/\r?\n/)
+  if (actual.length !== BASELINE_COUNT ||
+      actual.some((version, index) => version !== BASELINE_VERSIONS[index])) {
     throw new Error('HOSTED_MIGRATION_HISTORY_DRIFT_STOP')
   }
   return { count: BASELINE_COUNT, last: BASELINE_LAST }

@@ -6,6 +6,8 @@ vi.mock('server-only', () => ({}))
 
 import { dispatchStripeTestRecoveryBatch } from '../../src/lib/billing/stripe-test-recovery-dispatcher'
 import { processDurableStripeTestEvent } from '../../src/lib/billing/stripe-test-reconciliation-worker'
+import { persistVerifiedStripeSubscriptionCandidate } from '../../src/lib/billing/stripe-subscription-projection-store'
+import type { StripeSubscriptionProjectionCandidate } from '../../src/lib/billing/stripe-subscription-candidate'
 
 const names = [
   'ENABLE_STRIPE_TEST_RECOVERY_DISPATCHER',
@@ -40,7 +42,14 @@ function fixture() {
     retrieveEvent,
     retrieveSubscription,
   })
-  return { rpc, retrieveEvent, retrieveSubscription, dispatch, process }
+  // The older, exported subscription projection facade also accepts a
+  // privileged client. Never allow it to bypass the local-only worker gate.
+  const persist = () => persistVerifiedStripeSubscriptionCandidate({
+    supabase,
+    candidate: { environment: 'TEST' } as StripeSubscriptionProjectionCandidate,
+    providerCustomerId: 'cus_SyntheticGuard',
+  })
+  return { rpc, retrieveEvent, retrieveSubscription, dispatch, process, persist }
 }
 
 describe('Standalone TEST billing recovery entry points cannot escape local mode', () => {
@@ -69,6 +78,9 @@ describe('Standalone TEST billing recovery entry points cannot escape local mode
     const f = fixture()
     expect((await f.dispatch()).outcome).toBe('DISABLED')
     expect(await f.process()).toEqual({ outcome: 'DISABLED' })
+    expect(await f.persist()).toEqual({
+      outcome: 'BLOCKED', reason: 'ENVIRONMENT_DISABLED',
+    })
     expect(f.rpc).not.toHaveBeenCalled()
     expect(f.retrieveEvent).not.toHaveBeenCalled()
     expect(f.retrieveSubscription).not.toHaveBeenCalled()

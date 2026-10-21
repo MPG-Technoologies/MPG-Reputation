@@ -69,7 +69,7 @@ beforeEach(() => {
   failedTable = null
   authenticated = true
   rows = {
-    organization_users: [{ organization_id: 'org-a', role: 'OWNER', organizations: { id: 'org-a', name: 'Northstar Synthetic' } }],
+    organization_users: [{ organization_id: '11111111-1111-4111-8111-111111111111', role: 'OWNER', organizations: { id: '11111111-1111-4111-8111-111111111111', name: 'Northstar Synthetic' } }],
     locations: [{ id: 'loc-a', name: 'Main Synthetic Location', status: 'ACTIVE', address: '100 Example Street', country: 'CA', timezone: 'America/Toronto', review_reply_to_email: 'reply@example.test' }],
     review_destinations: [{ location_id: 'loc-a', status: 'CONFIRMED', canonical_url: 'https://g.page/r/synthetic/review' }],
   }
@@ -85,7 +85,7 @@ describe('Locations distinguish query failures from empty results', () => {
     for (const text of ['1 configured location(s)', 'Main Synthetic Location', 'ACTIVE', '100 Example Street', 'reply@example.test']) expect(html).toContain(text)
     expect(html).not.toContain('No locations configured yet')
     expect(queries.find(q => q.table === 'organization_users')?.filters).toContainEqual(['user_id', 'user-a'])
-    expect(queries.find(q => q.table === 'locations')?.filters).toContainEqual(['organization_id', 'org-a'])
+    expect(queries.find(q => q.table === 'locations')?.filters).toContainEqual(['organization_id', '11111111-1111-4111-8111-111111111111'])
   })
 
   it('renders a legitimate empty state only after a successful zero-row query', async () => {
@@ -201,14 +201,14 @@ describe('Related readiness consumers do not invent missing setup on query failu
 
   it.each(['locations', 'review_destinations'])('returns no replacement dashboard snapshot when %s fails', async table => {
     failedTable = table
-    expect(await getDashboardSnapshot('org-a')).toBeNull()
+    expect(await getDashboardSnapshot('11111111-1111-4111-8111-111111111111')).toBeNull()
   })
 
   it.each(['locations', 'review_destinations'])('passes explicit readiness failure to the global modal when %s fails', async table => {
     failedTable = table
     renderToString(await AppLayout({ children: React.createElement('p', null, 'Page') }))
     expect(harness.modalProps.readinessError).toBe(true)
-    expect(harness.modalProps.organizationId).toBe('org-a')
+    expect(harness.modalProps.organizationId).toBe('11111111-1111-4111-8111-111111111111')
     expect(harness.modalProps.readyLocations).toEqual([])
   })
 
@@ -217,17 +217,47 @@ describe('Related readiness consumers do not invent missing setup on query failu
     rows.audit_events = [{ id: 'audit-a', event_type: 'review_request.ineligible', metadata: { completionEventId: 'completion-a', decision: 'LOCATION_INACTIVE', reason: 'Location status is NOT_FOUND' }, created_at: '2026-09-20T00:00:01Z' }]
     rows.review_requests = []
     const page = await DashboardPage()
-    const snapshot = await getDashboardSnapshot('org-a')
+    const snapshot = await getDashboardSnapshot('11111111-1111-4111-8111-111111111111')
     expect(page?.props.initialSnapshot.recentRequests).toEqual([])
     expect(page?.props.initialSnapshot.liveActivity[0]).toMatchObject({ stage: 'BYPASSED', policyReason: 'Location inactive' })
     expect(snapshot?.recentRequests).toEqual([])
     expect(snapshot?.liveActivity?.[0]).toMatchObject({ stage: 'BYPASSED', policyReason: 'Location inactive' })
     expect(snapshot?.setupChecklist?.every(item => item.complete)).toBe(true)
-    expect(queries.filter(q => q.table === 'review_requests').every(q => q.filters.some(([key, value]) => key === 'organization_id' && value === 'org-a'))).toBe(true)
+    expect(queries.filter(q => q.table === 'review_requests').every(q => q.filters.some(([key, value]) => key === 'organization_id' && value === '11111111-1111-4111-8111-111111111111'))).toBe(true)
 
     rows.review_requests = [{ id: 'actual-request', completion_event_id: 'completion-a', customer_id: 'customer-a', channel: 'email', status: 'SENT', created_at: '2026-09-20T00:00:02Z', sent_at: '2026-09-20T00:00:03Z' }]
-    const withRequest = await getDashboardSnapshot('org-a')
+    const withRequest = await getDashboardSnapshot('11111111-1111-4111-8111-111111111111')
     expect(withRequest?.recentRequests.map(request => request.id)).toEqual(['actual-request'])
+  })
+})
+
+describe('Global Quick Complete modal respects the verified operational business context', () => {
+  it('does not activate recording for a read-only VIEWER even when setup is ready', async () => {
+    rows.organization_users[0].role = 'VIEWER'
+    renderToString(await AppLayout({ children: React.createElement('p', null, 'Workspace') }))
+    expect(harness.modalProps.blockReason).toBe('READ_ONLY')
+  })
+
+  it('does not select an arbitrary first business when a user belongs to two', async () => {
+    rows.organization_users.push({
+      organization_id: '22222222-2222-4222-8222-222222222222',
+      role: 'OWNER',
+      organizations: { id: '22222222-2222-4222-8222-222222222222', name: 'Second Synthetic' },
+    })
+    renderToString(await AppLayout({ children: React.createElement('p', null, 'Workspace') }))
+    expect(harness.modalProps.blockReason).toBe('MULTIPLE_BUSINESSES')
+  })
+
+  it('allows an operational single-business OWNER to open a ready form', async () => {
+    renderToString(await AppLayout({ children: React.createElement('p', null, 'Workspace') }))
+    expect(harness.modalProps.blockReason).toBeUndefined()
+    expect(harness.modalProps.isReady).toBe(true)
+  })
+
+  it('fails closed for a malformed membership role before opening a modal', async () => {
+    rows.organization_users[0].role = 'UNKNOWN_ROLE'
+    renderToString(await AppLayout({ children: React.createElement('p', null, 'Workspace') }))
+    expect(harness.modalProps.blockReason).toBe('UNVERIFIED')
   })
 })
 

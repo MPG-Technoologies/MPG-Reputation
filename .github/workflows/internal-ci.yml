@@ -163,6 +163,8 @@ jobs:
             test/domain/suppression.test.ts \
             test/domain/tracking.test.ts \
             test/domain/trial-entitlement.test.ts \
+            test/integration/client-activation-page-context.test.ts \
+            test/integration/quick-complete-action-authorization.test.ts \
             test/integration/navigation-feedback.test.ts \
             test/integration/redirect-safety.test.ts \
             test/integration/staging-readiness.test.ts

@@ -147,6 +147,7 @@ describe('MR-5D3D3B scoped MPG billing recovery inspection (disposable PostgreSQ
         .eq('organization_id', orgA)
         .eq('event_type', 'support.billing_recovery_inspection')
       expect(error).toBeNull()
+      if (count === null) throw new Error('SYNTHETIC_SUPPORT_AUDIT_COUNT_UNAVAILABLE')
       return count
     }
 

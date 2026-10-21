@@ -1,9 +1,28 @@
 import { randomUUID } from 'node:crypto'
+import { createElement, type ReactNode } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from '../../src/types/database'
 
 vi.mock('server-only', () => ({}))
+vi.mock('next/headers', () => ({ headers: vi.fn() }))
+vi.mock('next/navigation', () => ({
+  redirect: (path: string) => { throw new Error('SYNTHETIC_REDIRECT:' + path) },
+}))
+vi.mock('next/link', () => ({
+  default: ({ href, children }: { href: string; children: ReactNode }) =>
+    createElement('a', { href }, children),
+}))
+vi.mock('@/components/layout/page-shell', () => ({
+  PageShell: ({ children }: { children: ReactNode }) => createElement('main', null, children),
+  PageHeader: ({ title, subtitle, actions }: {
+    title: ReactNode; subtitle?: ReactNode; actions?: ReactNode
+  }) => createElement('header', null, title, subtitle, actions),
+}))
+vi.mock('@/components/layout/panels', () => ({
+  Panel: ({ children }: { children: ReactNode }) => createElement('section', null, children),
+}))
 let activeClient: ReturnType<typeof createClient<Database>>
 let privateClient: ReturnType<typeof createClient<Database>>
 vi.mock('@/lib/supabase/server', () => ({
@@ -13,6 +32,9 @@ vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: vi.fn(() => privateClient),
 }))
 import { getSupportBillingRecoveryCases } from '../../src/lib/support/billing-recovery'
+import { headers } from 'next/headers'
+import SupportBillingRecoveryPage from '../../src/app/admin/organizations/[organizationId]/billing-recovery/page'
+import ScopedBillingPage from '../../src/app/workspace/organizations/[organizationId]/billing/page'
 
 const url=process.env.NEXT_PUBLIC_SUPABASE_URL!
 const options={auth:{persistSession:false,autoRefreshToken:false}}
@@ -106,6 +128,83 @@ describe('MR-5D3D3B scoped MPG billing recovery inspection (disposable PostgreSQ
         if(error)throw error}
     }
   })
+  it('separates real client-owner billing from audited MPG support recovery pages', async () => {
+    // Use the existing disposable PostgreSQL Auth/RLS fixtures to render the
+    // actual server pages; no mocked grant decisions or payment adapters.
+    const normalHeaders = { has: () => false, get: () => null }
+    vi.mocked(headers).mockResolvedValue(normalHeaders as never)
+    const renderClientBilling = async () => renderToStaticMarkup(createElement(
+      'div', null,
+      await ScopedBillingPage({ params: Promise.resolve({ organizationId: orgA }) }),
+    ))
+    const renderSupportCases = async () => renderToStaticMarkup(createElement(
+      'div', null,
+      await SupportBillingRecoveryPage({ params: Promise.resolve({ organizationId: orgA }) }),
+    ))
+    const auditCount = async () => {
+      const { count, error } = await admin.from('audit_events')
+        .select('id', { count: 'exact', head: true })
+        .eq('organization_id', orgA)
+        .eq('event_type', 'support.billing_recovery_inspection')
+      expect(error).toBeNull()
+      return count
+    }
+
+    activeClient = owner
+    const ownerBilling = await renderClientBilling()
+    expect(ownerBilling).toContain('Billing &amp; subscription')
+    expect(ownerBilling).toContain('30 Free Review Requests')
+    expect(ownerBilling).toContain('Read-only engineering view')
+    expect(ownerBilling).not.toContain(caseId)
+    const ownerAuditBefore = await auditCount()
+    const ownerSupport = await renderSupportCases()
+    expect(ownerSupport).toContain('Access unavailable')
+    expect(ownerSupport).not.toContain(caseId)
+    expect(await auditCount()).toBe(ownerAuditBefore)
+
+    activeClient = staff
+    const staffBilling = await renderClientBilling()
+    expect(staffBilling).toContain('Owner or administrator access required')
+    expect(staffBilling).not.toContain(caseId)
+    expect(staffBilling).not.toContain('Recovery Support A')
+
+    // Next.js background prefetch must not access cases or produce audit
+    // entries; a deliberate direct visit requires fresh grant + audit.
+    vi.mocked(headers).mockResolvedValueOnce({
+      has: (name: string) => name === 'next-router-prefetch',
+      get: () => null,
+    } as never)
+    const prefetched = await renderSupportCases()
+    expect(prefetched).toContain('Open this page directly')
+    expect(prefetched).not.toContain(caseId)
+    expect(await auditCount()).toBe(ownerAuditBefore)
+
+    const staffSupport = await renderSupportCases()
+    expect(staffSupport).toContain('Billing recovery reviews')
+    expect(staffSupport).toContain(caseId)
+    expect(staffSupport).toContain('Investigation only')
+    expect(staffSupport).toContain('not payment confirmation')
+    expect(staffSupport).not.toContain('Approve payment')
+    expect(await auditCount()).toBe(ownerAuditBefore + 1)
+    const recorded = checked(await admin.from('audit_events')
+      .select('actor_id,metadata')
+      .eq('organization_id', orgA)
+      .eq('event_type', 'support.billing_recovery_inspection')
+      .order('created_at', { ascending: false })
+      .limit(1))
+    expect(recorded).toEqual([{ actor_id: staffId, metadata: { outcome: 'AVAILABLE' } }])
+
+    // A later revoked support grant must stop the same server page from
+    // rendering the previously inspected case, even with tenant membership.
+    checked(await admin.from('support_access_grants').update({
+      revoked_at: new Date().toISOString(),
+    }).eq('organization_id', orgA).eq('user_id', staffId).select('id'))
+    const afterRevocation = await renderSupportCases()
+    expect(afterRevocation).toContain('Access unavailable')
+    expect(afterRevocation).not.toContain(caseId)
+    expect(await auditCount()).toBe(ownerAuditBefore + 1)
+  }, 30000)
+
   it('business OWNER without MPG_ADMIN grant cannot inspect a case',async()=>{
     activeClient=owner
     expect(await getSupportBillingRecoveryCases(orgA)).toEqual({status:'DENIED'})

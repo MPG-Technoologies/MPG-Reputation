@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "status": "REVIEWED_REPOSITORY_CANDIDATE_ONLY_NO_HOSTED_APPLY",
+  "parent_candidate_commit": "699c8a9ad8d6c356eeb0e29affa83feeeac2a227",
+  "accepted_hosted_migration_count": 26,
+  "accepted_hosted_latest_version": "20261011120000",
+  "proposed_count": 22,
+  "items": [
+    {
+      "file": "20261018150000_mr5c2_atomic_subscription_projection.sql",
+      "git_blob_sha1": "5a13db220deaa17d3416c83fc37e827923cd111d"
+    },
+    {
+      "file": "20261018163500_mr5c3a_webhook_processing_leases.sql",
+      "git_blob_sha1": "bede3319286fc49065af56bd16cb267a1fe12c19"
+    },
+    {
+      "file": "20261018180500_mr5c3b2_fenced_subscription_reconciliation.sql",
+      "git_blob_sha1": "33f9a2f9582fbb4b1b134b1817905981297547d3"
+    },
+    {
+      "file": "20261018225000_mr5c3c1_test_recovery_queue.sql",
+      "git_blob_sha1": "a1a0e5368bb0a842e3606349dd792097bf063e7a"
+    },
+    {
+      "file": "20261018233000_mr5d2_fenced_test_checkout.sql",
+      "git_blob_sha1": "d3535dc6af5ff772c6559c11561f66001073883a"
+    },
+    {
+      "file": "20261019010000_mr5d3b1_test_customer_provisioning.sql",
+      "git_blob_sha1": "d63bacf358790815a22fc44b4fc528642349b3dc"
+    },
+    {
+      "file": "20261019020000_mr5d3c1_billing_action_rate_limit.sql",
+      "git_blob_sha1": "e0f4da74422bf5118778d98f99c06d27ed5ffe39"
+    },
+    {
+      "file": "20261019030000_mr5d3d1_test_billing_recovery_diagnostics.sql",
+      "git_blob_sha1": "6637ff6cfed0ba746268bccec52ddab6b370fd2b"
+    },
+    {
+      "file": "20261019040000_mr5d3d2_provider_recovery_context.sql",
+      "git_blob_sha1": "bc5d32bfe40ff8163dd12975e11dbd24002ec602"
+    },
+    {
+      "file": "20261019050000_mr5d3d3a_recovery_review_intake.sql",
+      "git_blob_sha1": "1cfa3a54acf0b2c055796bbe2e64ba50d3a4f112"
+    },
+    {
+      "file": "20261019124000_mr5e2c_durable_invoice_reference.sql",
+      "git_blob_sha1": "0fdf281ddc4629a4bfc263058554e2a81b30d990"
+    },
+    {
+      "file": "20261019131000_mr5e2d2_fenced_invoice_processing.sql",
+      "git_blob_sha1": "7abdad8fb966489284341a89443ee4a578aee6a6"
+    },
+    {
+      "file": "20261019140000_mr5e3b_paid_entitlement_proposals.sql",
+      "git_blob_sha1": "4f1b83f8a0d0bdf9062997fdb79d4a9fe4fdba69"
+    },
+    {
+      "file": "20261019150000_mr5e3c2_ordered_synthetic_proposals.sql",
+      "git_blob_sha1": "ae1c4ee9a494f4aa880ee3e15c92d655d7f5a60f"
+    },
+    {
+      "file": "20261019160000_mr5e3c3b_synthetic_exception_reviews.sql",
+      "git_blob_sha1": "ab0f8bafc29ec8dff26ce8cfd84a73274cafa359"
+    },
+    {
+      "file": "20261019170000_mr5i4f_synthetic_invoice_evidence_drafts.sql",
+      "git_blob_sha1": "e1d28f226356423a1747a204a263f773c029708f"
+    },
+    {
+      "file": "20261019180000_mr5i4g_synthetic_checkout_quote_snapshots.sql",
+      "git_blob_sha1": "d2d039e35a0201dd222289cd39d3ee7a7dbc705f"
+    },
+    {
+      "file": "20261020123000_mr5_stage1_invoice_completion_quarantine.sql",
+      "git_blob_sha1": "bc4a294663f7d232dd52640976331f182158cb4b"
+    },
+    {
+      "file": "20261020124000_mr5_stage1_invoice_terminal_insert_quarantine.sql",
+      "git_blob_sha1": "6c33f99aed5ce65bd23c1269412e3eed883682dd"
+    },
+    {
+      "file": "20261020125000_mr5_stage1_synthetic_invoice_reconciliation_reviews.sql",
+      "git_blob_sha1": "48c66dc0e320ccbd23e9d7b1f3c47ec1fa19264a"
+    },
+    {
+      "file": "20261020130000_mr5_stage1_stable_synthetic_review_replays.sql",
+      "git_blob_sha1": "5e70aa23d6c66cc948484264dac334d6e96cb772"
+    },
+    {
+      "file": "20261021110000_mr5i7_mutable_billing_table_acl_hardening.sql",
+      "git_blob_sha1": "2dd8464c78f2916b883d9359d717e59448f25e22"
+    }
+  ]
+}

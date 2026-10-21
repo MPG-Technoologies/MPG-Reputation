@@ -76,12 +76,60 @@ test('never forward ambient provider credentials to PostgreSQL child processes',
   assert.equal(clean.DATABASE_URL, undefined)
 })
 
-test('abort on hosted migration ledger drift', () => {
-  assert.deepEqual(parseMigrationInventory('26|20261011120000\n'), {
+test('exact hosted ledger detects historic substitutions, omissions, duplicates and ordering drift', () => {
+  // Independent fixture of the 26 accepted main migration IDs, not read from the operator's constants.
+  const accepted = [
+    '20260917000001',
+    '20260918235000',
+    '20260919003000',
+    '20260919010000',
+    '20260919020000',
+    '20260919030000',
+    '20260919031000',
+    '20260919040000',
+    '20260919040100',
+    '20260919050000',
+    '20260919060000',
+    '20260919170000',
+    '20260919180000',
+    '20260921174500',
+    '20260921203000',
+    '20260921212000',
+    '20260922071808',
+    '20261007000000',
+    '20261008000000',
+    '20261008010000',
+    '20261009000000',
+    '20261009120000',
+    '20261009140000',
+    '20261010000000',
+    '20261010010000',
+    '20261011120000',
+  ]
+  const original = accepted.join('\\n') + '\\n'
+  assert.deepEqual(parseMigrationInventory(original), {
     count: 26, last: '20261011120000',
   })
-  for (const result of ['25|20261011120000', '27|20261011120000',
-    '26|20261018150000', '', '26|20261011120000\nextra',
+  assert.deepEqual(parseMigrationInventory(original.replace(/\\n/g, '\\r\\n')), {
+    count: 26, last: '20261011120000',
+  })
+  const mutate = (index, version) => {
+    const modified = [...accepted]
+    modified[index] = version
+    return modified.join('\\n') + '\\n'
+  }
+  const swapped = [...accepted]
+  ;[swapped[5], swapped[6]] = [swapped[6], swapped[5]]
+  for (const result of [
+    mutate(0, '20260917000002'),
+    mutate(12, '20260919180001'), // Existing count and latest version would have passed.
+    mutate(25, '20261011120001'),
+    accepted.slice(1).join('\\n'),
+    accepted.concat('20261011120001').join('\\n'),
+    mutate(10, accepted[9]),
+    swapped.join('\\n'),
+    '',
+    '26|20261011120000',
   ]) assert.throws(() => parseMigrationInventory(result), /HOSTED_MIGRATION_HISTORY_DRIFT_STOP/)
 })
 

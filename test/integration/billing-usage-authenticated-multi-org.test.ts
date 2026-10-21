@@ -54,6 +54,7 @@ vi.mock('../../src/app/app/settings/billing/plan-preview', () => ({
 import { resolveCurrentServerOrganization } from '../../src/lib/workspace/server-active-organization'
 import { getOrganizationUsageSummary, startOrganizationTrialAction } from '../../src/actions/usage'
 import { createAdminClient } from '../../src/lib/supabase/admin'
+import { admitStripeTestBillingAction } from '../../src/lib/billing/stripe-test-billing-action-admission'
 import BillingSettingsPage from '../../src/app/app/settings/billing/page'
 import UsageSettingsPage from '../../src/app/app/settings/usage/page'
 import BusinessChooserPage from '../../src/app/workspace/organizations/page'
@@ -185,6 +186,103 @@ describe('MR-5 authenticated two-business Billing and Usage access continuity (d
     for (const userId of createdUserIds) {
       const { error } = await admin.auth.admin.deleteUser(userId)
       if (error) throw new Error('SYNTHETIC_MULTI_ORG_USER_CLEANUP_FAILED')
+    }
+  }, 30000)
+
+  it('gates local TEST billing admission using actual authenticated multi-tenant RLS and atomic limits', async () => {
+    // This calls only the admission boundary: never Stripe, checkout creation,
+    // customer provisioning, subscription finalization, or paid entitlements.
+    const keys = [
+      'ENABLE_STRIPE_TEST_BILLING_ACTIONS',
+      'MPG_STRIPE_TEST_BILLING_ACTION_TARGET',
+      'MPG_BILLING_CHECKOUT_RETURN_ORIGIN',
+      'ENABLE_LIVE_BILLING',
+    ] as const
+    const prior = Object.fromEntries(keys.map(key => [key, process.env[key]]))
+    try {
+      process.env.ENABLE_STRIPE_TEST_BILLING_ACTIONS = 'true'
+      process.env.MPG_STRIPE_TEST_BILLING_ACTION_TARGET = 'LOCAL_SYNTHETIC'
+      process.env.MPG_BILLING_CHECKOUT_RETURN_ORIGIN = 'http://localhost:3000'
+      process.env.ENABLE_LIVE_BILLING = 'false'
+      const request = {
+        method: 'POST', origin: 'http://localhost:3000',
+        fetchSite: 'same-origin', fetchMode: 'cors',
+        contentType: 'application/json', actionHeader: '1',
+      }
+      const admit = (userSupabase: typeof admin, organizationId: string,
+        action: 'CUSTOMER_SETUP' | 'CHECKOUT' | 'PORTAL' = 'CHECKOUT') =>
+        admitStripeTestBillingAction({
+          userSupabase, trustedBillingSupabase: admin,
+          organizationId, action, request,
+        })
+
+      // This real OWNER of A also holds a VIEWER membership in B. An
+      // untrusted posted org UUID must never resolve that ambiguity.
+      expect(await admit(userA, orgA)).toEqual({
+        outcome: 'DENIED', reason: 'NOT_AUTHORIZED',
+      })
+      expect(await admit(userA, orgB)).toEqual({
+        outcome: 'DENIED', reason: 'NOT_AUTHORIZED',
+      })
+
+      // An actual signed-in OWNER of B cannot claim a billing action for A.
+      expect(await admit(userB, orgA)).toEqual({
+        outcome: 'DENIED', reason: 'NOT_AUTHORIZED',
+      })
+      const { count: foreignAttempts, error: foreignError } = await admin
+        .from('stripe_test_billing_action_limits')
+        .select('organization_id', { count: 'exact', head: true })
+        .eq('organization_id', orgA)
+      expect(foreignError).toBeNull()
+      expect(foreignAttempts).toBe(0)
+
+      // The same B-owner session is admitted for its own organization, but
+      // the privileged SQL rate limit admits exactly five actions in its
+      // minute window, shared across setup/checkout/portal requests.
+      const actions = ['CUSTOMER_SETUP','CHECKOUT','PORTAL','CHECKOUT','PORTAL'] as const
+      for (let i = 0; i < actions.length; i++) {
+        expect(await admit(userB, orgB, actions[i])).toEqual({
+          outcome: 'ALLOWED', remaining: 4 - i,
+        })
+      }
+      expect(await admit(userB, orgB)).toEqual({
+        outcome: 'DENIED', reason: 'RATE_LIMITED',
+      })
+      const { data: limit, error: limitError } = await admin
+        .from('stripe_test_billing_action_limits')
+        .select('attempts,last_action')
+        .eq('organization_id', orgB).single()
+      expect(limitError).toBeNull()
+      expect(limit).toMatchObject({ attempts: 5, last_action: 'PORTAL' })
+
+      // Admission alone must not create a Customer, Checkout reservation,
+      // subscription, reviewed invoice or paid access.
+      const tables = [
+        'stripe_test_customer_provisioning',
+        'stripe_test_checkout_reservations',
+        'billing_synthetic_invoice_reconciliation_reviews',
+        'organization_subscriptions',
+      ] as const
+      for (const table of tables) {
+        const { count, error } = await admin.from(table)
+          .select('id', { count: 'exact', head: true })
+          .eq('organization_id', orgB)
+        expect(error, table).toBeNull()
+        expect(count, table).toBe(0)
+      }
+      const { data: trial, error: trialError } = await admin
+        .from('organization_entitlements')
+        .select('allocated_requests,consumed_requests,status')
+        .eq('organization_id', orgB).single()
+      expect(trialError).toBeNull()
+      expect(trial).toMatchObject({
+        allocated_requests: 30, consumed_requests: 0, status: 'NOT_STARTED',
+      })
+    } finally {
+      for (const key of keys) {
+        if (prior[key] === undefined) delete process.env[key]
+        else process.env[key] = prior[key]
+      }
     }
   }, 30000)
 

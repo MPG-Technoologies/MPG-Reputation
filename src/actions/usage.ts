@@ -62,29 +62,32 @@ export async function getOrganizationUsageSummary(
     const supabase = await createClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    if (authError || !user) {
+    if (authError || !user || user.is_anonymous) {
       return { success: false, error: 'Authentication required' }
     }
 
     // Verify tenant membership
-    const { data: membership } = await supabase
+    const { data: membership, error: membershipError } = await supabase
       .from('organization_users')
       .select('role')
       .eq('organization_id', organizationId)
       .eq('user_id', user.id)
       .maybeSingle()
 
-    if (!membership) {
+    if (membershipError || !membership) {
       return { success: false, error: 'Access denied' }
     }
 
     // Fetch entitlement state
-    const { data: entitlementRow } = await supabase
+    const { data: entitlementRow, error: entitlementError } = await supabase
       .from('organization_entitlements')
       .select('*')
       .eq('organization_id', organizationId)
       .maybeSingle()
 
+    if (entitlementError || entitlementRow === undefined) {
+      return { success: false, error: 'Usage details could not be verified' }
+    }
     const derived = deriveTrialLifecycle(entitlementRow)
 
     // Authoritative MR-2 activation readiness check: evaluate locations and destinations
@@ -99,9 +102,14 @@ export async function getOrganizationUsageSummary(
         .eq('organization_id', organizationId),
     ])
 
+    if (locationsRes.error || destinationsRes.error ||
+        !Array.isArray(locationsRes.data) ||
+        !Array.isArray(destinationsRes.data)) {
+      return { success: false, error: 'Usage details could not be verified' }
+    }
     const readiness = deriveActivationReadiness(
-      locationsRes.data || [],
-      destinationsRes.data || []
+      locationsRes.data,
+      destinationsRes.data
     )
 
     const hasReadyLocation = readiness.readyLocationIds.length > 0
@@ -110,14 +118,18 @@ export async function getOrganizationUsageSummary(
     const canStartTrial = isNotStarted && hasReadyLocation
 
     // Fetch usage ledger records (factual usage only)
-    const { data: usageRows } = await supabase
+    const { data: usageRows, error: usageError } = await supabase
       .from('usage_ledger')
       .select('id, event_type, channel, units, entity_type, entity_id, idempotency_key, created_at')
       .eq('organization_id', organizationId)
       .order('created_at', { ascending: false })
       .limit(200)
 
-    const rows = usageRows || []
+    // Missing/error ledger data must not be misreported as genuine zero usage.
+    if (usageError || !Array.isArray(usageRows)) {
+      return { success: false, error: 'Usage details could not be verified' }
+    }
+    const rows = usageRows
 
     const ledgerCounts = {
       initialRequestsCreated: 0,
@@ -175,9 +187,9 @@ export async function getOrganizationUsageSummary(
         canStartTrial,
       },
     }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed to fetch organization usage summary'
-    return { success: false, error: msg }
+  } catch {
+    // A database exception must never leak internal details or invent usage.
+    return { success: false, error: 'Usage details could not be verified' }
   }
 }
 

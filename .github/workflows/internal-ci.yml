@@ -105,6 +105,43 @@ jobs:
           pnpm exec vitest run \
             test/domain/activation-readiness.test.ts \
             test/domain/billing.test.ts \
+            test/domain/billing-catalog.test.ts \
+            test/domain/billing-configuration.test.ts \
+            test/domain/provider-evidence-port.test.ts \
+            test/domain/synthetic-invoice-projection-correlation.test.ts \
+            test/domain/synthetic-invoice-finality-plan.test.ts \
+            test/domain/synthetic-frozen-invoice-consistency.test.ts \
+            test/domain/synthetic-invoice-evidence-chain.test.ts \
+            test/domain/mr5i4e-invoice-finality-nonactivation.test.ts \
+            test/domain/mr5i4h-billing-surface-nonactivation.test.ts \
+            test/domain/billing-workspace-organization-selection.test.ts \
+            test/domain/billing-workspace-organization-page.test.ts \
+            test/domain/usage-organization-context.test.ts \
+            test/domain/usage-organization-page.test.ts \
+            test/domain/usage-summary-read-integrity.test.ts \
+            test/domain/active-organization-policy.test.ts \
+            test/domain/server-active-organization.test.ts \
+            test/domain/subscription-lifecycle-proposals.test.ts \
+            test/domain/synthetic-exception-reconciliation.test.ts \
+            test/domain/stripe-subscription-candidate.test.ts \
+            test/domain/stripe-recovery-preflight.test.ts \
+            test/domain/stripe-recovery-operator.test.ts \
+            test/domain/stripe-test-worker-environment-gates.test.ts \
+            test/domain/stripe-test-provider-construction-gates.test.ts \
+            test/domain/stripe-test-checkout-preflight.test.ts \
+            test/domain/stripe-test-checkout-start.test.ts \
+            test/domain/billing-ui-state.test.ts \
+            test/domain/stripe-test-customer-provisioning.test.ts \
+            test/domain/stripe-test-customer-portal.test.ts \
+            test/domain/stripe-test-billing-action-admission.test.ts \
+            test/domain/stripe-test-action-request.test.ts \
+            test/domain/stripe-test-billing-action-route.test.ts \
+            test/domain/stripe-test-recovery-diagnostics.test.ts \
+            test/domain/stripe-test-provider-recovery.test.ts \
+            test/domain/stripe-test-recovery-review.test.ts \
+            test/domain/support-billing-recovery.test.ts \
+            test/domain/support-subscription-exceptions.test.ts \
+            test/domain/admin-billing-review-pages.test.ts \
             test/domain/completion-api.test.ts \
             test/domain/completion-ingestion-schema.test.ts \
             test/domain/completion.test.ts \
@@ -126,9 +163,15 @@ jobs:
             test/domain/suppression.test.ts \
             test/domain/tracking.test.ts \
             test/domain/trial-entitlement.test.ts \
+            test/integration/client-activation-page-context.test.ts \
+            test/integration/quick-complete-action-authorization.test.ts \
             test/integration/navigation-feedback.test.ts \
             test/integration/redirect-safety.test.ts \
             test/integration/staging-readiness.test.ts
+
+      - name: Test hosted backup operator fail-closed guards
+        if: steps.scope.outputs.docs_only != 'true'
+        run: node --test test/operator/mr5-hosted-backup.test.mjs
 
       - name: Production compile and build (synthetic configuration)
         if: steps.scope.outputs.docs_only != 'true'

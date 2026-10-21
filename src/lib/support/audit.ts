@@ -7,6 +7,8 @@ type SupportAuditEvent =
   | 'support.organization_inspection'
   | 'support.exception_queue_inspection'
   | 'support.health_snapshot_inspection'
+  | 'support.billing_recovery_inspection'
+  | 'support.subscription_exception_inspection'
 
 export type SupportOutboxRetryAuditOutcome =
   | 'REQUESTED'
@@ -80,6 +82,14 @@ export async function recordSupportHealthSnapshotInspection(
   )
 }
 
+/** MR-5D3D3B: mandatory actor-attributed audit before revealing cases. */
+export async function recordSupportBillingRecoveryInspection(
+  access: SupportAccess,
+  outcome: 'AVAILABLE' | 'UNAVAILABLE'
+): Promise<boolean> {
+  return recordSupportAudit(access, 'support.billing_recovery_inspection', outcome)
+}
+
 /**
  * Fixed server-authored audit for one MR-6D
  * outbox recovery action.
@@ -122,4 +132,12 @@ export async function recordSupportOutboxRetryAudit(
   } catch {
     return false
   }
+}
+
+/** MR-5E3C3C: actor-attributed minimal read-only synthetic-case inspection. */
+export async function recordSupportSubscriptionExceptionInspection(
+  access: SupportAccess,
+  outcome: 'AVAILABLE' | 'UNAVAILABLE'
+): Promise<boolean> {
+  return recordSupportAudit(access, 'support.subscription_exception_inspection', outcome)
 }

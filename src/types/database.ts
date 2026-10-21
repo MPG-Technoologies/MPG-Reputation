@@ -1032,6 +1032,200 @@ export interface Database {
           }
         ]
       }
+      stripe_test_billing_recovery_reviews: {
+        Row: {
+          id: string
+          organization_id: string
+          kind: 'CUSTOMER_SETUP' | 'CHECKOUT'
+          reason: 'AGED_CUSTOMER_ATTEMPT' | 'UNLINKED_CUSTOMER' | 'CUSTOMER_MAPPING_CONFLICT' | 'AGED_CHECKOUT_ATTEMPT' | 'EXPIRED_CHECKOUT_SESSION' | 'EXPIRED_CHECKOUT_RESERVATION'
+          state: 'OPEN'
+          requested_by: string
+          requested_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          kind: 'CUSTOMER_SETUP' | 'CHECKOUT'
+          reason: 'AGED_CUSTOMER_ATTEMPT' | 'UNLINKED_CUSTOMER' | 'CUSTOMER_MAPPING_CONFLICT' | 'AGED_CHECKOUT_ATTEMPT' | 'EXPIRED_CHECKOUT_SESSION' | 'EXPIRED_CHECKOUT_RESERVATION'
+          state?: 'OPEN'
+          requested_by: string
+          requested_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          kind?: 'CUSTOMER_SETUP' | 'CHECKOUT'
+          reason?: 'AGED_CUSTOMER_ATTEMPT' | 'UNLINKED_CUSTOMER' | 'CUSTOMER_MAPPING_CONFLICT' | 'AGED_CHECKOUT_ATTEMPT' | 'EXPIRED_CHECKOUT_SESSION' | 'EXPIRED_CHECKOUT_RESERVATION'
+          state?: 'OPEN'
+          requested_by?: string
+          requested_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_test_billing_recovery_reviews_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      stripe_test_billing_action_limits: {
+        Row: {
+          organization_id: string
+          user_id: string
+          period_started_at: string
+          attempts: number
+          last_action: 'CUSTOMER_SETUP' | 'CHECKOUT' | 'PORTAL'
+          updated_at: string
+        }
+        Insert: {
+          organization_id: string
+          user_id: string
+          period_started_at?: string
+          attempts?: number
+          last_action: 'CUSTOMER_SETUP' | 'CHECKOUT' | 'PORTAL'
+          updated_at?: string
+        }
+        Update: {
+          organization_id?: string
+          user_id?: string
+          period_started_at?: string
+          attempts?: number
+          last_action?: 'CUSTOMER_SETUP' | 'CHECKOUT' | 'PORTAL'
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_test_billing_action_limits_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      stripe_test_customer_provisioning: {
+        Row: {
+          id: string
+          organization_id: string
+          provider: 'stripe'
+          environment: 'TEST'
+          organization_name: string
+          state: 'PREPARING' | 'READY'
+          lease_token: string | null
+          lease_expires_at: string | null
+          provider_customer_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          organization_name: string
+          state: 'PREPARING' | 'READY'
+          lease_token?: string | null
+          lease_expires_at?: string | null
+          provider_customer_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          organization_name?: string
+          state?: 'PREPARING' | 'READY'
+          lease_token?: string | null
+          lease_expires_at?: string | null
+          provider_customer_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_test_customer_provisioning_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      stripe_test_checkout_reservations: {
+        Row: {
+          id: string
+          organization_id: string
+          billing_account_id: string
+          provider: 'stripe'
+          environment: 'TEST'
+          provider_customer_id: string
+          provider_price_id: string
+          plan_id: 'monthly' | 'annual'
+          return_origin: string
+          status: 'PREPARING' | 'READY'
+          lease_token: string | null
+          lease_expires_at: string | null
+          stripe_session_id: string | null
+          stripe_session_url: string | null
+          session_expires_at: string
+          reservation_expires_at: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          billing_account_id: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          provider_customer_id: string
+          provider_price_id: string
+          plan_id: 'monthly' | 'annual'
+          return_origin: string
+          status: 'PREPARING' | 'READY'
+          lease_token?: string | null
+          lease_expires_at?: string | null
+          stripe_session_id?: string | null
+          stripe_session_url?: string | null
+          session_expires_at: string
+          reservation_expires_at: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          billing_account_id?: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          provider_customer_id?: string
+          provider_price_id?: string
+          plan_id?: 'monthly' | 'annual'
+          return_origin?: string
+          status?: 'PREPARING' | 'READY'
+          lease_token?: string | null
+          lease_expires_at?: string | null
+          stripe_session_id?: string | null
+          stripe_session_url?: string | null
+          session_expires_at?: string
+          reservation_expires_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_checkout_account_fkey"
+            columns: ["billing_account_id", "organization_id", "provider", "environment"]
+            isOneToOne: false
+            referencedRelation: "organization_billing_accounts"
+            referencedColumns: ["id", "organization_id", "provider", "environment"]
+          }
+        ]
+      }
       organization_billing_accounts: {
         Row: {
           id: string
@@ -1142,6 +1336,367 @@ export interface Database {
           }
         ]
       }
+      billing_synthetic_subscription_exception_reviews: {
+        Row: {
+          id: string
+          organization_id: string
+          subscription_record_id: string
+          webhook_event_record_id: string
+          provider: 'stripe'
+          environment: 'TEST'
+          review_reason: 'HISTORY_INVALID_OR_AMBIGUOUS' | 'EVENT_FINGERPRINT_CONFLICT' | 'OLDER_OR_EQUAL_TIME' | 'INITIAL_SUBSCRIPTION_REQUIRES_REVIEW' | 'UNSUPPORTED_TRANSITION' | 'PAID_PERIOD_NOT_ADVANCED' | 'PAID_PERIOD_INVALID' | 'FAILED_PAYMENT_PERIOD_MISMATCH' | 'REPEATED_PAYMENT_FAILURE' | 'PAYMENT_RECOVERY_NEEDS_PROVIDER_REVIEW' | 'DISPUTE_OR_REFUND_HOLD' | 'CANCELLATION_HOLD' | 'TERMINAL_SUBSCRIPTION_HOLD' | 'END_BEFORE_PAID_PERIOD' | 'REFUND_OR_DISPUTE_REQUIRES_REVIEW'
+          review_state: 'OPEN'
+          source_kind: 'SYNTHETIC'
+          verification_status: 'UNVERIFIED'
+          access_authorized: false
+          opened_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          subscription_record_id: string
+          webhook_event_record_id: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          review_reason: 'HISTORY_INVALID_OR_AMBIGUOUS' | 'EVENT_FINGERPRINT_CONFLICT' | 'OLDER_OR_EQUAL_TIME' | 'INITIAL_SUBSCRIPTION_REQUIRES_REVIEW' | 'UNSUPPORTED_TRANSITION' | 'PAID_PERIOD_NOT_ADVANCED' | 'PAID_PERIOD_INVALID' | 'FAILED_PAYMENT_PERIOD_MISMATCH' | 'REPEATED_PAYMENT_FAILURE' | 'PAYMENT_RECOVERY_NEEDS_PROVIDER_REVIEW' | 'DISPUTE_OR_REFUND_HOLD' | 'CANCELLATION_HOLD' | 'TERMINAL_SUBSCRIPTION_HOLD' | 'END_BEFORE_PAID_PERIOD' | 'REFUND_OR_DISPUTE_REQUIRES_REVIEW'
+          review_state?: 'OPEN'
+          source_kind?: 'SYNTHETIC'
+          verification_status?: 'UNVERIFIED'
+          access_authorized?: false
+          opened_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          subscription_record_id?: string
+          webhook_event_record_id?: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          review_reason?: 'HISTORY_INVALID_OR_AMBIGUOUS' | 'EVENT_FINGERPRINT_CONFLICT' | 'OLDER_OR_EQUAL_TIME' | 'INITIAL_SUBSCRIPTION_REQUIRES_REVIEW' | 'UNSUPPORTED_TRANSITION' | 'PAID_PERIOD_NOT_ADVANCED' | 'PAID_PERIOD_INVALID' | 'FAILED_PAYMENT_PERIOD_MISMATCH' | 'REPEATED_PAYMENT_FAILURE' | 'PAYMENT_RECOVERY_NEEDS_PROVIDER_REVIEW' | 'DISPUTE_OR_REFUND_HOLD' | 'CANCELLATION_HOLD' | 'TERMINAL_SUBSCRIPTION_HOLD' | 'END_BEFORE_PAID_PERIOD' | 'REFUND_OR_DISPUTE_REQUIRES_REVIEW'
+          review_state?: 'OPEN'
+          source_kind?: 'SYNTHETIC'
+          verification_status?: 'UNVERIFIED'
+          access_authorized?: false
+          opened_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_synthetic_subscription_exception_reviews_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_synthetic_exception_subscription_tenant_fk"
+            columns: ["subscription_record_id", "organization_id", "provider", "environment"]
+            isOneToOne: false
+            referencedRelation: "organization_subscriptions"
+            referencedColumns: ["id", "organization_id", "provider", "environment"]
+          },
+          {
+            foreignKeyName: "billing_synthetic_subscription_exception_reviews_webhook_event_record_id_fkey"
+            columns: ["webhook_event_record_id"]
+            isOneToOne: false
+            referencedRelation: "billing_webhook_events"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      billing_synthetic_checkout_quote_snapshots: {
+        Row: {
+          id: string
+          organization_id: string
+          billing_account_id: string
+          checkout_reservation_id: string
+          provider: 'stripe'
+          environment: 'TEST'
+          plan_id: 'monthly' | 'annual'
+          provider_price_id: string
+          candidate_currency: 'PHP'
+          candidate_amount_minor: number
+          candidate_interval: 'month' | 'year'
+          interval_count: 1
+          source_kind: 'SYNTHETIC'
+          approval_status: 'PROPOSED'
+          verification_status: 'UNVERIFIED'
+          payment_authorized: false
+          access_authorized: false
+          captured_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          billing_account_id: string
+          checkout_reservation_id: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          plan_id: 'monthly' | 'annual'
+          provider_price_id: string
+          candidate_currency?: 'PHP'
+          candidate_amount_minor: number
+          candidate_interval: 'month' | 'year'
+          interval_count?: 1
+          source_kind?: 'SYNTHETIC'
+          approval_status?: 'PROPOSED'
+          verification_status?: 'UNVERIFIED'
+          payment_authorized?: false
+          access_authorized?: false
+          captured_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          billing_account_id?: string
+          checkout_reservation_id?: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          plan_id?: 'monthly' | 'annual'
+          provider_price_id?: string
+          candidate_currency?: 'PHP'
+          candidate_amount_minor?: number
+          candidate_interval?: 'month' | 'year'
+          interval_count?: 1
+          source_kind?: 'SYNTHETIC'
+          approval_status?: 'PROPOSED'
+          verification_status?: 'UNVERIFIED'
+          payment_authorized?: false
+          access_authorized?: false
+          captured_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_synthetic_checkout_quote_snapshots_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mr5i4g_quote_account_tenant_fk"
+            columns: ["billing_account_id", "organization_id", "provider", "environment"]
+            isOneToOne: false
+            referencedRelation: "organization_billing_accounts"
+            referencedColumns: ["id", "organization_id", "provider", "environment"]
+          },
+          {
+            foreignKeyName: "mr5i4g_quote_reservation_fk"
+            columns: ["checkout_reservation_id"]
+            isOneToOne: false
+            referencedRelation: "stripe_test_checkout_reservations"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      billing_synthetic_invoice_evidence_drafts: {
+        Row: {
+          id: string
+          organization_id: string
+          billing_account_id: string
+          subscription_record_id: string
+          webhook_event_record_id: string
+          provider: 'stripe'
+          environment: 'TEST'
+          provider_invoice_id: string
+          provider_event_id: string
+          source_payload_hash: string
+          candidate_price_id: string
+          candidate_currency: 'PHP'
+          candidate_amount_minor: number
+          candidate_interval: 'month' | 'year'
+          candidate_period_start: string
+          candidate_period_end: string
+          source_kind: 'SYNTHETIC'
+          verification_status: 'UNVERIFIED'
+          financial_finality: false
+          access_authorized: false
+          recorded_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          billing_account_id: string
+          subscription_record_id: string
+          webhook_event_record_id: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          provider_invoice_id: string
+          provider_event_id: string
+          source_payload_hash: string
+          candidate_price_id: string
+          candidate_currency?: 'PHP'
+          candidate_amount_minor: number
+          candidate_interval: 'month' | 'year'
+          candidate_period_start: string
+          candidate_period_end: string
+          source_kind?: 'SYNTHETIC'
+          verification_status?: 'UNVERIFIED'
+          financial_finality?: false
+          access_authorized?: false
+          recorded_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          billing_account_id?: string
+          subscription_record_id?: string
+          webhook_event_record_id?: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          provider_invoice_id?: string
+          provider_event_id?: string
+          source_payload_hash?: string
+          candidate_price_id?: string
+          candidate_currency?: 'PHP'
+          candidate_amount_minor?: number
+          candidate_interval?: 'month' | 'year'
+          candidate_period_start?: string
+          candidate_period_end?: string
+          source_kind?: 'SYNTHETIC'
+          verification_status?: 'UNVERIFIED'
+          financial_finality?: false
+          access_authorized?: false
+          recorded_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_synthetic_invoice_evidence_drafts_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mr5i4f_account_identity_fkey"
+            columns: ["billing_account_id", "organization_id", "provider", "environment"]
+            isOneToOne: false
+            referencedRelation: "organization_billing_accounts"
+            referencedColumns: ["id", "organization_id", "provider", "environment"]
+          },
+          {
+            foreignKeyName: "mr5i4f_subscription_identity_fkey"
+            columns: ["subscription_record_id", "organization_id", "provider", "environment"]
+            isOneToOne: false
+            referencedRelation: "organization_subscriptions"
+            referencedColumns: ["id", "organization_id", "provider", "environment"]
+          },
+          {
+            foreignKeyName: "billing_synthetic_invoice_evidence_drafts_webhook_event_record_id_fkey"
+            columns: ["webhook_event_record_id"]
+            isOneToOne: false
+            referencedRelation: "billing_webhook_events"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      billing_paid_entitlement_proposals: {
+        Row: {
+          id: string
+          organization_id: string
+          subscription_record_id: string
+          webhook_event_record_id: string
+          provider: 'stripe'
+          environment: 'TEST'
+          proposed_action: 'INITIAL_ACTIVATION' | 'RENEWAL' | 'PAYMENT_DUE' | 'SCHEDULE_CANCELLATION' | 'END_AT_PERIOD' | 'ESCALATE_FOR_REVIEW'
+          candidate_status: 'ACTIVE' | 'PAST_DUE' | 'CANCEL_AT_PERIOD_END' | 'ENDED' | 'REVIEW_REQUIRED'
+          candidate_period_end: string
+          source_provider_created_at: string | null
+          source_kind: 'SYNTHETIC'
+          verification_status: 'UNVERIFIED'
+          access_authorized: false
+          recorded_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          subscription_record_id: string
+          webhook_event_record_id: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          proposed_action: 'INITIAL_ACTIVATION' | 'RENEWAL' | 'PAYMENT_DUE' | 'SCHEDULE_CANCELLATION' | 'END_AT_PERIOD' | 'ESCALATE_FOR_REVIEW'
+          candidate_status: 'ACTIVE' | 'PAST_DUE' | 'CANCEL_AT_PERIOD_END' | 'ENDED' | 'REVIEW_REQUIRED'
+          candidate_period_end: string
+          source_provider_created_at?: string | null
+          source_kind?: 'SYNTHETIC'
+          verification_status?: 'UNVERIFIED'
+          access_authorized?: false
+          recorded_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          subscription_record_id?: string
+          webhook_event_record_id?: string
+          provider?: 'stripe'
+          environment?: 'TEST'
+          proposed_action?: 'INITIAL_ACTIVATION' | 'RENEWAL' | 'PAYMENT_DUE' | 'SCHEDULE_CANCELLATION' | 'END_AT_PERIOD' | 'ESCALATE_FOR_REVIEW'
+          candidate_status?: 'ACTIVE' | 'PAST_DUE' | 'CANCEL_AT_PERIOD_END' | 'ENDED' | 'REVIEW_REQUIRED'
+          candidate_period_end?: string
+          source_provider_created_at?: string | null
+          source_kind?: 'SYNTHETIC'
+          verification_status?: 'UNVERIFIED'
+          access_authorized?: false
+          recorded_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_paid_entitlement_proposals_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_paid_entitlement_proposals_subscription_identity_fk"
+            columns: ["subscription_record_id", "organization_id", "provider", "environment"]
+            isOneToOne: false
+            referencedRelation: "organization_subscriptions"
+            referencedColumns: ["id", "organization_id", "provider", "environment"]
+          },
+          {
+            foreignKeyName: "billing_paid_entitlement_proposals_webhook_record_fk"
+            columns: ["webhook_event_record_id"]
+            isOneToOne: false
+            referencedRelation: "billing_webhook_events"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      stripe_subscription_reconciliation_leases: {
+        Row: {
+          provider_subscription_id: string
+          event_id: string
+          event_lease_token: string
+          lease_token: string | null
+          lease_expires_at: string
+          updated_at: string
+        }
+        Insert: {
+          provider_subscription_id: string
+          event_id: string
+          event_lease_token: string
+          lease_token?: string | null
+          lease_expires_at: string
+          updated_at?: string
+        }
+        Update: {
+          provider_subscription_id?: string
+          event_id?: string
+          event_lease_token?: string
+          lease_token?: string | null
+          lease_expires_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_subscription_reconciliation_leases_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "billing_webhook_events"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       billing_webhook_events: {
         Row: {
           id: string
@@ -1149,6 +1704,12 @@ export interface Database {
           environment: 'TEST' | 'LIVE'
           provider_event_id: string
           event_type: string
+          provider_invoice_id: string | null
+          processing_lease_token: string | null
+          processing_lease_expires_at: string | null
+          processing_attempt_count: number
+          next_processing_attempt_at: string | null
+          processing_attempts: number
           processing_status: 'RECEIVED' | 'PROCESSING' | 'PROCESSED' | 'IGNORED' | 'FAILED'
           payload_hash: string
           organization_id: string | null
@@ -1164,6 +1725,12 @@ export interface Database {
           environment?: 'TEST' | 'LIVE'
           provider_event_id: string
           event_type: string
+          provider_invoice_id?: string | null
+          processing_lease_token?: string | null
+          processing_lease_expires_at?: string | null
+          processing_attempt_count?: number
+          next_processing_attempt_at?: string | null
+          processing_attempts?: number
           processing_status?: 'RECEIVED' | 'PROCESSING' | 'PROCESSED' | 'IGNORED' | 'FAILED'
           payload_hash: string
           organization_id?: string | null
@@ -1179,6 +1746,12 @@ export interface Database {
           environment?: 'TEST' | 'LIVE'
           provider_event_id?: string
           event_type?: string
+          provider_invoice_id?: string | null
+          processing_lease_token?: string | null
+          processing_lease_expires_at?: string | null
+          processing_attempt_count?: number
+          next_processing_attempt_at?: string | null
+          processing_attempts?: number
           processing_status?: 'RECEIVED' | 'PROCESSING' | 'PROCESSED' | 'IGNORED' | 'FAILED'
           payload_hash?: string
           organization_id?: string | null
@@ -1201,6 +1774,151 @@ export interface Database {
     }
     Views: Record<string, never>
     Functions: {
+      inspect_stripe_test_webhook_recovery: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
+      lease_stripe_subscription_reconciliation: {
+        Args: {
+          p_event_id: string
+          p_event_lease_token: string
+          p_subscription_id: string
+        }
+        Returns: Json
+      }
+      release_stripe_subscription_reconciliation: {
+        Args: {
+          p_subscription_id: string
+          p_lease_token: string
+        }
+        Returns: Json
+      }
+      commit_stripe_subscription_reconciliation: {
+        Args: {
+          p_event_id: string
+          p_event_lease_token: string
+          p_subscription_lease_token: string
+          p_org_id: string
+          p_billing_account_id: string
+          p_provider_customer_id: string
+          p_environment: 'TEST' | 'LIVE'
+          p_provider_subscription_id: string
+          p_provider_price_id: string
+          p_provider_status: string
+          p_normalized_status: string
+          p_current_period_start: string | null
+          p_current_period_end: string | null
+          p_cancel_at_period_end: boolean
+          p_canceled_at: string | null
+        }
+        Returns: Json
+      }
+      lease_stripe_webhook_processing: {
+        Args: { p_event_id: string }
+        Returns: Json
+      }
+      complete_stripe_webhook_processing: {
+        Args: {
+          p_event_id: string
+          p_lease_token: string
+          p_status: 'PROCESSED' | 'IGNORED' | 'FAILED'
+          p_organization_id?: string | null
+          p_error_code?: string | null
+        }
+        Returns: Json
+      }
+      reconcile_stripe_subscription_projection: {
+        Args: {
+          p_org_id: string
+          p_billing_account_id: string
+          p_provider_customer_id: string
+          p_environment: 'TEST' | 'LIVE'
+          p_provider_subscription_id: string
+          p_provider_price_id: string
+          p_provider_status: string
+          p_normalized_status: string
+          p_current_period_start: string | null
+          p_current_period_end: string | null
+          p_cancel_at_period_end: boolean
+          p_canceled_at: string | null
+        }
+        Returns: Json
+      }
+      claim_stripe_test_invoice_processing: {
+        Args: { p_provider_event_id: string }
+        Returns: Json
+      }
+      fail_stripe_test_invoice_processing: {
+        Args: { p_provider_event_id: string; p_lease_token: string; p_error_code: string }
+        Returns: Json
+      }
+      request_stripe_test_billing_recovery_review: {
+        Args: {
+          p_user_id: string
+          p_organization_id: string
+          p_kind: 'CUSTOMER_SETUP' | 'CHECKOUT'
+        }
+        Returns: Json
+      }
+      read_stripe_test_provider_recovery_context: {
+        Args: {
+          p_user_id: string
+          p_organization_id: string
+        }
+        Returns: Json
+      }
+      inspect_stripe_test_billing_recovery: {
+        Args: {
+          p_user_id: string
+          p_organization_id: string
+        }
+        Returns: Json
+      }
+      claim_stripe_test_billing_action: {
+        Args: {
+          p_user_id: string
+          p_organization_id: string
+          p_action: 'CUSTOMER_SETUP' | 'CHECKOUT' | 'PORTAL'
+        }
+        Returns: Json
+      }
+      reserve_stripe_test_customer: {
+        Args: { p_user_id: string; p_organization_id: string }
+        Returns: Json
+      }
+      finalize_stripe_test_customer: {
+        Args: {
+          p_user_id: string
+          p_organization_id: string
+          p_reservation_id: string
+          p_lease_token: string
+          p_provider_customer_id: string
+        }
+        Returns: Json
+      }
+      reserve_stripe_test_checkout: {
+        Args: {
+          p_user_id: string
+          p_organization_id: string
+          p_billing_account_id: string
+          p_provider_customer_id: string
+          p_provider_price_id: string
+          p_plan_id: 'monthly' | 'annual'
+          p_return_origin: string
+        }
+        Returns: Json
+      }
+      finalize_stripe_test_checkout: {
+        Args: {
+          p_user_id: string
+          p_reservation_id: string
+          p_lease_token: string
+          p_session_id: string
+          p_session_url: string
+          p_session_expires_at: string
+        }
+        Returns: Json
+      }
       create_org_with_owner_and_location: {
         Args: {
           p_org_name: string

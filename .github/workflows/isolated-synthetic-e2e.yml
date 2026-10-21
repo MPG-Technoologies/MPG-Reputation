@@ -106,7 +106,55 @@ jobs:
 
       - name: Run scoped synthetic database-backed E2E test
         if: steps.scope.outputs.docs_only != 'true'
-        run: pnpm exec vitest run test/integration/true-e2e.test.ts
+        run: |
+          pnpm exec vitest run \
+            test/integration/true-e2e.test.ts \
+            test/integration/stripe-subscription-projection-atomic.test.ts \
+            test/integration/stripe-webhook-processing-leases.test.ts \
+            test/integration/stripe-fenced-reconciliation.test.ts \
+            test/integration/stripe-reconciliation-worker.test.ts \
+            test/integration/stripe-signed-synthetic-worker-journey.test.ts \
+            test/integration/stripe-test-checkout-preflight.test.ts \
+            test/integration/stripe-test-checkout-reservations.test.ts \
+            test/integration/stripe-test-customer-provisioning.test.ts \
+            test/integration/stripe-test-customer-portal.test.ts \
+            test/integration/stripe-test-billing-action-rate-limit.test.ts \
+            test/integration/stripe-test-billing-recovery-diagnostics.test.ts \
+            test/integration/stripe-test-provider-recovery-context.test.ts \
+            test/integration/stripe-test-recovery-review-intake.test.ts \
+            test/integration/stripe-invoice-truth.test.ts \
+            test/integration/stripe-invoice-webhook-reference.test.ts \
+            test/integration/stripe-test-invoice-inbox.test.ts \
+            test/integration/stripe-test-invoice-processing.test.ts \
+            test/integration/billing-invoice-completion-quarantine.test.ts \
+            test/integration/stripe-test-private-invoice-read-assembler.test.ts \
+            test/integration/billing-paid-entitlement-proposals.test.ts \
+            test/integration/billing-synthetic-invoice-evidence-drafts.test.ts \
+            test/integration/billing-synthetic-checkout-quote-snapshots.test.ts \
+            test/integration/billing-synthetic-checkout-to-invoice-journey.test.ts \
+            test/integration/billing-usage-authenticated-multi-org.test.ts \
+            test/integration/mr5i5-consolidated-private-table-privileges.test.ts \
+            test/integration/billing-synthetic-proposal-admission.test.ts \
+            test/integration/billing-synthetic-proposal-ordering.test.ts \
+            test/integration/billing-synthetic-exception-review.test.ts \
+            test/integration/support-billing-recovery.test.ts \
+            test/integration/support-subscription-exceptions.test.ts
+
+      # Queue-wide synthetic tests run separately, not against other test fixtures.
+      - name: Verify TEST-only retry scheduling and queue dispatch
+        if: steps.scope.outputs.docs_only != 'true'
+        run: pnpm exec vitest run test/integration/stripe-test-recovery-dispatcher.test.ts
+
+      - name: Verify sealed recovery operator against disposable Supabase
+        if: steps.scope.outputs.docs_only != 'true'
+        run: pnpm exec vitest run test/integration/stripe-recovery-operator.test.ts
+
+      # This test exercises the global TEST webhook queue using signed local
+      # ingress and the existing sealed operator. Keep it after other fixture
+      # suites so it cannot claim their in-flight synthetic events.
+      - name: Verify sealed signed TEST webhook recovery dispatch
+        if: steps.scope.outputs.docs_only != 'true'
+        run: pnpm exec vitest run test/integration/stripe-signed-local-operator-dispatch.test.ts
 
       - name: Stop and erase disposable local Supabase containers
         if: always() && steps.scope.outputs.docs_only != 'true'

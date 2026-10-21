@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
 import styles from './admin-ui.module.css'
+import { isLocalBillingRecoverySupportViewEnabled } from '@/lib/support/billing-recovery'
+import { isLocalSubscriptionExceptionSupportViewEnabled } from '@/lib/support/subscription-exceptions'
 
 export { default as adminStyles } from './admin-ui.module.css'
 export type AdminTone = 'neutral' | 'success' | 'warning' | 'danger'
@@ -21,7 +23,7 @@ export function AdminWorkspace({ children }: { children: ReactNode }) {
 
 export function OrganizationHeader({ organizationId, active, title, description, snapshotAt }: {
   organizationId: string
-  active: 'inspection' | 'health' | 'exceptions'
+  active: 'inspection' | 'health' | 'exceptions' | 'billingRecovery' | 'subscriptionExceptions'
   title: string
   description?: ReactNode
   snapshotAt: string
@@ -31,6 +33,12 @@ export function OrganizationHeader({ organizationId, active, title, description,
     { key: 'inspection', label: 'Inspection', href: base },
     { key: 'health', label: 'Health', href: `${base}/health` },
     { key: 'exceptions', label: 'Exceptions', href: `${base}/exceptions` },
+    ...(isLocalBillingRecoverySupportViewEnabled() ? [
+      { key: 'billingRecovery', label: 'Billing recovery', href: `${base}/billing-recovery` },
+    ] : []),
+    ...(isLocalSubscriptionExceptionSupportViewEnabled() ? [
+      { key: 'subscriptionExceptions', label: 'Subscription reviews', href: `${base}/subscription-exceptions` },
+    ] : []),
   ]
   return (
     <>

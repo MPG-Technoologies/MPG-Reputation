@@ -1,0 +1,152 @@
+# Real Chromium interactions with disposable local Supabase and Next.js.
+# Synthetic TEST only; never use hosted DB, provider credentials or customer data.
+name: Isolated Billing Browser Acceptance
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/isolated-billing-browser.yml'
+      - 'scripts/acceptance/mr5-billing-browser-smoke.mjs'
+      - 'src/app/login/**'
+      - 'src/actions/auth.ts'
+      - 'src/app/app/settings/billing/**'
+      - 'src/app/app/settings/usage/**'
+      - 'src/app/workspace/**'
+      - 'src/app/admin/**'
+      - 'src/components/workspace/**'
+      - 'src/components/admin/**'
+      - 'src/lib/support/**'
+      - 'src/lib/workspace/**'
+      - 'supabase/migrations/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mr5-browser-${ github.workflow }}-${ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-acceptance:
+    name: Local Chromium owner/support billing journey
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: 'true'
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54331
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+      ENABLE_LIVE_BILLING: 'false'
+      ENABLE_LIVE_EMAIL: 'false'
+      EMAIL_PROVIDER: console
+      ENABLE_RETENTION_MAINTENANCE: 'false'
+      ENABLE_STRIPE_TEST_RECOVERY_SUPPORT_VIEW: 'true'
+      MPG_STRIPE_TEST_RECOVERY_SUPPORT_TARGET: LOCAL_SYNTHETIC
+      ENABLE_MR5D_BILLING_UI_PREVIEW: 'false'
+
+    steps:
+      - name: Checkout synthetic candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify provider-OFF and localhost-only boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$NEXT_PUBLIC_SUPABASE_URL" = "http://127.0.0.1:54331"
+          test "$NEXT_PUBLIC_APP_URL" = "http://127.0.0.1:3000"
+          test "$ENABLE_LIVE_BILLING" = "false"
+          test "$ENABLE_LIVE_EMAIL" = "false"
+          test "$EMAIL_PROVIDER" = "console"
+          test -z "${SUPABASE_ACCESS_TOKEN:-}"
+          test -z "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          test -z "${STRIPE_SECRET_KEY:-}"
+          test -z "${RESEND_API_KEY:-}"
+          test -z "${VERCEL_ENV:-}"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install frozen application dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Pinned runner lives outside repository and the frozen package graph.
+      - name: Install pinned isolated Chromium runner
+        shell: bash
+        timeout-minutes: 12
+        run: |
+          npm install --prefix "$RUNNER_TEMP/mpg-browser-tools" \
+            --no-save --package-lock=false --ignore-scripts playwright@1.55.0
+          "$RUNNER_TEMP/mpg-browser-tools/node_modules/.bin/playwright" \
+            install --with-deps chromium
+
+      - name: Start disposable local Supabase
+        timeout-minutes: 25
+        run: |
+          pnpm dlx supabase@2.117.0 start \
+            -x studio,imgproxy,edge-runtime,logflare,vector,realtime,storage-api,postgres-meta,supavisor,mailpit
+
+      - name: Load disposable-only Supabase credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm dlx supabase@2.117.0 status -o env > "$RUNNER_TEMP/mpg-browser-supabase.env"
+          source "$RUNNER_TEMP/mpg-browser-supabase.env"
+          test "$API_URL" = "http://127.0.0.1:54331"
+          test -n "$ANON_KEY"
+          test -n "$SERVICE_ROLE_KEY"
+          echo "::add-mask::$ANON_KEY"
+          echo "::add-mask::$SERVICE_ROLE_KEY"
+          {
+            echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL"
+            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+          } >> "$GITHUB_ENV"
+
+      - name: Start localhost-only Next.js test server
+        shell: bash
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          pnpm exec next dev --hostname 127.0.0.1 --port 3000 \
+            > "$RUNNER_TEMP/mpg-browser-next.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/mpg-browser-next.pid"
+          for attempt in $(seq 1 90); do
+            if curl -fsS "http://127.0.0.1:3000/login" > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Local-only Next.js login page did not become ready"
+          exit 1
+
+      - name: Exercise real owner and MPG-support browser flows
+        shell: bash
+        timeout-minutes: 10
+        run: node scripts/acceptance/mr5-billing-browser-smoke.mjs
+
+      - name: Stop ephemeral Next.js server
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/mpg-browser-next.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/mpg-browser-next.pid")" 2>/dev/null || true
+          fi
+
+      - name: Erase disposable local Supabase
+        if: always()
+        continue-on-error: true
+        run: pnpm dlx supabase@2.117.0 stop --no-backup

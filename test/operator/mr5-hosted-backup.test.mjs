@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
@@ -155,4 +155,28 @@ test('backup and password files must be outside repository and private', t => {
     chmodSync(pass, 0o644)
     assert.throws(() => checkPrivatePaths(outside, pass, repo), /PGPASSFILE_PERMISSIONS_TOO_OPEN/)
   }
+})
+
+
+test('hosted catalog inventory is explicit READ ONLY and references only metadata relations', () => {
+  // A source-level tripwire, not a SQL parser, permission proof or hosted-operation test.
+  const sql = readFileSync(new URL('../../scripts/acceptance/mr5-hosted-catalog-readonly.sql', import.meta.url), 'utf8')
+  const uncommented = sql.split('\n').map(line => line.replace(/--.*$/, '')).join('\n')
+  const statements = uncommented.split(';').map(statement => statement.trim()).filter(Boolean)
+  assert.equal(statements[0], 'BEGIN TRANSACTION READ ONLY')
+  assert.equal(statements.at(-1), 'ROLLBACK')
+  assert.equal(statements.length, 8) // six SELECT-only catalog reports
+  for (const statement of statements.slice(1, -1)) {
+    assert.match(statement, /^SELECT\s/i)
+  }
+  const referenced = [...uncommented.matchAll(/\b(?:FROM|JOIN)\s+([a-z_]+\.[a-z_]+)/gi)]
+    .map(match => match[1].toLowerCase())
+  assert.ok(referenced.length >= 6)
+  for (const relation of referenced) {
+    assert.ok(relation.startsWith('pg_catalog.') ||
+      relation === 'supabase_migrations.schema_migrations', 'UNSAFE_RELATION: ' + relation)
+  }
+  assert.doesNotMatch(uncommented, /\b(?:INSERT|UPDATE|DELETE|CREATE|DROP|TRUNCATE|ALTER|GRANT|REVOKE|COPY|CALL|DO)\b/i)
+  assert.match(uncommented, /\bFROM\s+supabase_migrations\.schema_migrations\b/i)
+  assert.match(uncommented, /\bFROM\s+pg_catalog\.pg_policies\b/i)
 })

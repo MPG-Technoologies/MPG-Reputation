@@ -41,3 +41,13 @@ yarn-error.log*
 next-env.d.ts
 !.env.example
 !.env.staging.example
+
+# private database exports / operator backups: never commit or upload
+/backups/
+/private-backups/
+/database-backups/
+*.dump
+*.pgdump
+*.backup
+*.sql.gz
+*.sql.enc

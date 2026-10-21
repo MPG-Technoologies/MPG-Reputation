@@ -17,11 +17,11 @@ function enable(){
   process.env.NEXT_PUBLIC_SUPABASE_URL='http://127.0.0.1:54331'
   delete process.env.VERCEL_ENV
 }
-function fixture(opts:{authenticated?:boolean;role?:boolean;reply?:Record<string,unknown>;
+function fixture(opts:{authenticated?:boolean;anonymous?:boolean;role?:boolean;reply?:Record<string,unknown>;
     failure?:boolean}={}){
   const account={
     auth:{getUser:vi.fn(async()=>({
-      data:{user:opts.authenticated===false?null:{id:user}},error:null,
+      data:{user:opts.authenticated===false?null:{id:user,is_anonymous:opts.anonymous===true}},error:null,
     }))},
     rpc:vi.fn(async()=>({data:opts.role!==false,error:null})),
   }
@@ -69,6 +69,13 @@ describe('MR-5D3D3A TEST recovery review is an inert, minimal request',()=>{
       expect(await f.run(id,kind)).toEqual({outcome:'DENIED',reason})
       expect(f.privileged.rpc).not.toHaveBeenCalled()
     }
+  })
+  it('rejects a signed-in Supabase anonymous-authenticated identity before role or elevated writes', async () => {
+    const f=fixture({anonymous:true})
+    expect(await f.run()).toEqual({outcome:'DENIED',reason:'NOT_AUTHENTICATED'})
+    expect(f.account.auth.getUser).toHaveBeenCalledTimes(1)
+    expect(f.account.rpc).not.toHaveBeenCalled()
+    expect(f.privileged.rpc).not.toHaveBeenCalled()
   })
   it('never accepts reason/status/provider identity and passes verified JWT identity',async()=>{
     const f=fixture()

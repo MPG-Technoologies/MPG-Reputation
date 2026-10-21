@@ -1,0 +1,126 @@
+# MR-5I11: upgrade a POPULATED historical main baseline, never a hosted Supabase project.
+# Tests the exact migration-aware path (26 accepted main migrations -> 48 candidate).
+name: Isolated MR5 Populated Upgrade Rehearsal
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/isolated-mr5-populated-upgrade.yml'
+      - 'scripts/acceptance/mr5-upgrade-baseline-fixture.sql'
+      - 'scripts/acceptance/mr5-upgrade-postcheck.sql'
+      - 'supabase/migrations/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mr5-upgrade-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  populated-upgrade:
+    name: Frozen main baseline to candidate (synthetic only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: 'true'
+      EMAIL_PROVIDER: console
+      ENABLE_LIVE_EMAIL: 'false'
+      ENABLE_LIVE_BILLING: 'false'
+      ENABLE_RETENTION_MAINTENANCE: 'false'
+      PGHOST: 127.0.0.1
+      PGPORT: '54332'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+
+    steps:
+      - name: Checkout exact PR source (candidate)
+        uses: actions/checkout@v4
+        with:
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout frozen accepted main schema baseline
+        uses: actions/checkout@v4
+        with:
+          repository: MPG-Technoologies/MPG-Reputation
+          ref: 2eac67089a2e9d9c0e95ed636d3dc8b040fe4823
+          path: baseline
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Assert localhost-only and frozen migration chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = '127.0.0.1'
+          test "$PGPORT" = '54332'
+          test "$PGDATABASE" = 'postgres'
+          test "$ENABLE_LIVE_BILLING" = 'false'
+          test "$ENABLE_LIVE_EMAIL" = 'false'
+          test "$EMAIL_PROVIDER" = 'console'
+          for name in SUPABASE_ACCESS_TOKEN SUPABASE_DB_URL SUPABASE_SERVICE_ROLE_KEY STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET RESEND_API_KEY DATABASE_URL VERCEL_ENV; do
+            if [ -n "${!name:-}" ]; then echo "FORBIDDEN_REMOTE_OR_PROVIDER_CONTEXT: $name"; exit 1; fi
+          done
+          test "$(grep -c '^project_id = "MPG-Reputation"$' baseline/supabase/config.toml)" -eq 1
+          cmp <(grep '^project_id =' baseline/supabase/config.toml) <(grep '^project_id =' candidate/supabase/config.toml)
+          find baseline/supabase/migrations -maxdepth 1 -name '*.sql' -printf '%f\n' | sort > "$RUNNER_TEMP/mr5-accepted-files.txt"
+          find candidate/supabase/migrations -maxdepth 1 -name '*.sql' -printf '%f\n' | sort > "$RUNNER_TEMP/mr5-candidate-files.txt"
+          test "$(wc -l < "$RUNNER_TEMP/mr5-accepted-files.txt")" -eq 26
+          test "$(wc -l < "$RUNNER_TEMP/mr5-candidate-files.txt")" -eq 48
+          diff -u "$RUNNER_TEMP/mr5-accepted-files.txt" <(head -n 26 "$RUNNER_TEMP/mr5-candidate-files.txt")
+          if [ "$(tail -n 22 "$RUNNER_TEMP/mr5-candidate-files.txt" | head -n 1)" != '20261018150000_mr5c2_atomic_subscription_projection.sql' ]; then
+            echo 'PENDING_MIGRATION_ORDER_DRIFT'; exit 1
+          fi
+          command -v psql
+
+      - name: Start disposable accepted-main Supabase
+        working-directory: baseline
+        timeout-minutes: 25
+        run: |
+          pnpm dlx supabase@2.117.0 start \
+            -x studio,imgproxy,edge-runtime,logflare,vector,realtime,storage-api,postgres-meta,supavisor,mailpit
+
+      - name: Verify exact accepted baseline, then insert synthetic cardinality fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(psql -X -At -v ON_ERROR_STOP=1 -c 'SELECT COUNT(*) FROM supabase_migrations.schema_migrations')" = 26
+          psql -X -At -v ON_ERROR_STOP=1 -c 'SELECT version FROM supabase_migrations.schema_migrations ORDER BY version' > "$RUNNER_TEMP/mr5-baseline-applied.txt"
+          cut -d_ -f1 "$RUNNER_TEMP/mr5-accepted-files.txt" > "$RUNNER_TEMP/mr5-baseline-expected.txt"
+          diff -u "$RUNNER_TEMP/mr5-baseline-expected.txt" "$RUNNER_TEMP/mr5-baseline-applied.txt"
+          psql -X -v ON_ERROR_STOP=1 -f candidate/scripts/acceptance/mr5-upgrade-baseline-fixture.sql
+          test "$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT COUNT(*) FROM public.organizations WHERE slug LIKE 'mr5-upgrade-synthetic-%'")" = 4
+
+      - name: Upgrade populated local baseline with candidate migrations (NEVER --linked)
+        working-directory: candidate
+        timeout-minutes: 12
+        run: pnpm dlx supabase@2.117.0 migration up --local
+
+      - name: Assert exact migration ledger and preserved synthetic tenant/trial data
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql -X -At -v ON_ERROR_STOP=1 -c 'SELECT version FROM supabase_migrations.schema_migrations ORDER BY version' > "$RUNNER_TEMP/mr5-upgraded-applied.txt"
+          cut -d_ -f1 "$RUNNER_TEMP/mr5-candidate-files.txt" > "$RUNNER_TEMP/mr5-upgraded-expected.txt"
+          diff -u "$RUNNER_TEMP/mr5-upgraded-expected.txt" "$RUNNER_TEMP/mr5-upgraded-applied.txt"
+          psql -X -v ON_ERROR_STOP=1 -f candidate/scripts/acceptance/mr5-upgrade-postcheck.sql
+
+      - name: Stop and erase ONLY the disposable local Supabase stack
+        if: always()
+        continue-on-error: true
+        working-directory: baseline
+        run: pnpm dlx supabase@2.117.0 stop --no-backup

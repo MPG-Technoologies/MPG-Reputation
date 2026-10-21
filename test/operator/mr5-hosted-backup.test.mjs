@@ -176,7 +176,9 @@ test('hosted catalog inventory is explicit READ ONLY and references only metadat
     assert.ok(relation.startsWith('pg_catalog.') ||
       relation === 'supabase_migrations.schema_migrations', 'UNSAFE_RELATION: ' + relation)
   }
-  assert.doesNotMatch(uncommented, /\b(?:INSERT|UPDATE|DELETE|CREATE|DROP|TRUNCATE|ALTER|GRANT|REVOKE|COPY|CALL|DO)\b/i)
+  // SQL SELECT privilege checks legitimately contain quoted 'INSERT'; ignore SQL string literals.
+  const executableTokens = uncommented.replace(/'(?:''|[^'])*'/g, "''")
+  assert.doesNotMatch(executableTokens, /\b(?:INSERT|UPDATE|DELETE|CREATE|DROP|TRUNCATE|ALTER|GRANT|REVOKE|COPY|CALL|DO)\b/i)
   assert.match(uncommented, /\bFROM\s+supabase_migrations\.schema_migrations\b/i)
   assert.match(uncommented, /\bFROM\s+pg_catalog\.pg_policies\b/i)
 })

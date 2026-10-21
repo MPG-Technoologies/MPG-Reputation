@@ -105,6 +105,57 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f candidate/scripts/acceptance/mr5-upgrade-baseline-fixture.sql
           test "$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT COUNT(*) FROM public.organizations WHERE slug LIKE 'mr5-upgrade-synthetic-%'")" = 4
 
+      # This tests BACKUP/RESTORE of synthetic PUBLIC row data, not a complete
+      # hosted Supabase project backup (auth/storage/roles require separate care).
+      # CI never receives or downloads customer data or writes backup artifacts.
+      - name: Backup + restore synthetic public data on disposable localhost
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          test "$PGHOST" = "127.0.0.1"
+          test "$PGPORT" = "54332"
+          test "$PGUSER" = "postgres"
+          test "$PGDATABASE" = "postgres"
+          test "$ENABLE_LIVE_BILLING" = "false"
+          command -v gzip
+          command -v sha256sum
+          umask 077
+          private_dir="$RUNNER_TEMP/mr5-local-recovery"
+          mkdir -p "$private_dir"
+          chmod 700 "$private_dir"
+          dump="$private_dir/synthetic-public-data.sql"
+          archive="$dump.gz"
+          before="$private_dir/synthetic-before.sha256"
+          after="$private_dir/synthetic-after.sha256"
+          trap 'rm -f "$dump" "$archive" "$before" "$after"' EXIT
+
+          psql -X -At -v ON_ERROR_STOP=1 \
+            -f candidate/scripts/acceptance/mr5-local-baseline-fingerprint.sql \
+            | sha256sum | cut -d' ' -f1 > "$before"
+          # Explicit --local only, no credentials, project link, remote database
+          # URL, role changes, auth identities or persisted runner artifact.
+          (cd baseline && pnpm dlx supabase@2.117.0 db dump \
+             --local --schema public --data-only --use-copy -f "$dump")
+          test -s "$dump"
+          gzip -n "$dump"
+          test -s "$archive"
+          gzip -t "$archive"
+
+          # Prove we can restore rather than replaying into existing rows.
+          # This destructive step is allowed ONLY in the disposable CI stack.
+          psql -X -v ON_ERROR_STOP=1 \
+            -f candidate/scripts/acceptance/mr5-local-restore-clear-synthetic.sql
+          gzip -dc "$archive" | psql -X -v ON_ERROR_STOP=1 --single-transaction \
+            --dbname="$PGDATABASE" > /dev/null
+          psql -X -At -v ON_ERROR_STOP=1 \
+            -f candidate/scripts/acceptance/mr5-local-baseline-fingerprint.sql \
+            | sha256sum | cut -d' ' -f1 > "$after"
+          diff -u "$before" "$after"
+          test "$(psql -X -At -v ON_ERROR_STOP=1 \
+            -c "SELECT COUNT(*) FROM public.organizations WHERE slug LIKE 'mr5-upgrade-synthetic-%'")" = 4
+          echo 'MR5_SYNTHETIC_PUBLIC_BACKUP_RESTORE_VERIFIED'
+
       - name: Upgrade populated local baseline with candidate migrations (NEVER --linked)
         working-directory: candidate
         timeout-minutes: 12

@@ -6,7 +6,7 @@
 
 Latest Company OS `main`: `7a1fb412c5640ee95273f86dcdd4bff5a13a6b9c`. Product `main`: `2eac67089a2e9d9c0e95ed636d3dc8b040fe4823`. Parent billing candidate PR #67 at `699c8a9ad8d6c356eeb0e29affa83feeeac2a227`, held for main merge. MR-5I14 draft #86 at `b72a31d1d8d4c425e3128493e004bd1feea1d5ab` is the base for this stacked evidence slice.
 
-Correct connected Supabase account: `cryptogrovy@gmail.com`, project **mpg-reputation**, exact ref `awvqtwkzprygsoyfspuz`, region `ap-south-1`, PostgreSQL **17.6**, status ACTIVE_HEALTHY. This resolves **the Supabase account-access blocker** described historically in MR-5I10. It does **not** resolve the separate Vercel 403/deployment-trigger blocker.
+Verified connected Supabase project: **mpg-reputation**, exact ref `awvqtwkzprygsoyfspuz`, region `ap-south-1`, PostgreSQL **17.6**, status ACTIVE_HEALTHY. This resolves **the Supabase account-access blocker** described historically in MR-5I10. It does **not** resolve the separate Vercel 403/deployment-trigger blocker.
 
 Only metadata was inspected with the authenticated Supabase connector: project listing, applied migration versions, table RLS flags and counts, `pg_catalog` relation/policy/constraint/effective role-grant metadata. Catalog SQL consisted of `SELECT` statements. No raw customer, auth, completion, message, billing or other application row was selected. **A connector SQL call is not evidence of a dedicated low-privilege read-only database account.**
 

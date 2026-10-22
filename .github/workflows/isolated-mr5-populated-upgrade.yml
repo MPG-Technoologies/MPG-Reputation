@@ -87,6 +87,12 @@ jobs:
           fi
           command -v psql
 
+      # Bind this rehearsal to reviewed SQL bytes and the frozen local-only
+      # source baseline *before* starting any database or reading fixture rows.
+      - name: MR5I19 verify reviewed source and local-only rehearsal context
+        shell: bash
+        run: node candidate/scripts/acceptance/mr5-isolated-rehearsal-preflight.mjs --verify-synthetic-ci
+
       - name: Start disposable accepted-main Supabase
         working-directory: baseline
         timeout-minutes: 25

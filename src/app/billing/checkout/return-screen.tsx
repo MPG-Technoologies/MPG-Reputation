@@ -13,10 +13,11 @@ export async function CheckoutReturnScreen({
   if (!user || error || user.is_anonymous) redirect('/login')
   const message = getCheckoutReturnMessage(kind)
 
-  // Never trust a URL session_id or client-selected organization as payment
-  // evidence or tenant authority. The authenticated business chooser lists
-  // only current memberships; each scoped billing page revalidates access.
-  // A TEST provider return cannot establish settled funds or paid access.
+  // Never trust or display the query string session_id as payment evidence.
+  // A client-selected organization is not tenant authority. The authenticated
+  // business chooser lists only current memberships; each scoped billing page
+  // independently revalidates access. A TEST provider return cannot establish
+  // settled funds, a successful charge or paid access.
   return (
     <main className="min-h-screen bg-[#070C18] text-slate-100 grid place-items-center p-5">
       <div className="max-w-lg w-full rounded-2xl border border-[#1C2846] bg-[#0E172B] p-8 shadow-xl">

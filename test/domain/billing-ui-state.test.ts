@@ -101,6 +101,8 @@ describe('MR-5D3A TEST-only billing workspace model', () => {
     for (const raw of [
       'not-a-date', '', '2026-11-20', '2026-11-20T00:00:00',
       '99999-01-01T00:00:00Z', '2026-11-20T00:00:00+99:99',
+      '2026-02-30T00:00:00Z', '2026-04-31T12:00:00+08:00',
+      '2026-11-20T24:00:00Z',
       undefined, 1730000000000, {},
     ]) {
       const status = getBillingWorkspaceSummary({

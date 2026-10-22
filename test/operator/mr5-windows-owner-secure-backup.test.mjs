@@ -28,6 +28,14 @@ test('encryption, no-reparse-path, restricted Windows ACL and fixed local volume
   assert.match(script, /FullyEncrypted/)
   assert.match(script, /ProtectionStatus/)
   assert.match(script, /AreAccessRulesProtected/)
+  // Root and passfile require noninherited ACLs; generated archive children may
+  // inherit ONLY the already constrained parent grants.
+  assert.match(script, /if \(-not \$AllowInheritedAcl -and -not \$acl\.AreAccessRulesProtected\)/)
+  assert.match(script, /\$privateOutput = Assert-PrivateWindowsPath \$BackupDirectory \$true\b/)
+  assert.match(script, /\$privatePassword = Assert-PrivateWindowsPath \$PasswordFile \$false\b/)
+  assert.match(script, /\$package = Assert-PrivateWindowsPath \$newFolders\[0\]\.FullName \$true \$true/)
+  assert.match(script, /postgresql-17\.backup'\) \$false \$true/)
+  assert.match(script, /manifest\.json'\) \$false \$true/)
   assert.match(script, /REPARSE_ANCESTOR_NOT_ALLOWED/)
   assert.match(script, /\[System\.IO\.FileAttributes\]::ReparsePoint/)
   assert.match(script, /S-1-5-18/)

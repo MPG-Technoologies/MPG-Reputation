@@ -61,6 +61,11 @@ beforeEach(async () => {
     { organization_id: orgA, user_id: viewerId, role: 'VIEWER' },
     { organization_id: orgB, user_id: adminId, role: 'ADMIN' },
   ]))
+  // This fixture inserts raw organizations; real onboarding separately
+  // provisions a NOT_STARTED trial via its atomic onboarding RPC.
+  checked(await service.rpc('provision_organization_trial', {
+    p_org_id: orgA, p_allocated_requests: 30, p_duration_days: 30,
+  }))
 })
 
 afterEach(async () => {

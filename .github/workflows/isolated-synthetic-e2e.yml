@@ -133,6 +133,7 @@ jobs:
             test/integration/billing-synthetic-checkout-quote-snapshots.test.ts \
             test/integration/billing-synthetic-checkout-to-invoice-journey.test.ts \
             test/integration/billing-usage-authenticated-multi-org.test.ts \
+            test/integration/trial-extension-request-security.test.ts \
             test/integration/mr5i5-consolidated-private-table-privileges.test.ts \
             test/integration/billing-synthetic-proposal-admission.test.ts \
             test/integration/billing-synthetic-proposal-ordering.test.ts \

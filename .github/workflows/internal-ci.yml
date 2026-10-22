@@ -132,6 +132,7 @@ jobs:
             test/domain/stripe-test-checkout-preflight.test.ts \
             test/domain/stripe-test-checkout-start.test.ts \
             test/domain/billing-ui-state.test.ts \
+            test/domain/billing-checkout-return-page.test.ts \
             test/domain/stripe-test-customer-provisioning.test.ts \
             test/domain/stripe-test-customer-portal.test.ts \
             test/domain/stripe-test-billing-action-admission.test.ts \

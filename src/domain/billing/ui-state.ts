@@ -27,7 +27,7 @@ export interface BillingWorkspaceSummary {
 function isValidRecordedPeriodEnd(value: unknown): value is string | null {
   if (value === null) return true
   if (typeof value !== 'string') return false
-  const parts = /^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})(?:\\.(\\d{1,6}))?(Z|([+-])(\\d{2}):(\\d{2}))$/.exec(value)
+  const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|([+-])(\d{2}):(\d{2}))$/.exec(value)
   if (!parts) return false
   const instant = Date.parse(value)
   if (!Number.isFinite(instant)) return false

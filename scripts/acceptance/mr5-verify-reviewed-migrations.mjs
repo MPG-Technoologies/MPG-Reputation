@@ -64,9 +64,9 @@ export function verifyMigrationSet(repositoryRoot, manifest, options = {}) {
       expected.some((item, i) => pending[i] !== item.file)) {
     throw new Error('REVIEWED_PENDING_MIGRATION_SET_CHANGED')
   }
-  for (const [index, file] of pending.entries()) {
-    const bytes = fs.readFileSync(path.join(folder, file))
-    if (gitBlobSha1(bytes) !== expected[index].git_blob_sha1) {
+  for (const [index, item] of expected.entries()) {
+    const bytes = fs.readFileSync(path.join(folder, item.file))
+    if (gitBlobSha1(bytes) !== item.git_blob_sha1) {
       throw new Error('REVIEWED_SQL_BLOB_CHANGED_AT_INDEX_' + (index + 1))
     }
   }

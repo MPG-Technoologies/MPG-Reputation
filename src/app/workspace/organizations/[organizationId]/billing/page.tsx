@@ -3,7 +3,7 @@ import { ScopedBusinessNav } from '@/components/workspace/scoped-business-nav'
 import { redirect } from 'next/navigation'
 import { PageHeader, PageShell } from '@/components/layout/page-shell'
 import { Panel } from '@/components/layout/panels'
-import { getBillingWorkspaceSummary } from '@/domain/billing/ui-state'
+import { resolveTestBillingSnapshot } from '@/domain/billing/ui-state'
 import { createClient } from '@/lib/supabase/server'
 import { resolveCurrentServerOrganization } from '@/lib/workspace/server-active-organization'
 
@@ -46,14 +46,8 @@ export default async function ScopedBillingPage({
       .eq('provider', 'stripe').eq('environment', 'TEST')
       .order('created_at', { ascending: false }).limit(2),
   ])
-  const ambiguous = (subscriptions?.length ?? 0) > 1
-  const mismatch = Boolean(subscriptions?.length &&
-    (!account || subscriptions[0].billing_account_id !== account.id))
-  const summary = getBillingWorkspaceSummary({
-    hasTestAccount: Boolean(account),
-    subscription: ambiguous || mismatch ? null : subscriptions?.[0] ?? null,
-    dataUnavailable: Boolean(accountError || subscriptionsError ||
-      !subscriptions || account === undefined || ambiguous || mismatch),
+  const { summary } = resolveTestBillingSnapshot({
+    account, subscriptions, queryFailed: Boolean(accountError || subscriptionsError),
   })
   return <PageShell>
     <PageHeader title="Billing & subscription"

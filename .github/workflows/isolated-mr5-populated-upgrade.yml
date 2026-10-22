@@ -162,6 +162,57 @@ jobs:
             -c "SELECT COUNT(*) FROM public.organizations WHERE slug LIKE 'mr5-upgrade-synthetic-%'")" = 4
           echo 'MR5_SYNTHETIC_PUBLIC_BACKUP_RESTORE_VERIFIED'
 
+      # Prove that a failure DURING a held migration leaves zero partially
+      # installed database changes. This uses invented fixture data on localhost;
+      # the negative test must reach the known failure sentinel to pass.
+      - name: Inject first migration failure and prove transactional rollback (synthetic only)
+        shell: bash
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          test "${CI:-}" = "true"
+          test "${GITHUB_ACTIONS:-}" = "true"
+          test "${PGHOST:-}" = "127.0.0.1"
+          test "${PGPORT:-}" = "54332"
+          test "${PGUSER:-}" = "postgres"
+          test "${PGPASSWORD:-}" = "postgres"
+          test "${PGDATABASE:-}" = "postgres"
+          test "${ENABLE_LIVE_BILLING:-}" = "false"
+          test "${ENABLE_LIVE_EMAIL:-}" = "false"
+          test "${EMAIL_PROVIDER:-}" = "console"
+
+          first='20261018150000_mr5c2_atomic_subscription_projection.sql'
+          test "$(head -n 1 "$RUNNER_TEMP/mr5-candidate-files.txt" | cut -c1-14)" = "20260917000001"
+          test "$(sed -n '27p' "$RUNNER_TEMP/mr5-candidate-files.txt")" = "$first"
+          test "$(psql -X -At -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM supabase_migrations.schema_migrations')" = 26
+          inspect_function="SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='reconcile_stripe_subscription_projection'"
+          test "$(psql -X -At -v ON_ERROR_STOP=1 -c "$inspect_function")" = 0
+
+          before="$(psql -X -At -v ON_ERROR_STOP=1 -f candidate/scripts/acceptance/mr5-local-baseline-fingerprint.sql | sha256sum | cut -d' ' -f1)"
+          umask 077
+          failure_log="$RUNNER_TEMP/mr5i20-expected-rollback.log"
+          trap 'rm -f "$failure_log"' EXIT
+
+          # Both -f files are enclosed in a SINGLE transaction. The second
+          # deliberately raises; ON_ERROR_STOP triggers psql ROLLBACK.
+          if psql -X -v ON_ERROR_STOP=1 --single-transaction \
+            -f "candidate/supabase/migrations/$first" \
+            -f candidate/scripts/acceptance/mr5-synthetic-injected-migration-abort.sql \
+            > "$failure_log" 2>&1; then
+            echo 'MR5I20_NEGATIVE_TEST_UNEXPECTEDLY_SUCCEEDED'; exit 1
+          fi
+          if ! grep -q 'MR5I20_SYNTHETIC_ABORT_EXPECTED' "$failure_log"; then
+            echo 'MR5I20_NEGATIVE_TEST_FAILED_BEFORE_SENTINEL'; exit 1
+          fi
+
+          # No migration-history, persisted function, or seeded data mutation
+          # may survive the failed transactional attempt.
+          test "$(psql -X -At -v ON_ERROR_STOP=1 -c 'SELECT count(*) FROM supabase_migrations.schema_migrations')" = 26
+          test "$(psql -X -At -v ON_ERROR_STOP=1 -c "$inspect_function")" = 0
+          after="$(psql -X -At -v ON_ERROR_STOP=1 -f candidate/scripts/acceptance/mr5-local-baseline-fingerprint.sql | sha256sum | cut -d' ' -f1)"
+          test "$before" = "$after"
+          echo 'MR5I20_FAILED_SQL_TRANSACTION_ROLLED_BACK_NO_PARTIAL_STATE'
+
       - name: Upgrade populated local baseline with candidate migrations (NEVER --linked)
         working-directory: candidate
         timeout-minutes: 12

@@ -8,6 +8,7 @@ import {
   requestTrialExtensionAction,
 } from '@/actions/usage'
 import { AlertTriangleIcon } from '@/components/ui/icons'
+import { SubscriptionOptions } from '@/components/billing/subscription-options'
 
 interface UsageClientProps {
   organizationId: string
@@ -391,6 +392,17 @@ export function UsageClient({
           </div>
         </div>
       </div>
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Get more review requests</h2>
+          <p className="mt-2 text-sm text-slate-400">
+            Explore subscription options for continued usage after your free trial.
+            The trial and subscriptions remain separate, and checkout is not yet available.
+          </p>
+        </div>
+        <SubscriptionOptions location="usage" />
+      </section>
 
       {/* Customer extension request: review only, never an entitlement change. */}
       {isOwnerOrAdmin && (

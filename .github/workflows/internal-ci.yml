@@ -116,6 +116,7 @@ jobs:
             test/domain/mr5i4h-billing-surface-nonactivation.test.ts \
             test/domain/billing-workspace-organization-selection.test.ts \
             test/domain/billing-workspace-organization-page.test.ts \
+            test/domain/billing-scoped-projection-page.test.ts \
             test/domain/usage-organization-context.test.ts \
             test/domain/usage-organization-page.test.ts \
             test/domain/usage-summary-read-integrity.test.ts \

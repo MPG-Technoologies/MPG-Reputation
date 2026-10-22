@@ -85,19 +85,52 @@ describe("Runtime Integration Acceptance Harness (Prompt Requirements 4 & 9)", (
 
     if (destErr || !dest) throw new Error(`Destination failed: ${destErr?.message}`)
 
-    await adminClient.rpc('provision_organization_trial', {
-      p_org_id: orgId,
-      p_allocated_requests: 30,
-      p_duration_days: 30,
-    })
-    await adminClient
+    // The client cannot send review requests on a provisioned but unstarted
+    // trial. Exercise the real entitlement transition RPC, not a privileged
+    // direct UPDATE that bypasses the product's trial lifecycle logic.
+    const { data: provisioned, error: provisionError } = await adminClient.rpc(
+      'provision_organization_trial',
+      { p_org_id: orgId, p_allocated_requests: 30, p_duration_days: 30 }
+    )
+    expect(provisionError).toBeNull()
+    expect((provisioned as { status: string }).status).toBe('NOT_STARTED')
+
+    const { data: beforeStart, error: beforeStartError } = await adminClient
       .from('organization_entitlements')
-      .update({
-        status: 'ACTIVE',
-        started_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 30 * 86400000).toISOString(),
-      })
+      .select('status, started_at, expires_at')
       .eq('organization_id', orgId)
+      .single()
+    expect(beforeStartError).toBeNull()
+    expect(beforeStart?.status).toBe('NOT_STARTED')
+    expect(beforeStart?.started_at).toBeNull()
+
+    const { data: started, error: startError } = await adminClient.rpc(
+      'activate_organization_trial',
+      { p_org_id: orgId }
+    )
+    expect(startError).toBeNull()
+    expect((started as { success: boolean; status: string }).success).toBe(true)
+    expect((started as { success: boolean; status: string }).status).toBe('ACTIVE')
+
+    const { data: activeTrial, error: activeTrialError } = await adminClient
+      .from('organization_entitlements')
+      .select('status, started_at, expires_at')
+      .eq('organization_id', orgId)
+      .single()
+    expect(activeTrialError).toBeNull()
+    expect(activeTrial?.status).toBe('ACTIVE')
+    expect(activeTrial?.started_at).toBeTruthy()
+    expect(activeTrial?.expires_at).toBeTruthy()
+
+    // Replaying the same activation must not reset or extend trial time.
+    const { data: repeated, error: repeatError } = await adminClient.rpc(
+      'activate_organization_trial',
+      { p_org_id: orgId }
+    )
+    expect(repeatError).toBeNull()
+    expect((repeated as { already_active: boolean }).already_active).toBe(true)
+    expect((repeated as { started_at: string }).started_at).toBe(activeTrial?.started_at)
+    expect((repeated as { expires_at: string }).expires_at).toBe(activeTrial?.expires_at)
   })
 
   afterAll(async () => {

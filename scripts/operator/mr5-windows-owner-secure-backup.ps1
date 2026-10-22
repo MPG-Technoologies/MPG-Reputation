@@ -21,7 +21,7 @@ function Stop-Safely {
   exit 1
 }
 
-function Assert-PrivateWindowsPath([string]$InputPath, [bool]$IsDirectory) {
+function Assert-PrivateWindowsPath([string]$InputPath, [bool]$IsDirectory, [bool]$AllowInheritedAcl = $false) {
   if (-not [System.IO.Path]::IsPathRooted($InputPath)) { throw 'PRIVATE_ABSOLUTE_PATH_REQUIRED' }
   $item = Get-Item -LiteralPath $InputPath -Force -ErrorAction Stop
   if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
@@ -58,7 +58,12 @@ function Assert-PrivateWindowsPath([string]$InputPath, [bool]$IsDirectory) {
   }
 
   $acl = Get-Acl -LiteralPath $full -ErrorAction Stop
-  if (-not $acl.AreAccessRulesProtected) { throw 'INHERITED_ACL_NOT_PERMITTED' }
+  # Preexisting output root and password file MUST have protected ACLs.
+  # Newly created archive/package children inherit ONLY the already checked
+  # restricted parent ACL; allow inheritance but still inspect every allow ACE.
+  if (-not $AllowInheritedAcl -and -not $acl.AreAccessRulesProtected) {
+    throw 'INHERITED_ACL_NOT_PERMITTED'
+  }
   $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
   $allowedSids = @($currentSid, 'S-1-5-18', 'S-1-5-32-544') # Current user, SYSTEM, Administrators.
   $ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
@@ -122,9 +127,9 @@ try {
   $newFolders = @((Get-ChildItem -LiteralPath $privateOutput -Directory -Force |
     Where-Object { $before -notcontains $_.FullName }))
   if ($newFolders.Count -ne 1) { throw 'EXPECTED_SINGLE_NEW_PRIVATE_BACKUP_PACKAGE' }
-  $package = Assert-PrivateWindowsPath $newFolders[0].FullName $true
-  $archive = Assert-PrivateWindowsPath (Join-Path $package 'postgresql-17.backup') $false
-  $manifest = Assert-PrivateWindowsPath (Join-Path $package 'manifest.json') $false
+  $package = Assert-PrivateWindowsPath $newFolders[0].FullName $true $true
+  $archive = Assert-PrivateWindowsPath (Join-Path $package 'postgresql-17.backup') $false $true
+  $manifest = Assert-PrivateWindowsPath (Join-Path $package 'manifest.json') $false $true
 
   # Backup correctness remains distinct from actual RESTORABILITY.
   & node $integrityOperator '--backup-dir' $package '--verify'

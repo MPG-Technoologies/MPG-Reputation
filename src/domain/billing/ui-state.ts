@@ -23,6 +23,26 @@ export interface BillingWorkspaceSummary {
   readonly periodEnd: string | null
 }
 
+/** Validate untrusted timestamp strings without Date.parse's day-overflow normalization. */
+function isValidRecordedPeriodEnd(value: unknown): value is string | null {
+  if (value === null) return true
+  if (typeof value !== 'string') return false
+  const parts = /^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})(?:\\.(\\d{1,6}))?(Z|([+-])(\\d{2}):(\\d{2}))$/.exec(value)
+  if (!parts) return false
+  const instant = Date.parse(value)
+  if (!Number.isFinite(instant)) return false
+  const hours = parts[9] ? Number(parts[10]) : 0
+  const minutes = parts[9] ? Number(parts[11]) : 0
+  if (hours > 14 || minutes > 59 || (hours === 14 && minutes !== 0)) return false
+  const offsetMinutes = parts[9] === '+' ? hours * 60 + minutes
+    : parts[9] === '-' ? -(hours * 60 + minutes) : 0
+  const atLocalOffset = new Date(instant + offsetMinutes * 60_000)
+  if (!Number.isFinite(atLocalOffset.getTime())) return false
+  // E.g. 2026-02-30 otherwise silently becomes March 2 in JavaScript.
+  return atLocalOffset.toISOString().slice(0, 19) ===
+    `${parts[1]}-${parts[2]}-${parts[3]}T${parts[4]}:${parts[5]}:${parts[6]}`
+}
+
 export function getBillingWorkspaceSummary(args: {
   readonly subscription: BillingPreviewSubscription | null
   readonly hasTestAccount: boolean
@@ -74,10 +94,7 @@ export function getBillingWorkspaceSummary(args: {
   // Unknown states must never crash the customer page or appear as ACTIVE.
   // An invalid date could throw in the scoped server view's toISOString().
   const end = current.current_period_end
-  const validPeriodEnd = end === null ||
-    (typeof end === 'string' &&
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(end) &&
-      Number.isFinite(Date.parse(end)))
+  const validPeriodEnd = isValidRecordedPeriodEnd(end)
   if (!isBillingNormalizedStatus(current.normalized_status) ||
       typeof current.cancel_at_period_end !== 'boolean' || !validPeriodEnd) {
     return {

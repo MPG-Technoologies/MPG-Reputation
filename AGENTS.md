@@ -7,9 +7,9 @@
 | Product / WIP subject | MPG Reputation / Review & Reputation Automation — `PROD-REP-001` |
 | Scope | Market-Ready Build Program (MR-0 through MR-11) |
 | Current Program | MPG Reputation Market-Ready Development |
-| Current Engineering Milestone | MR-4 COMPLETE / ACCEPTED (`MPG-DEC-048`); MR-5 PAUSED / INCOMPLETE; MR-6 Admin / Support / Observability ACTIVE NEXT (`MPG-DEC-049`) |
+| Current Engineering Milestone | MR-6 COMPLETE / OWNER ACCEPTED (`MPG-DEC-050`); MR-7 Trust / Security / Compliance ACTIVE / IN PROGRESS (`MPG-DEC-050`, `MPG-DEC-051`); MR-5 PAUSED / INCOMPLETE; MR-1B-H DEFERRED; MR-8 GATED |
 | Governance Source of Truth | `E:\MPG` (Company OS) |
-| Authority | `MPG-DEC-038` through `MPG-DEC-049` |
+| Authority | Accepted Company OS decisions through `MPG-DEC-051`; latest explicit Owner decision controls |
 | Public Safe | Yes |
 
 These instructions apply to Codex, ChatGPT, Antigravity, Claude, Gemini, automated development tools, and all future agents working in this repository.
@@ -19,15 +19,17 @@ These instructions apply to Codex, ChatGPT, Antigravity, Claude, Gemini, automat
 1. **Company OS is the Governance Source of Truth**: Business intent, commercial scope, product authorization, stage boundaries, and governance decisions are defined in `E:\MPG`. This repository contains the technical implementation code.
 2. **Market-Ready Build Program Authorized**: Under `MPG-DEC-046` and `MPG-DEC-047`, MPG Reputation is developed independently through a complete market-ready build program (MR-0 through MR-11) before broad MPG company/brand development resumes.
 3. **Market-Ready STATUS is Not Yet Achieved**: Market-ready development is authorized, but market-ready STATUS is not yet achieved. Building commercial infrastructure does NOT itself grant `PILOT_READY`, `DELIVERY_READY`, `MARKET_APPROVED`, `ACTIVE`, marketing approval, public launch, real-customer messaging, final pricing, or legal/compliance approval.
-4. **MR-4 is ACCEPTED (`MPG-DEC-048`); MR-5 is PAUSED AT SAFE ENGINEERING CHECKPOINT / EXTERNAL BILLING PROVIDER DEPENDENCY; MR-6 is ACTIVE NEXT (`MPG-DEC-049`)**:
+4. **MR-6 is COMPLETE / OWNER ACCEPTED; MR-7 is ACTIVE / IN PROGRESS (`MPG-DEC-050`, `MPG-DEC-051`)**:
    - Production messaging architecture (Resend email, domain authentication, bounce/complaint handling, delivery monitoring) is built with synthetic verification.
    - **LIVE customer messaging remains OFF** until separately authorized.
    - SMS remains strictly gated.
    - MR-5 remains INCOMPLETE, not accepted or closed. Preserve safe checkpoint `d654656b59810877502d2e737dd236ae83b9c379`; MR-5C processor/projection/recovery and MR-5D/E/F remain paused while billing-provider/account eligibility, verification and setup are unresolved. No automatic provider replacement.
-   - `MPG-DEC-049` permits non-billing-dependent MR-6 Admin / Support / Observability work before MR-5 completion. Follow `docs/MR-6-EXECUTION-HANDOFF.md`; do not restart billing. MR-7 remains after MR-6.
-   - Resume and complete remaining MR-5 before any gate materially dependent on production billing or commercial charging. MR-8 stays gated until prerequisites, including MR-5, are explicitly reconciled. No live billing, charging, final pricing/terms, pilot, lifecycle ACTIVE, marketing, launch or later Company Stage activation follows.
+   - The accepted MR-7 execution handoff and technical-control packet cover implemented technical controls. **Qualified US/Canada legal/compliance review remains outstanding**, so Terms/Privacy decisions and MR-7 closeout are not approved. The legal-intake PR #6 remains unmerged pending Owner action; do not infer legal conclusions from an Owner intake assumption.
+   - Resume and complete remaining MR-5 before any gate materially dependent on billing or charging; MR-1B-H remains deferred. MR-8 stays gated until MR-7 legal review, MR-5, MR-1B-H and other prerequisites are deliberately reconciled and the Owner explicitly authorizes it. Case B catastrophic-loss privacy restoration remains **UNRESOLVED / OWNER-EXCLUDED / DO NOT IMPLEMENT**. No live billing, charging, messaging, real-customer data/pilot, final pricing/terms, marketing, launch or later Company Stage activation follows.
    - Do not prematurely implement unrelated roadmap phases.
-5. **No Unsupported Launch Claims**: Do not mark the product active, market-approved, delivery-ready, or publicly launched in code, documentation, or commits.
+5. **Remote-first continuation**: Before substantial work, inspect current `main` and relevant handoffs in both `techwithmpg/mpg-company-os` and `MPG-Technoologies/MPG-Reputation`; preserve accepted architecture and implement bounded changes on feature branches, not `main`. Never merge, deploy production, change Company Stage, or enable gated operations without explicit Owner authorization.
+6. **Safe database/test boundaries**: Hosted Supabase is the default engineering/test environment and contains synthetic fixtures; bounded mutations in approved engineering slices are allowed, not broad resets or unrelated tenant changes. The existing unrestricted `pnpm test` includes database-mutating tests; do **not** run it on shared hosted Supabase. Use the reviewed no-database test allowlist in `.github/workflows/internal-ci.yml`, or a separately isolated/scoped database test plan. Do not treat CI success as legal approval, production deployment, or pilot readiness.
+7. **No Unsupported Launch Claims**: Do not mark the product active, market-approved, delivery-ready, or publicly launched in code, documentation, or commits.
 
 ## 2. Non-Negotiable Operational Rules
 

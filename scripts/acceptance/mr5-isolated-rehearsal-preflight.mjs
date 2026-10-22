@@ -64,10 +64,17 @@ export function verifyIsolatedSources(candidateRoot, baselineRoot, manifest) {
       throw new Error('UNEXPECTED_LOCAL_SUPABASE_PROJECT')
     }
   }
-  const reviewed = verifyMigrationSet(candidate, manifest)
+  // Preserve the frozen 22-MR5 reviewed SQL blobs unchanged. This one
+  // additive MR-5I26A SQL file is separately byte-pinned and repository-only.
+  const reviewed = verifyMigrationSet(candidate, manifest, {
+    appendedReviewedMigration: {
+      file: '20261022230000_mr5i26a_trial_extension_requests.sql',
+      git_blob_sha1: '8188f2d48d15d8634d104dd301e058f3882b2ee6',
+    },
+  })
   const baselineFiles = sqlFilenames(path.join(baseline, 'supabase', 'migrations'))
   const candidateFiles = sqlFilenames(path.join(candidate, 'supabase', 'migrations'))
-  if (baselineFiles.length !== 26 || candidateFiles.length !== 48 ||
+  if (baselineFiles.length !== 26 || candidateFiles.length !== 49 ||
       baselineFiles.some((name, i) => name !== candidateFiles[i] || name.slice(0, 14) > BASELINE_LAST)) {
     throw new Error('ACCEPTED_BASELINE_NOT_EXACT_PREFIX')
   }

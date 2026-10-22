@@ -123,14 +123,14 @@ describe('MR-5I26A disposable SQL trial extension request and authorization', ()
     })
     expect(unrelated?.code).toBe('42501')
 
-    const { data } = checked(await admin.from('trial_extension_requests').insert({
+    const created = checked(await admin.from('trial_extension_requests').insert({
       organization_id: orgA, requested_by: adminId, reason,
-    }).select('id').single()) as never
+    }).select('id').single())
     const { error: update } = await admin.from('trial_extension_requests')
       .update({ status: 'APPROVED', resolved_by: adminId, decision_reason: 'Unverified decision' })
-      .eq('id', data!.id)
+      .eq('id', created!.id)
     expect(update?.code).toBe('42501')
-    const { error: deletion } = await admin.from('trial_extension_requests').delete().eq('id', data!.id)
+    const { error: deletion } = await admin.from('trial_extension_requests').delete().eq('id', created!.id)
     expect(deletion?.code).toBe('42501')
     const { error: provision } = await owner.rpc('provision_organization_trial', {
       p_org_id: orgA, p_allocated_requests: 99999, p_duration_days: 365,

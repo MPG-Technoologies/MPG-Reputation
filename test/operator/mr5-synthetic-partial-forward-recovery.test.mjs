@@ -74,5 +74,5 @@ test('forward recovery verifies exact final history, data, RLS, and third migrat
   assert.match(end, /mr5-upgraded-applied\.txt/)
   assert.match(end, /mr5-upgrade-postcheck\.sql/)
   assert.match(end, /to_regclass\('public\.stripe_subscription_reconciliation_leases'\) IS NOT NULL/)
-  assert.match(end, /MR5I21_PARTIAL_MIGRATION_FORWARD_RECOVERY_28_TO_48_VERIFIED/)
+  assert.match(end, /MR5I26A_SYNTHETIC_POPULATED_UPGRADE_26_TO_49_VERIFIED/)
 })

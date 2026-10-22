@@ -170,7 +170,7 @@ export function resolveTestBillingSnapshot(args: {
   const rows = args.subscriptions
   const validRows = Array.isArray(rows) && rows.length <= 1
   const row = validRows && rows.length === 1 ? rows[0] : null
-  const rowValid = row === null || (typeof row === 'object' &&
+  const rowValid = (validRows && rows.length === 0) || (typeof row === 'object' &&
     !Array.isArray(row) && row !== undefined &&
     'billing_account_id' in row && typeof row.billing_account_id === 'string' &&
     row.billing_account_id === accountId &&

@@ -8,12 +8,12 @@ const source = fs.readFileSync(file, 'utf8')
 
 function checkReadOnlyCatalogQuery(sql) {
   const uncommented = sql.split('\n').map(line => line.replace(/--.*$/, '')).join('\n').trim()
+  const statements = uncommented.split(';').filter(x => x.trim())
+  if (statements.length !== 1) throw new Error('MULTI_STATEMENT_CATALOG_QUERY_FORBIDDEN')
   if (!/^WITH\s+expected_versions\(version\)\s+AS\s*\(/i.test(uncommented) ||
       !/FROM\s+gate\s*;\s*$/i.test(uncommented)) {
     throw new Error('NOT_A_SINGLE_READ_ONLY_CATALOG_QUERY')
   }
-  const statements = uncommented.split(';').filter(x => x.trim())
-  if (statements.length !== 1) throw new Error('MULTI_STATEMENT_CATALOG_QUERY_FORBIDDEN')
   const tokens = uncommented.replace(/'(?:''|[^'])*'/g, "''")
   if (/\b(?:INSERT|UPDATE|DELETE|CREATE|DROP|TRUNCATE|ALTER|GRANT|REVOKE|COPY|CALL|DO|EXECUTE|PERFORM)\b/i.test(tokens)) {
     throw new Error('CATALOG_QUERY_MUTATION_FORBIDDEN')

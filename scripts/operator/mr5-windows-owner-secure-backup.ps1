@@ -30,6 +30,18 @@ function Assert-PrivateWindowsPath([string]$InputPath, [bool]$IsDirectory) {
   if ($IsDirectory -and -not $item.PSIsContainer) { throw 'DIRECTORY_REQUIRED' }
   if (-not $IsDirectory -and $item.PSIsContainer) { throw 'FILE_REQUIRED' }
   $full = $item.FullName
+  # Reject directory junctions, symbolic links and reparse-point ancestors:
+  # the apparent encrypted drive must be the drive actually holding the bytes.
+  $probe = $full
+  while ($probe) {
+    $probeItem = Get-Item -LiteralPath $probe -Force -ErrorAction Stop
+    if (($probeItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw 'REPARSE_ANCESTOR_NOT_ALLOWED'
+    }
+    $parent = [System.IO.Path]::GetDirectoryName($probe.TrimEnd('\'))
+    if (-not $parent -or $parent -eq $probe) { break }
+    $probe = $parent
+  }
   $root = [System.IO.Path]::GetPathRoot($full)
   if (-not $root -or $root.StartsWith('\\')) { throw 'NETWORK_PATH_FORBIDDEN' }
   if ($full.TrimEnd('\') -eq $root.TrimEnd('\')) { throw 'VOLUME_ROOT_FORBIDDEN' }
@@ -38,7 +50,7 @@ function Assert-PrivateWindowsPath([string]$InputPath, [bool]$IsDirectory) {
   if (-not (Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue)) {
     throw 'BITLOCKER_STATUS_UNAVAILABLE'
   }
-  $volume = Get-BitLockerVolume -MountPoint $root.TrimEnd('\') -ErrorAction Stop
+  $volume = Get-BitLockerVolume -MountPoint ($root.TrimEnd('\')) -ErrorAction Stop
   if ($null -eq $volume -or
       [string]$volume.ProtectionStatus -ne 'On' -or
       [string]$volume.VolumeStatus -ne 'FullyEncrypted') {

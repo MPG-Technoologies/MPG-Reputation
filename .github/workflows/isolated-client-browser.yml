@@ -1,0 +1,153 @@
+# Browser-driven MPG-client first-use acceptance. All fixtures and credentials are
+# disposable GitHub-runner locals; never access hosted databases or send messages.
+name: Isolated MPG Client Browser Acceptance
+
+on:
+  pull_request:
+    paths:
+      - 'test/browser/**'
+      - '.github/workflows/isolated-client-browser.yml'
+      - 'src/app/onboarding/**'
+      - 'src/app/login/**'
+      - 'src/app/app/settings/review-destination/**'
+      - 'src/app/app/settings/usage/**'
+      - 'src/app/app/quick-complete/**'
+      - 'src/actions/auth.ts'
+      - 'src/actions/onboarding.ts'
+      - 'src/actions/destinations.ts'
+      - 'src/actions/usage.ts'
+      - 'src/actions/quick-complete.ts'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mpg-client-browser-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  client-browser:
+    name: Synthetic business signup and first use (Chromium desktop/mobile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      CI: 'true'
+      MPG_BROWSER_E2E: disposable-only
+      MPG_BROWSER_ARTIFACT_DIR: test-artifacts/browser
+      MPG_PLAYWRIGHT_PACKAGE_ROOT: /tmp/mpg-playwright-browser
+      EMAIL_PROVIDER: console
+      ENABLE_LIVE_EMAIL: 'false'
+      ENABLE_SYNTHETIC_EMAIL_VALIDATION: 'false'
+      ENABLE_RETENTION_MAINTENANCE: 'false'
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54331
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Assert isolated-only configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$MPG_BROWSER_E2E" = "disposable-only"
+          test "$NEXT_PUBLIC_APP_URL" = "http://127.0.0.1:3000"
+          test "$NEXT_PUBLIC_SUPABASE_URL" = "http://127.0.0.1:54331"
+          test "$EMAIL_PROVIDER" = "console"
+          test "$ENABLE_LIVE_EMAIL" = "false"
+          test "$ENABLE_RETENTION_MAINTENANCE" = "false"
+          if [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] || [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || [ -n "${RESEND_API_KEY:-}" ] || [ -n "${STRIPE_SECRET_KEY:-}" ] || [ -n "${TWILIO_AUTH_TOKEN:-}" ]; then
+            echo "Refusing hosted or external account credentials in browser CI"
+            exit 1
+          fi
+
+      - name: Install locked application dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install isolated Chromium browser tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$MPG_PLAYWRIGHT_PACKAGE_ROOT"
+          npm install --prefix "$MPG_PLAYWRIGHT_PACKAGE_ROOT" --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright@1.56.1
+          "$MPG_PLAYWRIGHT_PACKAGE_ROOT/node_modules/.bin/playwright" install --with-deps chromium
+
+      - name: Start disposable local Supabase
+        timeout-minutes: 25
+        run: |
+          pnpm dlx supabase@2.117.0 start \
+            -x studio,imgproxy,edge-runtime,logflare,vector,realtime,storage-api,postgres-meta,supavisor,mailpit
+
+      - name: Use masked, ephemeral runner-owned database keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm dlx supabase@2.117.0 status -o env > "$RUNNER_TEMP/mpg-browser-supabase.env"
+          source "$RUNNER_TEMP/mpg-browser-supabase.env"
+          test "$API_URL" = "http://127.0.0.1:54331"
+          test -n "$ANON_KEY"
+          test -n "$SERVICE_ROLE_KEY"
+          echo "::add-mask::$ANON_KEY"
+          echo "::add-mask::$SERVICE_ROLE_KEY"
+          {
+            echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL"
+            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+          } >> "$GITHUB_ENV"
+
+      - name: Build and start local Next.js app
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm build
+          pnpm exec next start --hostname 127.0.0.1 --port 3000 > "$RUNNER_TEMP/mpg-browser-next.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/mpg-browser-next.pid"
+          for i in $(seq 1 90); do
+            if curl -fsS --max-time 3 http://127.0.0.1:3000/login -o /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          tail -80 "$RUNNER_TEMP/mpg-browser-next.log"
+          exit 1
+
+      - name: Exercise client journey in desktop and mobile Chromium
+        timeout-minutes: 8
+        run: node test/browser/mpg-client-first-use.mjs
+
+      - name: Upload failure screenshots (synthetic data only)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpg-client-browser-failure-screenshots
+          path: test-artifacts/browser/
+          if-no-files-found: ignore
+          retention-days: 5
+
+      - name: Stop local Next.js server
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/mpg-browser-next.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/mpg-browser-next.pid")" || true
+          fi
+
+      - name: Erase disposable local Supabase containers
+        if: always()
+        continue-on-error: true
+        run: pnpm dlx supabase@2.117.0 stop --no-backup

@@ -121,10 +121,10 @@ WITH expected_versions(version) AS (
     AS baseline_billing_rls_and_direct_grants,
    (SELECT count(*) FROM pg_catalog.pg_policies WHERE schemaname='public'
         AND tablename IN ('billing_webhook_events','organization_billing_accounts','organization_subscriptions'))=2
-    AND (SELECT count(*) FROM pg_catalog.pg_policies
+    AND (SELECT count(DISTINCT tablename) FROM pg_catalog.pg_policies
          WHERE schemaname='public' AND tablename IN ('organization_billing_accounts','organization_subscriptions')
-         AND cmd='SELECT' AND roles::text='{authenticated}' AND qual LIKE '%user_has_role%'
-         AND qual LIKE '%OWNER%' AND qual LIKE '%ADMIN%')=2
+         AND cmd='SELECT' AND roles::text='{authenticated}'
+         AND qual = 'user_has_role(organization_id, ARRAY[''OWNER''::text, ''ADMIN''::text])')=2
     AS baseline_tenant_select_policies,
    NOT EXISTS(SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
      WHERE n.nspname='public' AND c.relkind IN ('r','p') AND c.relname IN ('stripe_subscription_reconciliation_leases','stripe_test_checkout_reservations','stripe_test_customer_provisioning','stripe_test_billing_action_limits','stripe_test_billing_recovery_reviews','billing_paid_entitlement_proposals','billing_synthetic_subscription_exception_reviews','billing_synthetic_invoice_evidence_drafts','billing_synthetic_checkout_quote_snapshots','billing_synthetic_invoice_reconciliation_reviews'))

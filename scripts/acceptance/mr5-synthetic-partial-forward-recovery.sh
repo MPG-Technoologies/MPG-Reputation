@@ -28,7 +28,7 @@ node candidate/scripts/acceptance/mr5-isolated-rehearsal-preflight.mjs --verify-
 
 files="$RUNNER_TEMP/mr5-candidate-files.txt"
 test -f "$files"
-test "$(wc -l < "$files")" -eq 48
+test "$(wc -l < "$files")" -eq 49
 first='20261018150000_mr5c2_atomic_subscription_projection.sql'
 second='20261018163500_mr5c3a_webhook_processing_leases.sql'
 third='20261018180500_mr5c3b2_fenced_subscription_reconciliation.sql'

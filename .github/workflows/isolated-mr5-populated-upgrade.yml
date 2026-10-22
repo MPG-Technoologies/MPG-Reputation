@@ -213,6 +213,14 @@ jobs:
           test "$before" = "$after"
           echo 'MR5I20_FAILED_SQL_TRANSACTION_ROLLED_BACK_NO_PARTIAL_STATE'
 
+      # Two migrations are committed by the Supabase CLI, then the third
+      # aborts without reversing the first two. Restore is NOT assumed;
+      # proceed only when all 28 history IDs and preserved data match.
+      - name: MR5I21 prove partial-commit failure and stable 28-step ledger
+        shell: bash
+        timeout-minutes: 10
+        run: bash candidate/scripts/acceptance/mr5-synthetic-partial-forward-recovery.sh
+
       - name: Upgrade populated local baseline with candidate migrations (NEVER --linked)
         working-directory: candidate
         timeout-minutes: 12
@@ -226,6 +234,10 @@ jobs:
           cut -d_ -f1 "$RUNNER_TEMP/mr5-candidate-files.txt" > "$RUNNER_TEMP/mr5-upgraded-expected.txt"
           diff -u "$RUNNER_TEMP/mr5-upgraded-expected.txt" "$RUNNER_TEMP/mr5-upgraded-applied.txt"
           psql -X -v ON_ERROR_STOP=1 -f candidate/scripts/acceptance/mr5-upgrade-postcheck.sql
+          # The third migration's table must have appeared only during
+          # successful forward resumption after its earlier aborted attempt.
+          test "$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT to_regclass('public.stripe_subscription_reconciliation_leases') IS NOT NULL")" = t
+          echo 'MR5I21_PARTIAL_MIGRATION_FORWARD_RECOVERY_28_TO_48_VERIFIED'
 
       - name: Stop and erase ONLY the disposable local Supabase stack
         if: always()

@@ -81,7 +81,7 @@ export function verifyMigrationSet(repositoryRoot, manifest, options = {}) {
   }
   return { status: 'REPOSITORY_SQL_FINGERPRINTS_MATCH_ONLY',
     baseline_count: 26, reviewed_pending_count: expected.length,
-    additional_reviewed_count: append ? 1 : 0,
+    ...(append ? { additional_reviewed_count: 1 } : {}),
     first_pending_version: pending[0].slice(0, 14),
     last_pending_version: pending.at(-1).slice(0, 14),
     hosted_compatibility_verified: false }
@@ -92,7 +92,12 @@ function main() {
     throw new Error('EXPLICIT_REPOSITORY_VERIFY_ONLY')
   }
   const manifest = JSON.parse(fs.readFileSync(MANIFEST_FILE, 'utf8'))
-  const result = verifyMigrationSet(REPOSITORY, manifest)
+  const result = verifyMigrationSet(REPOSITORY, manifest, {
+    appendedReviewedMigration: {
+      file: '20261022230000_mr5i26a_trial_extension_requests.sql',
+      git_blob_sha1: '8188f2d48d15d8634d104dd301e058f3882b2ee6',
+    },
+  })
   console.log('REPOSITORY_SQL_FINGERPRINTS_MATCH_ONLY: ' +
     result.baseline_count + ' accepted version IDs and ' +
     result.reviewed_pending_count + ' reviewed SQL blobs.')

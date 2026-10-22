@@ -60,9 +60,6 @@ function Assert-PrivateWindowsPath([string]$InputPath, [bool]$IsDirectory) {
 }
 
 try {
-  if (-not $IsWindows -and $PSVersionTable.PSEdition -ne 'Desktop') {
-    throw 'WINDOWS_WORKSTATION_ONLY'
-  }
   if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw 'WINDOWS_WORKSTATION_ONLY'
   }

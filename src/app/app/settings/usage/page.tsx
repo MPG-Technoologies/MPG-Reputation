@@ -69,7 +69,7 @@ export default async function UsageSettingsPage() {
             <span>Usage &amp; Trial</span>
           </span>
         }
-        subtitle="Server-authoritative entitlement status and factual messaging usage accounting."
+        subtitle="See your trial status and how many review requests your business has used."
       />
 
       <div className="w-full flex-1 flex flex-col min-w-0">

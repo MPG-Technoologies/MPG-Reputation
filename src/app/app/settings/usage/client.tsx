@@ -58,7 +58,7 @@ export function UsageClient({
     if (res.success) {
       setStartMessage({
         type: 'success',
-        text: 'Trial successfully activated. Review automation is now active for this organization.',
+        text: 'Trial activated. Review-request delivery remains subject to eligibility and messaging configuration.',
       })
       window.location.reload()
     } else {
@@ -150,14 +150,15 @@ export function UsageClient({
 
   return (
     <div className="space-y-6">
-      {/* 1. Entitlement Hypothesis Notice */}
-      <div className="rounded-xl border border-blue-900/40 bg-blue-950/20 p-4 text-xs text-blue-300 leading-relaxed">
-        <span className="font-semibold uppercase tracking-wider text-blue-400">
-          Validation Hypothesis — MR-4:
-        </span>{' '}
-        Default allowance of 30 review requests or 30 days is a product validation hypothesis and
-        operational test limit. It does not represent contractual pricing or a public commercial
-        commitment. MR-5 billing engineering is active under MPG-DEC-048; final pricing, commercial terms, and live billing remain separately gated and are not authorized.
+      {/* Trial terms, not internal milestone or governance commentary */}
+      <div className="rounded-xl border border-blue-900/40 bg-blue-950/20 p-4 text-sm text-blue-200 leading-relaxed">
+        <p className="font-semibold text-blue-300">About your free trial</p>
+        <p className="mt-1">
+          Your evaluation allowance is {allocated} review requests over up to{' '}
+          {entitlement?.durationDays ?? 30} days once activated. Trial activation does not
+          guarantee message delivery; requests remain subject to eligibility and messaging
+          configuration. This is not a paid subscription.
+        </p>
       </div>
 
       {/* 2. Explicit Trial Activation Callout (when NOT_STARTED) */}
@@ -230,11 +231,11 @@ export function UsageClient({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-[#1C2846]">
           <div>
             <div className="flex items-center gap-3">
-              <h2 className="text-base font-semibold text-white tracking-tight">Trial Entitlement Allowance</h2>
+              <h2 className="text-base font-semibold text-white tracking-tight">Trial review-request allowance</h2>
               {getStatusBadge(entitlement?.effectiveStatus || 'NOT_STARTED')}
             </div>
             <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-              Server-authoritative consumption ledger and concurrency-safe limit enforcement.
+              Track your review requests used and the allowance remaining during your trial.
             </p>
           </div>
 
@@ -267,7 +268,7 @@ export function UsageClient({
         {/* Progress Bar */}
         <div className="mt-5 space-y-2">
           <div className="flex justify-between text-xs text-slate-400">
-            <span>Allowance Utilization</span>
+            <span>Review requests used</span>
             <span className="font-mono">{percentUsed}%</span>
           </div>
           <div className="w-full bg-[#0A1020] rounded-full h-2 overflow-hidden border border-[#1C2846]/60">

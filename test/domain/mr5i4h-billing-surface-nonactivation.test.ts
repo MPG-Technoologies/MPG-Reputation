@@ -53,7 +53,7 @@ describe('MR-5I4H client and operator billing surface nonactivation', () => {
     expect(billing).toContain('isLocalTestBillingActionEndpointEnabled()')
     expect(billing).toContain('Preview only')
     expect(preview).toContain('not an available offer')
-    expect(billing).toContain('Payments, checkout, and subscription changes are not enabled')
+    expect(billing).toContain('Payments, checkout and subscription changes are disabled.')
   })
 
   it('retains early production/hosted/LIVE disable before constructing privileged clients', () => {

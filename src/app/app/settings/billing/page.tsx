@@ -130,8 +130,8 @@ export default async function BillingSettingsPage() {
 
       <div className="max-w-5xl w-full space-y-5">
         <div className="flex items-center gap-2 text-xs text-amber-200 bg-amber-950/30 border border-amber-900/50 px-4 py-3 rounded-xl">
-          <span className="font-semibold">Engineering preview</span>
-          <span className="text-amber-100/75">Payments, checkout, and subscription changes are not enabled.</span>
+          <span className="font-semibold">Billing not yet available</span>
+          <span className="text-amber-100/75">Payments, checkout and subscription changes are disabled. Your free trial is separate.</span>
         </div>
 
         <div className="grid md:grid-cols-2 gap-5">

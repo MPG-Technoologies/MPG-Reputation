@@ -247,6 +247,32 @@ describe('MR-5I4I actual BillingSettingsPage synthetic context and auth behavior
     expect(db.from).toHaveBeenCalledTimes(3)
   })
 
+  it('renders corrupt TEST projection as unavailable and blocks local checkout actions', async () => {
+    process.env.ENABLE_MR5D_BILLING_UI_PREVIEW = 'true'
+    vi.mocked(isLocalTestBillingActionEndpointEnabled).mockReturnValue(true)
+    vi.mocked(getConfiguredReputationBillingCatalog).mockReturnValue({
+      monthly: { id: 'monthly', amountMinor: 150000, interval: 'month', currency: 'PHP' },
+      annual: { id: 'annual', amountMinor: 100000, interval: 'year', currency: 'PHP' },
+    } as never)
+    for (const row of [
+      { billing_account_id: 'acctA', normalized_status: 'PAID',
+        environment: 'TEST', current_period_end: '2026-11-20T00:00:00Z',
+        cancel_at_period_end: false },
+      { billing_account_id: 'acctA', normalized_status: 'ACTIVE',
+        environment: 'TEST', current_period_end: 'corrupt-period',
+        cancel_at_period_end: false },
+    ]) {
+      const db = setup({ memberships: [a], accountData: { id: 'acctA' }, subscriptionData: [row] })
+      const html = renderToStaticMarkup(createElement('div', null, await BillingSettingsPage()))
+      expect(html).toContain('Billing status unavailable')
+      expect(html).not.toContain('Provider reports active')
+      expect(html).toContain('TEST billing actions blocked')
+      expect(html).not.toContain('TEST billing actions enabled')
+      expect(db.from).toHaveBeenCalledTimes(3)
+      vi.clearAllMocks()
+    }
+  })
+
   it('redirects only genuinely empty membership lists to onboarding', async () => {
     const db = setup({ memberships: [] })
     await expect(BillingSettingsPage()).rejects.toThrow('TEST_REDIRECT:/onboarding')

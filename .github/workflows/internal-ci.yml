@@ -179,7 +179,23 @@ jobs:
           node --test test/operator/mr5-isolated-rehearsal-preflight.test.mjs
           node --test test/operator/mr5-synthetic-migration-abort.test.mjs
           node --test test/operator/mr5-synthetic-partial-forward-recovery.test.mjs
+          node --test test/operator/mr5-windows-owner-secure-backup.test.mjs
           node scripts/acceptance/mr5-verify-reviewed-migrations.mjs --verify
+
+      - name: Parse Windows owner-only backup wrapper (never execute)
+        if: steps.scope.outputs.docs_only != 'true'
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $syntaxErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            'scripts/operator/mr5-windows-owner-secure-backup.ps1',
+            [ref]$tokens, [ref]$syntaxErrors) | Out-Null
+          if ($syntaxErrors.Count -ne 0) {
+            Write-Error 'MR5I22_POWERSHELL_SYNTAX_STOP: owner backup was NOT executed.'
+            exit 1
+          }
+          Write-Output 'MR5I22_POWERSHELL_SYNTAX_PASS_NO_EXECUTION'
 
       - name: Production compile and build (synthetic configuration)
         if: steps.scope.outputs.docs_only != 'true'

@@ -28,7 +28,7 @@ A first-migration source inspection confirmed that candidate SQL creates/replace
 - New `test/operator/mr5-synthetic-migration-abort.test.mjs` provides static safety/regression checks for the injected exception, local-only constraints, exact expected-error verification, assertion order and before/after state checks. It is registered with Internal CI.
 - The exact-head **Isolated MR5 Populated Upgrade Rehearsal** workflow is the necessary *runtime* proof; static tests alone are insufficient. It must show synthetic export/restore succeeded; injected abort reached the expected sentinel, failed as designed, rolled back; and the full ordered migration retry subsequently succeeded.
 - The **Isolated Synthetic E2E** and **Internal CI** must also pass on the exact commit before reporting engineering-complete.
-- Only four scoped files: one SQL fault fixture **not in `supabase/migrations`**, one existing synthetic upgrade workflow, one Node test, one Internal CI registration and this handoff (**five files total**).
+- Exactly five scoped files: one SQL fault fixture **not in `supabase/migrations`**, one existing synthetic upgrade workflow, one Node test, one Internal CI registration and this handoff.
 
 ## Explicit boundaries
 

@@ -833,6 +833,48 @@ export interface Database {
         }
         Relationships: []
       }
+      trial_extension_requests: {
+        Row: {
+          id: string
+          organization_id: string
+          requested_by: string
+          reason: string
+          status: 'OPEN' | 'APPROVED' | 'DENIED'
+          requested_at: string
+          resolved_at: string | null
+          resolved_by: string | null
+          decision_reason: string | null
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          requested_by: string
+          reason: string
+          status?: 'OPEN' | 'APPROVED' | 'DENIED'
+          requested_at?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          decision_reason?: string | null
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          requested_by?: string
+          reason?: string
+          status?: 'OPEN' | 'APPROVED' | 'DENIED'
+          requested_at?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          decision_reason?: string | null
+        }
+        Relationships: [{
+          foreignKeyName: 'trial_extension_requests_organization_id_fkey'
+          columns: ['organization_id']
+          isOneToOne: false
+          referencedRelation: 'organizations'
+          referencedColumns: ['id']
+        }]
+      }
       organization_entitlements: {
         Row: {
           organization_id: string

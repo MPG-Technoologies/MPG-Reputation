@@ -7,6 +7,7 @@ import { getConfiguredReputationBillingCatalog } from '@/lib/billing/pricing'
 import { resolveTestBillingSnapshot } from '@/domain/billing/ui-state'
 import { selectSingleBillingMembership } from '@/domain/billing/workspace-organization-selection'
 import { BillingPlanPreview } from './plan-preview'
+import { SubscriptionOptions } from '@/components/billing/subscription-options'
 import { isLocalTestBillingActionEndpointEnabled } from '@/lib/billing/stripe-test-action-request'
 
 /**
@@ -185,6 +186,8 @@ export default async function BillingSettingsPage() {
             Plans are not yet a published commercial offer. Your free trial remains
             separate from payment setup.
           </p>
+          <SubscriptionOptions location="billing" />
+
           {catalog ? (
             <BillingPlanPreview
               plans={[catalog.monthly, catalog.annual]}

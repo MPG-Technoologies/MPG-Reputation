@@ -14,6 +14,7 @@ vi.mock('next/link', async () => {
 vi.mock('@/actions/usage', () => ({
   startOrganizationTrialAction: vi.fn(),
   provisionOrganizationTrialAction: vi.fn(),
+  requestTrialExtensionAction: vi.fn(),
 }))
 
 import { UsageClient } from '../../src/app/app/settings/usage/client'

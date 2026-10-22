@@ -1,5 +1,5 @@
 # MR-5I11: upgrade a POPULATED historical main baseline, never a hosted Supabase project.
-# Tests the exact migration-aware path (26 accepted main migrations -> 48 candidate).
+# Tests 26 accepted migrations, 22 frozen reviewed SQLs, and one pinned additive candidate.
 name: Isolated MR5 Populated Upgrade Rehearsal
 
 on:
@@ -80,11 +80,12 @@ jobs:
           find baseline/supabase/migrations -maxdepth 1 -name '*.sql' -printf '%f\n' | sort > "$RUNNER_TEMP/mr5-accepted-files.txt"
           find candidate/supabase/migrations -maxdepth 1 -name '*.sql' -printf '%f\n' | sort > "$RUNNER_TEMP/mr5-candidate-files.txt"
           test "$(wc -l < "$RUNNER_TEMP/mr5-accepted-files.txt")" -eq 26
-          test "$(wc -l < "$RUNNER_TEMP/mr5-candidate-files.txt")" -eq 48
+          test "$(wc -l < "$RUNNER_TEMP/mr5-candidate-files.txt")" -eq 49
           diff -u "$RUNNER_TEMP/mr5-accepted-files.txt" <(head -n 26 "$RUNNER_TEMP/mr5-candidate-files.txt")
-          if [ "$(tail -n 22 "$RUNNER_TEMP/mr5-candidate-files.txt" | head -n 1)" != '20261018150000_mr5c2_atomic_subscription_projection.sql' ]; then
+          if [ "$(tail -n 23 "$RUNNER_TEMP/mr5-candidate-files.txt" | head -n 1)" != '20261018150000_mr5c2_atomic_subscription_projection.sql' ]; then
             echo 'PENDING_MIGRATION_ORDER_DRIFT'; exit 1
           fi
+          test "$(tail -n 1 "$RUNNER_TEMP/mr5-candidate-files.txt")" = '20261022230000_mr5i26a_trial_extension_requests.sql'
           command -v psql
 
       # Bind this rehearsal to reviewed SQL bytes and the frozen local-only
@@ -237,7 +238,7 @@ jobs:
           # The third migration's table must have appeared only during
           # successful forward resumption after its earlier aborted attempt.
           test "$(psql -X -At -v ON_ERROR_STOP=1 -c "SELECT to_regclass('public.stripe_subscription_reconciliation_leases') IS NOT NULL")" = t
-          echo 'MR5I21_PARTIAL_MIGRATION_FORWARD_RECOVERY_28_TO_48_VERIFIED'
+          echo 'MR5I26A_SYNTHETIC_POPULATED_UPGRADE_26_TO_49_VERIFIED'
 
       - name: Stop and erase ONLY the disposable local Supabase stack
         if: always()

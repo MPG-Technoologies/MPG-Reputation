@@ -42,7 +42,8 @@ export function validateManifest(manifest) {
   return manifest.items
 }
 
-export function verifyMigrationSet(repositoryRoot, manifest) {
+export function verifyMigrationSet(repositoryRoot, manifest, options = {}) {
+  const append = options.appendedReviewedMigration ?? null
   const expected = validateManifest(manifest)
   const folder = path.join(repositoryRoot, 'supabase', 'migrations')
   const entries = fs.readdirSync(folder, { withFileTypes: true })
@@ -58,18 +59,29 @@ export function verifyMigrationSet(repositoryRoot, manifest) {
   } catch {
     throw new Error('ACCEPTED_BASELINE_VERSION_DRIFT')
   }
-  if (files.length !== 48 || pending.length !== expected.length ||
-      pending.some((file, i) => file !== expected[i].file)) {
+  if (files.length !== 48 + (append ? 1 : 0) ||
+      pending.length !== expected.length + (append ? 1 : 0) ||
+      expected.some((item, i) => pending[i] !== item.file)) {
     throw new Error('REVIEWED_PENDING_MIGRATION_SET_CHANGED')
   }
-  for (const [index, file] of pending.entries()) {
-    const bytes = fs.readFileSync(path.join(folder, file))
-    if (gitBlobSha1(bytes) !== expected[index].git_blob_sha1) {
+  for (const [index, item] of expected.entries()) {
+    const bytes = fs.readFileSync(path.join(folder, item.file))
+    if (gitBlobSha1(bytes) !== item.git_blob_sha1) {
       throw new Error('REVIEWED_SQL_BLOB_CHANGED_AT_INDEX_' + (index + 1))
+    }
+  }
+  if (append) {
+    const final = pending.at(-1)
+    const sha = /^[a-f0-9]{40}$/.test(append.git_blob_sha1 ?? '') ? append.git_blob_sha1 : null
+    if (!sha || final !== append.file || !VERSION_PATTERN.test(final) ||
+        final.slice(0, 14) <= expected.at(-1).file.slice(0, 14) ||
+        gitBlobSha1(fs.readFileSync(path.join(folder, final))) !== sha) {
+      throw new Error('ADDITIONAL_MIGRATION_NOT_EXACTLY_REVIEWED')
     }
   }
   return { status: 'REPOSITORY_SQL_FINGERPRINTS_MATCH_ONLY',
     baseline_count: 26, reviewed_pending_count: expected.length,
+    ...(append ? { additional_reviewed_count: 1 } : {}),
     first_pending_version: pending[0].slice(0, 14),
     last_pending_version: pending.at(-1).slice(0, 14),
     hosted_compatibility_verified: false }
@@ -80,7 +92,12 @@ function main() {
     throw new Error('EXPLICIT_REPOSITORY_VERIFY_ONLY')
   }
   const manifest = JSON.parse(fs.readFileSync(MANIFEST_FILE, 'utf8'))
-  const result = verifyMigrationSet(REPOSITORY, manifest)
+  const result = verifyMigrationSet(REPOSITORY, manifest, {
+    appendedReviewedMigration: {
+      file: '20261022230000_mr5i26a_trial_extension_requests.sql',
+      git_blob_sha1: '8188f2d48d15d8634d104dd301e058f3882b2ee6',
+    },
+  })
   console.log('REPOSITORY_SQL_FINGERPRINTS_MATCH_ONLY: ' +
     result.baseline_count + ' accepted version IDs and ' +
     result.reviewed_pending_count + ' reviewed SQL blobs.')

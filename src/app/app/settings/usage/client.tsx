@@ -5,9 +5,10 @@ import Link from 'next/link'
 import {
   OrganizationUsageSummary,
   startOrganizationTrialAction,
-  provisionOrganizationTrialAction,
+  requestTrialExtensionAction,
 } from '@/actions/usage'
 import { AlertTriangleIcon } from '@/components/ui/icons'
+import { SubscriptionOptions } from '@/components/billing/subscription-options'
 
 interface UsageClientProps {
   organizationId: string
@@ -38,8 +39,9 @@ export function UsageClient({
     text: string
   } | null>(null)
 
-  const [isProvisioning, setIsProvisioning] = useState(false)
-  const [provisionMessage, setProvisionMessage] = useState<{
+  const [extensionReason, setExtensionReason] = useState('')
+  const [isRequestingExtension, setIsRequestingExtension] = useState(false)
+  const [extensionMessage, setExtensionMessage] = useState<{
     type: 'success' | 'error'
     text: string
   } | null>(null)
@@ -69,29 +71,27 @@ export function UsageClient({
     }
   }
 
-  const handleReprovision = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleRequestExtension = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    setIsProvisioning(true)
-    setProvisionMessage(null)
-
-    const formData = new FormData(e.currentTarget)
-    const requests = parseInt(formData.get('allocatedRequests') as string, 10) || 30
-    const durationDays = parseInt(formData.get('durationDays') as string, 10) || 30
-
-    const res = await provisionOrganizationTrialAction(organizationId, requests, durationDays)
-    setIsProvisioning(false)
-
-    if (res.success) {
-      setProvisionMessage({
-        type: 'success',
-        text: `Trial allowance configured with ${requests} requests for ${durationDays} days.`,
-      })
-      window.location.reload()
-    } else {
-      setProvisionMessage({
-        type: 'error',
-        text: res.error || 'Failed to update trial entitlement',
-      })
+    if (isRequestingExtension || extensionReason.trim().length < 20 ||
+        extensionReason.trim().length > 500) return
+    setIsRequestingExtension(true)
+    setExtensionMessage(null)
+    try {
+      const result = await requestTrialExtensionAction(organizationId, extensionReason.trim())
+      if (result.success) {
+        setExtensionReason('')
+        setExtensionMessage({
+          type: 'success',
+          text: 'Extension request submitted for MPG review. Your current trial allowance is unchanged.',
+        })
+      } else {
+        setExtensionMessage({ type: 'error', text: result.error || 'Could not submit request.' })
+      }
+    } catch {
+      setExtensionMessage({ type: 'error', text: 'Could not submit request.' })
+    } finally {
+      setIsRequestingExtension(false)
     }
   }
 
@@ -393,70 +393,53 @@ export function UsageClient({
         </div>
       </div>
 
-      {/* 6. Operator Trial Configuration (Owner/Admin) */}
-      {isOwnerOrAdmin && (
-        <div className="rounded-xl border border-[#1C2846] bg-[#0E172B] p-5 sm:p-6 space-y-4">
-          <h3 className="text-sm font-semibold text-white tracking-tight">
-            Configure Entitlement Allowance (Pilot Operator)
-          </h3>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            Modify or re-provision the organization trial allowance parameters.
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Get more review requests</h2>
+          <p className="mt-2 text-sm text-slate-400">
+            Explore subscription options for continued usage after your free trial.
+            The trial and subscriptions remain separate, and checkout is not yet available.
           </p>
-
-          <form onSubmit={handleReprovision} className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl">
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
-                Allocated Review Requests
-              </label>
-              <input
-                type="number"
-                name="allocatedRequests"
-                defaultValue={allocated}
-                min={1}
-                max={1000}
-                required
-                className="w-full bg-[#0A1020] border border-[#1C2846] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
-                Duration (Days)
-              </label>
-              <input
-                type="number"
-                name="durationDays"
-                defaultValue={entitlement?.durationDays ?? 30}
-                min={1}
-                max={365}
-                required
-                className="w-full bg-[#0A1020] border border-[#1C2846] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
-              />
-            </div>
-
-            <div className="flex items-end">
-              <button
-                type="submit"
-                disabled={isProvisioning}
-                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg disabled:opacity-50 transition-colors shadow-sm shadow-blue-900/30 cursor-pointer"
-              >
-                {isProvisioning ? 'Updating...' : 'Update Allowance'}
-              </button>
-            </div>
-          </form>
-
-          {provisionMessage && (
-            <div
-              className={`p-3 rounded-lg text-xs ${
-                provisionMessage.type === 'success'
-                  ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-800'
-                  : 'bg-rose-950/40 text-rose-400 border border-rose-800'
-              }`}
-            >
-              {provisionMessage.text}
-            </div>
-          )}
         </div>
+        <SubscriptionOptions location="usage" />
+      </section>
+
+      {/* Customer extension request: review only, never an entitlement change. */}
+      {isOwnerOrAdmin && (
+        <section className="rounded-xl border border-[#1C2846] bg-[#0E172B] p-5 sm:p-6 space-y-4">
+          <div>
+            <h3 className="text-sm font-semibold text-white">Request a trial extension</h3>
+            <p className="text-xs text-slate-400 mt-2">
+              Need more time or review requests? Explain your request for MPG support.
+              Submitting a request does not extend your trial or increase your allowance.
+            </p>
+          </div>
+          <form onSubmit={handleRequestExtension} className="space-y-3 max-w-2xl">
+            <label htmlFor="trial-extension-reason"
+              className="block text-xs font-medium text-slate-300">
+              Reason for your request (20–500 characters)
+            </label>
+            <textarea id="trial-extension-reason" name="trialExtensionReason"
+              rows={3} minLength={20} maxLength={500} required
+              value={extensionReason}
+              onChange={e => setExtensionReason(e.target.value)}
+              placeholder="Explain why your business needs additional evaluation time or requests."
+              className="w-full bg-[#0A1020] border border-[#1C2846] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+            />
+            <button type="submit"
+              disabled={isRequestingExtension || extensionReason.trim().length < 20}
+              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-lg disabled:opacity-50">
+              {isRequestingExtension ? 'Submitting request…' : 'Request extension'}
+            </button>
+          </form>
+          {extensionMessage && (
+            <p role="status" aria-live="polite"
+              className={extensionMessage.type === 'success'
+                ? 'text-sm text-emerald-300' : 'text-sm text-amber-300'}>
+              {extensionMessage.text}
+            </p>
+          )}
+        </section>
       )}
     </div>
   )

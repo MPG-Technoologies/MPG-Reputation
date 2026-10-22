@@ -313,55 +313,66 @@ export async function startOrganizationTrialAction(
 }
 
 /**
- * Provision or re-provision organization trial entitlement parameters.
- * Restricted strictly to authorized OWNER and ADMIN roles.
- * Note: Provisions in NOT_STARTED state awaiting explicit activation.
+ * Deprecated tenant mutation endpoint, preserved as a fail-closed compatibility
+ * response so stale clients cannot use a previously privileged service-role
+ * proxy to reset or extend a trial. No database operation is performed.
  */
 export async function provisionOrganizationTrialAction(
-  organizationId: string,
-  allocatedRequests: number = DEFAULT_TRIAL_REQUESTS,
-  durationDays: number = DEFAULT_TRIAL_DURATION_DAYS
+  _organizationId: string,
+  _allocatedRequests: number = DEFAULT_TRIAL_REQUESTS,
+  _durationDays: number = DEFAULT_TRIAL_DURATION_DAYS,
 ): Promise<{ success: boolean; error?: string; data?: unknown }> {
+  return { success: false, error: 'Trial allowance changes are managed by MPG support.' }
+}
+
+const TRIAL_ORG_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Tenant requests a review only. The user's cookie-backed client and RLS
+ * enforce ownership; no service-role, entitlement or approval RPC is involved.
+ */
+export async function requestTrialExtensionAction(
+  organizationId: string,
+  reason: string,
+): Promise<{ success: boolean; error?: string }> {
+  if (typeof organizationId !== 'string' || !TRIAL_ORG_UUID.test(organizationId) ||
+      typeof reason !== 'string' || reason.trim().length < 20 ||
+      reason.trim().length > 500) {
+    return { success: false, error: 'Provide a valid request reason (20–500 characters).' }
+  }
   try {
-    const supabase = await createClient()
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return { success: false, error: 'Authentication required' }
+    const client = await createClient()
+    const { data: { user }, error: authError } = await client.auth.getUser()
+    if (authError || !user || user.is_anonymous) {
+      return { success: false, error: 'Authentication required.' }
     }
-
-    // Role check: OWNER or ADMIN
-    const { data: membership } = await supabase
+    const org = organizationId.toLowerCase()
+    const { data: member, error: memberError } = await client
       .from('organization_users')
-      .select('role')
-      .eq('organization_id', organizationId)
+      .select('organization_id, user_id, role')
+      .eq('organization_id', org)
       .eq('user_id', user.id)
       .maybeSingle()
-
-    if (!membership || !['OWNER', 'ADMIN'].includes(membership.role)) {
-      return { success: false, error: 'Unauthorized: Owner or Admin role required' }
+    if (memberError || !member ||
+        member.organization_id !== org || member.user_id !== user.id ||
+        !['OWNER', 'ADMIN'].includes(member.role)) {
+      return { success: false, error: 'Trial extension requests require business owner or administrator access.' }
     }
 
-    const adminClient = createAdminClient()
-    const { data: result, error: rpcErr } = await adminClient.rpc(
-      'provision_organization_trial',
-      {
-        p_org_id: organizationId,
-        p_allocated_requests: allocatedRequests,
-        p_duration_days: durationDays,
-      }
-    )
-
-    if (rpcErr) {
-      return { success: false, error: rpcErr.message }
+    const { error } = await client.from('trial_extension_requests').insert({
+      organization_id: org,
+      requested_by: user.id,
+      reason: reason.trim(),
+    })
+    if (error?.code === '23505') {
+      return { success: false, error: 'A trial extension request is already pending for this business.' }
     }
-
+    if (error) {
+      return { success: false, error: 'Unable to submit the extension request.' }
+    }
     revalidatePath('/app/settings/usage')
-    revalidatePath('/app/dashboard')
-
-    return { success: true, data: result }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed to provision trial'
-    return { success: false, error: msg }
+    return { success: true }
+  } catch {
+    return { success: false, error: 'Unable to submit the extension request.' }
   }
 }

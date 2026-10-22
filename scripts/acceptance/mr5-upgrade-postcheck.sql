@@ -24,7 +24,7 @@ DECLARE
  v_table TEXT;
  v_priv TEXT;
 BEGIN
- IF (SELECT count(*) FROM supabase_migrations.schema_migrations) <> 48
+ IF (SELECT count(*) FROM supabase_migrations.schema_migrations) <> 49
  OR NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations
                 WHERE version='20261021110000') THEN
   RAISE EXCEPTION 'MR5_UPGRADE_MIGRATION_HISTORY_INCOMPLETE';

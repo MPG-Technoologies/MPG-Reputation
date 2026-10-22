@@ -4,7 +4,7 @@ import { PageHeader, PageShell } from '@/components/layout/page-shell'
 import { Panel } from '@/components/layout/panels'
 import { createClient } from '@/lib/supabase/server'
 import { getConfiguredReputationBillingCatalog } from '@/lib/billing/pricing'
-import { getBillingWorkspaceSummary } from '@/domain/billing/ui-state'
+import { resolveTestBillingSnapshot } from '@/domain/billing/ui-state'
 import { selectSingleBillingMembership } from '@/domain/billing/workspace-organization-selection'
 import { BillingPlanPreview } from './plan-preview'
 import { isLocalTestBillingActionEndpointEnabled } from '@/lib/billing/stripe-test-action-request'
@@ -102,17 +102,8 @@ export default async function BillingSettingsPage() {
       .limit(2),
   ])
 
-  // Never silently select the newest of multiple subscription identities.
-  // The sole TEST subscription must belong to the same linked billing account.
-  const ambiguousSubscriptions = (subscriptions?.length ?? 0) > 1
-  const subscriptionAccountMismatch = Boolean(subscriptions?.length &&
-    (!account || subscriptions[0].billing_account_id !== account.id))
-  const summary = getBillingWorkspaceSummary({
-    hasTestAccount: Boolean(account),
-    subscription: ambiguousSubscriptions || subscriptionAccountMismatch
-      ? null : subscriptions?.[0] ?? null,
-    dataUnavailable: Boolean(accountError || subscriptionsError || !subscriptions ||
-      account === undefined || ambiguousSubscriptions || subscriptionAccountMismatch),
+  const { summary, hasTestAccount, hasOngoingSubscription } = resolveTestBillingSnapshot({
+    account, subscriptions, queryFailed: Boolean(accountError || subscriptionsError),
   })
   // Pricing is *not approved for publication*. Rendering proposed amounts
   // requires explicit local-only opt-in; production cannot override this.
@@ -199,9 +190,8 @@ export default async function BillingSettingsPage() {
               plans={[catalog.monthly, catalog.annual]}
               organizationId={orgId}
               localActionsEnabled={localActionsEnabled}
-              hasTestAccount={Boolean(account)}
-              hasOngoingSubscription={Boolean(subscriptions?.[0] &&
-                subscriptions[0].normalized_status !== 'ENDED')}
+              hasTestAccount={hasTestAccount}
+              hasOngoingSubscription={hasOngoingSubscription}
             />
           ) : (
             <div className="rounded-xl bg-[#131E38] border border-[#1C2846] p-5">

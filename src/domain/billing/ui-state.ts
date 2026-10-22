@@ -146,6 +146,52 @@ export function getBillingWorkspaceSummary(args: {
   }
 }
 
+/**
+ * Shared read-only billing snapshot boundary for legacy + org-scoped pages.
+ * PostgREST data is runtime-untrusted; a duplicate, orphan or malformed
+ * account/subscription must not generate checkout controls or an ACTIVE label.
+ * This never authorizes payments or entitlements.
+ */
+export function resolveTestBillingSnapshot(args: {
+  readonly account: unknown
+  readonly subscriptions: unknown
+  readonly queryFailed?: boolean
+}): {
+  readonly summary: BillingWorkspaceSummary
+  readonly hasTestAccount: boolean
+  readonly hasOngoingSubscription: boolean
+} {
+  const account = args.account
+  const accountId = account && typeof account === 'object' &&
+    !Array.isArray(account) && 'id' in account &&
+    typeof account.id === 'string' && account.id.trim() !== ''
+      ? account.id : null
+  const accountMalformed = account !== null && accountId === null
+  const rows = args.subscriptions
+  const validRows = Array.isArray(rows) && rows.length <= 1
+  const row = validRows && rows.length === 1 ? rows[0] : null
+  const rowValid = (validRows && rows.length === 0) || (row !== null && typeof row === 'object' &&
+    !Array.isArray(row) && row !== undefined &&
+    'billing_account_id' in row && typeof row.billing_account_id === 'string' &&
+    row.billing_account_id === accountId &&
+    'normalized_status' in row && 'current_period_end' in row &&
+    'cancel_at_period_end' in row && 'environment' in row)
+  const unavailable = Boolean(args.queryFailed || account === undefined ||
+    accountMalformed || !validRows || !rowValid)
+  const candidate = !unavailable && row !== null ? row as unknown as BillingPreviewSubscription : null
+  const summary = getBillingWorkspaceSummary({
+    subscription: candidate,
+    hasTestAccount: accountId !== null,
+    dataUnavailable: unavailable,
+  })
+  return {
+    summary,
+    hasTestAccount: accountId !== null && !unavailable,
+    hasOngoingSubscription: summary.status !== 'UNAVAILABLE' &&
+      candidate !== null && summary.status !== 'ENDED',
+  }
+}
+
 /** Never treat a checkout return query parameter as payment confirmation. */
 export function getCheckoutReturnMessage(kind: 'success' | 'cancel'): {
   title: string; description: string

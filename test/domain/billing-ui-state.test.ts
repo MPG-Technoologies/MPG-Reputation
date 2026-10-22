@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   getBillingWorkspaceSummary,
+  resolveTestBillingSnapshot,
   getCheckoutReturnMessage,
 } from '../../src/domain/billing/ui-state'
 
@@ -146,5 +147,47 @@ describe('MR-5D3A TEST-only billing workspace model', () => {
     const message = getCheckoutReturnMessage('cancel')
     expect(message.title).toContain('not completed')
     expect(message.description).toContain('No subscription or paid access is confirmed')
+  })
+})
+
+describe('MR-5I24 shared TEST billing snapshot', () => {
+  const account = { id: 'account-a' }
+  const row = { ...testSub, billing_account_id: 'account-a' }
+
+  it('accepts exactly one matched TEST subscription without approving payment', () => {
+    const result = resolveTestBillingSnapshot({ account, subscriptions: [row] })
+    expect(result).toMatchObject({
+      hasTestAccount: true, hasOngoingSubscription: true,
+      summary: { status: 'ACTIVE' },
+    })
+    expect(result.summary.description).toContain('does not confirm payment settlement')
+  })
+
+  it('safely handles a linked account with no subscription and no invoice', () => {
+    expect(resolveTestBillingSnapshot({ account, subscriptions: [] })).toMatchObject({
+      hasTestAccount: true, hasOngoingSubscription: false,
+      summary: { status: 'NOT_CONFIGURED' },
+    })
+  })
+
+  it('blocks duplicate, orphan, malformed and ambiguous subscription records', () => {
+    const cases = [
+      { account, subscriptions: [row, row] },
+      { account, subscriptions: [{ ...row, billing_account_id: 'foreign' }] },
+      { account: null, subscriptions: [row] },
+      { account: { id: '' }, subscriptions: [] },
+      { account: undefined, subscriptions: [] },
+      { account, subscriptions: null },
+      { account, subscriptions: {} },
+      { account, subscriptions: [null] },
+      { account, subscriptions: [{ ...row, normalized_status: 'PAID' }] },
+      { account, subscriptions: [{ ...row, current_period_end: 'garbage' }] },
+      { account, subscriptions: [row], queryFailed: true },
+    ]
+    for (const input of cases) {
+      expect(resolveTestBillingSnapshot(input)).toMatchObject({
+        hasOngoingSubscription: false, summary: { status: 'UNAVAILABLE', periodEnd: null },
+      })
+    }
   })
 })

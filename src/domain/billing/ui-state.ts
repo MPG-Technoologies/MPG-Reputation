@@ -1,4 +1,4 @@
-import type { BillingNormalizedStatus } from './policy'
+import { isBillingNormalizedStatus, type BillingNormalizedStatus } from './policy'
 
 /**
  * Presentation-only interpretation of a verified local billing projection.
@@ -66,6 +66,24 @@ export function getBillingWorkspaceSummary(args: {
       status: 'UNAVAILABLE',
       headline: 'Billing environment not available',
       description: 'This workspace only previews TEST billing records.',
+      supportRequired: true,
+      periodEnd: null,
+    }
+  }
+  // PostgREST/SQL results are untrusted at runtime despite generated TS types.
+  // Unknown states must never crash the customer page or appear as ACTIVE.
+  // An invalid date could throw in the scoped server view's toISOString().
+  const end = current.current_period_end
+  const validPeriodEnd = end === null ||
+    (typeof end === 'string' &&
+      /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-]\\d{2}:\\d{2})$/.test(end) &&
+      Number.isFinite(Date.parse(end)))
+  if (!isBillingNormalizedStatus(current.normalized_status) ||
+      typeof current.cancel_at_period_end !== 'boolean' || !validPeriodEnd) {
+    return {
+      status: 'UNAVAILABLE',
+      headline: 'Billing status unavailable',
+      description: 'The TEST subscription record could not be validated. No payment, plan change or paid access is confirmed.',
       supportRequired: true,
       periodEnd: null,
     }

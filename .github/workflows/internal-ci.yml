@@ -178,6 +178,7 @@ jobs:
           node --test test/operator/mr5-hosted-billing-baseline-gate.test.mjs
           node --test test/operator/mr5-isolated-rehearsal-preflight.test.mjs
           node --test test/operator/mr5-synthetic-migration-abort.test.mjs
+          node --test test/operator/mr5-synthetic-partial-forward-recovery.test.mjs
           node scripts/acceptance/mr5-verify-reviewed-migrations.mjs --verify
 
       - name: Production compile and build (synthetic configuration)

@@ -53,7 +53,7 @@ function sqlFilenames(dir) {
   return entries.filter(e => e.isFile() && e.name.endsWith('.sql')).map(e => e.name).sort()
 }
 
-export function verifyIsolatedSources(candidateRoot, baselineRoot, manifest) {
+export function verifyIsolatedSources(candidateRoot, baselineRoot, manifest, options = {}) {
   const candidate = fs.realpathSync(candidateRoot)
   const baseline = fs.realpathSync(baselineRoot)
   if (candidate === baseline) throw new Error('BASELINE_AND_CANDIDATE_MUST_BE_SEPARATE')
@@ -64,17 +64,12 @@ export function verifyIsolatedSources(candidateRoot, baselineRoot, manifest) {
       throw new Error('UNEXPECTED_LOCAL_SUPABASE_PROJECT')
     }
   }
-  // Preserve the frozen 22-MR5 reviewed SQL blobs unchanged. This one
-  // additive MR-5I26A SQL file is separately byte-pinned and repository-only.
-  const reviewed = verifyMigrationSet(candidate, manifest, {
-    appendedReviewedMigration: {
-      file: '20261022230000_mr5i26a_trial_extension_requests.sql',
-      git_blob_sha1: '8188f2d48d15d8634d104dd301e058f3882b2ee6',
-    },
-  })
+  // Default API remains exact 26 -> 48 for existing immutable-fixture tests.
+  // Only the explicit isolated CLI invocation permits an additionally pinned SQL.
+  const reviewed = verifyMigrationSet(candidate, manifest, options)
   const baselineFiles = sqlFilenames(path.join(baseline, 'supabase', 'migrations'))
   const candidateFiles = sqlFilenames(path.join(candidate, 'supabase', 'migrations'))
-  if (baselineFiles.length !== 26 || candidateFiles.length !== 49 ||
+  if (baselineFiles.length !== 26 || candidateFiles.length !== 48 + (options.appendedReviewedMigration ? 1 : 0) ||
       baselineFiles.some((name, i) => name !== candidateFiles[i] || name.slice(0, 14) > BASELINE_LAST)) {
     throw new Error('ACCEPTED_BASELINE_NOT_EXACT_PREFIX')
   }
@@ -114,7 +109,12 @@ function main() {
   assertFrozenBaselineCheckout(baselineRoot)
   const manifest = JSON.parse(fs.readFileSync(
     path.join(REPO,'scripts','acceptance','mr5-reviewed-candidate-manifest.json'), 'utf8'))
-  verifyIsolatedSources(REPO, baselineRoot, manifest)
+  verifyIsolatedSources(REPO, baselineRoot, manifest, {
+    appendedReviewedMigration: {
+      file: '20261022230000_mr5i26a_trial_extension_requests.sql',
+      git_blob_sha1: '8188f2d48d15d8634d104dd301e058f3882b2ee6',
+    },
+  })
   console.log('MR5I19_SYNTHETIC_SOURCE_AND_LOOPBACK_PREFLIGHT_PASS')
   console.log('NO_REAL_RESTORE_VERIFIED. NO_HOSTED_MIGRATION_AUTHORIZED.')
 }

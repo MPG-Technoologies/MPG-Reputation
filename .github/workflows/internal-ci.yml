@@ -135,6 +135,7 @@ jobs:
             test/domain/mr5i25-client-billing-copy.test.ts \
             test/domain/mr5i26a-trial-governance-action.test.ts \
             test/domain/mr5i26b-admin-trial-inbox.test.ts \
+            test/domain/mr5i26b-admin-trial-page.test.ts \
             test/domain/mr5i26a-subscription-options.test.ts \
             test/domain/stripe-test-customer-provisioning.test.ts \
             test/domain/stripe-test-customer-portal.test.ts \

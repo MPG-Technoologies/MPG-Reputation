@@ -29,6 +29,9 @@ export default async function SupportTrialRequestsPage({
   if (result.status === 'UNAVAILABLE') {
     return <AdminFailure unavailable>Trial request records could not be verified and audited.</AdminFailure>
   }
+  if (result.status !== 'AVAILABLE') {
+    return <AdminFailure unavailable>Trial request snapshot is unavailable.</AdminFailure>
+  }
 
   const { context, requests, truncated, snapshotAt } = result
   return (

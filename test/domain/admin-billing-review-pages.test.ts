@@ -11,6 +11,9 @@ vi.mock('@/lib/support/subscription-exceptions', () => ({
   getSupportSubscriptionExceptionCases: vi.fn(),
   isLocalSubscriptionExceptionSupportViewEnabled: vi.fn(() => true),
 }))
+vi.mock('@/lib/support/trial-extension-requests', () => ({
+  isLocalTrialRequestSupportViewEnabled: vi.fn(() => false),
+}))
 
 import { headers } from 'next/headers'
 import { getSupportBillingRecoveryCases } from '../../src/lib/support/billing-recovery'

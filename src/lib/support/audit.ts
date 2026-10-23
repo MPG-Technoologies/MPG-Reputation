@@ -9,6 +9,7 @@ type SupportAuditEvent =
   | 'support.health_snapshot_inspection'
   | 'support.billing_recovery_inspection'
   | 'support.subscription_exception_inspection'
+  | 'support.trial_extension_request_inspection'
 
 export type SupportOutboxRetryAuditOutcome =
   | 'REQUESTED'
@@ -140,4 +141,12 @@ export async function recordSupportSubscriptionExceptionInspection(
   outcome: 'AVAILABLE' | 'UNAVAILABLE'
 ): Promise<boolean> {
   return recordSupportAudit(access, 'support.subscription_exception_inspection', outcome)
+}
+
+/** MR-5I26B: a verified MPG support actor viewed pending trial requests. */
+export async function recordSupportTrialRequestInspection(
+  access: SupportAccess,
+  outcome: 'AVAILABLE' | 'UNAVAILABLE'
+): Promise<boolean> {
+  return recordSupportAudit(access, 'support.trial_extension_request_inspection', outcome)
 }

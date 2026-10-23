@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import styles from './admin-ui.module.css'
 import { isLocalBillingRecoverySupportViewEnabled } from '@/lib/support/billing-recovery'
 import { isLocalSubscriptionExceptionSupportViewEnabled } from '@/lib/support/subscription-exceptions'
+import { isLocalTrialRequestSupportViewEnabled } from '@/lib/support/trial-extension-requests'
 
 export { default as adminStyles } from './admin-ui.module.css'
 export type AdminTone = 'neutral' | 'success' | 'warning' | 'danger'
@@ -23,7 +24,7 @@ export function AdminWorkspace({ children }: { children: ReactNode }) {
 
 export function OrganizationHeader({ organizationId, active, title, description, snapshotAt }: {
   organizationId: string
-  active: 'inspection' | 'health' | 'exceptions' | 'billingRecovery' | 'subscriptionExceptions'
+  active: 'inspection' | 'health' | 'exceptions' | 'billingRecovery' | 'subscriptionExceptions' | 'trialRequests'
   title: string
   description?: ReactNode
   snapshotAt: string
@@ -38,6 +39,9 @@ export function OrganizationHeader({ organizationId, active, title, description,
     ] : []),
     ...(isLocalSubscriptionExceptionSupportViewEnabled() ? [
       { key: 'subscriptionExceptions', label: 'Subscription reviews', href: `${base}/subscription-exceptions` },
+    ] : []),
+    ...(isLocalTrialRequestSupportViewEnabled() ? [
+      { key: 'trialRequests', label: 'Trial requests', href: `${base}/trial-requests` },
     ] : []),
   ]
   return (

@@ -6,6 +6,7 @@ import {
   SAMPLE_EDITORIAL_CALENDAR,
   REVIEW_CHECKPOINT_LABELS,
 } from "@/components/marketing/editorial-calendar";
+import { CampaignWorkspace } from "@/components/marketing/CampaignWorkspace";
 import { SiteNav } from "@/components/marketing/site/SiteNav";
 import { SiteFooter } from "@/components/marketing/site/SiteFooter";
 
@@ -29,7 +30,7 @@ export default function CampaignPreviewPage() {
       <SiteNav />
       <main className="mx-auto max-w-6xl px-5 py-16 sm:px-8">
         <div className="max-w-3xl">
-          <p className="kicker text-ember">MR-10C/D · Development-only preview</p>
+          <p className="kicker text-ember">MR-10F · Development-only preview</p>
           <h1 className="mt-4 font-display text-3xl font-bold text-ink sm:text-4xl">
             Marketing campaign drafts
           </h1>
@@ -45,9 +46,11 @@ export default function CampaignPreviewPage() {
           </p>
         </div>
 
+        <CampaignWorkspace />
+
         <section aria-labelledby="mr10-campaign-cards" className="mt-12">
           <h2 id="mr10-campaign-cards" className="text-xl font-semibold text-ink">
-            Draft campaign concepts
+            Reference campaign briefs
           </h2>
           <div className="mt-6 grid gap-5 md:grid-cols-2">
             {CAMPAIGN_BRIEFS.map((brief) => (

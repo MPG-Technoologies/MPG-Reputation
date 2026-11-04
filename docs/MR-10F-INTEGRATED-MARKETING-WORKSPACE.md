@@ -15,7 +15,7 @@ This is a demo of the editorial reasoning and review journey, not an internal op
 ## Implemented scope
 
 - `src/components/marketing/workspace-model.ts`: pure `buildMarketingWorkspaceSnapshot` composition function; validates an existing `DRAFT_ONLY` campaign, matches its own `SAMPLE_ONLY` calendar placements, creates its unchanged, fail-closed readiness packet, and always reports `canPublish: false`.
-- `src/components/marketing/CampaignWorkspace.tsx`: lightweight client-side selector for existing campaigns; selected brief, approved **informational** CTA destination, example calendar placement, review notes and the seven readiness requirements.
+- `src/components/marketing/CampaignWorkspace.tsx`: lightweight client-side selector for existing campaigns; selected brief, allowlisted **informational** CTA destination, example calendar placement, review notes and the seven readiness requirements.
 - Six example evidence checkboxes are browser-memory-only. They can mark `EVIDENCE_DRAFTED` in an ephemeral snapshot but never assert validation, approval, transmission, scheduling or publication. Changing campaign resets these checkboxes; browser refresh also resets them.
 - The seventh owner-release requirement is locked and does not provide an approval checkbox. Every snapshot always has `canPublish: false` and `ownerReleaseAuthorized: false`.
 - `src/app/mr10-campaign-preview/page.tsx`: mounts the integrated panel without moving the production guard, changing robots metadata or removing MR-10C/D reference sections.

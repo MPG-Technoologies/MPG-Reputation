@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { canCreateLocalDevelopmentAccount } from '@/lib/auth/local-development-signup'
 
 export async function signIn(formData: FormData): Promise<void> {
   const email = formData.get('email') as string
@@ -27,6 +28,15 @@ export async function signIn(formData: FormData): Promise<void> {
 }
 
 export async function signUp(formData: FormData): Promise<void> {
+  // Enforce the prelaunch guard server-side before reading credentials or
+  // invoking hosted Supabase Auth. The login UI check alone is not security.
+  if (!canCreateLocalDevelopmentAccount(
+    process.env.NODE_ENV,
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+  )) {
+    redirect('/login?message=Account%20creation%20is%20not%20available')
+  }
+
   const email = formData.get('email') as string
   const password = formData.get('password') as string
 

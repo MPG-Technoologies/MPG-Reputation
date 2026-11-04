@@ -1,9 +1,9 @@
 # MR-10H — Hosted Auth Self-Signup Exposure: Read-Only Evidence Check
 
-**Date:** 2026-11-04  
-**Status:** INVESTIGATING — hosted signup flag NOT VERIFIED; no settings changed  
-**Product main baseline:** `f211873f943e3db8d48e9c07d6245a638cf13878` (MR-10G PR #107 merged, green post-merge CI)  
-**Company OS main baseline:** `7a1fb412c5640ee95273f86dcdd4bff5a13a6b9c`  
+**Date:** 2026-11-04
+**Status:** INVESTIGATING — hosted signup flag NOT VERIFIED; no settings changed
+**Product main baseline:** `f211873f943e3db8d48e9c07d6245a638cf13878` (MR-10G PR #107 merged, green post-merge CI)
+**Company OS main baseline:** `7a1fb412c5640ee95273f86dcdd4bff5a13a6b9c`
 **Scope:** MR10-AUD-01 only, without changes to live Supabase Auth, tenant membership, application authentication, billing or deployment.
 
 ## Findings
@@ -44,7 +44,7 @@ An optional safe technical cross-check is a **GET only** of the project's `/auth
 
 ## Verification record
 
-**Source-read checks completed:** Company OS main, product main, actual client login, server sign-up action, local Supabase configuration, and connected hosted project identity/status.  
-**Hosted Auth allow-signup setting:** NOT VERIFIED as of this report.  
-**Application code changes:** NONE.  
+**Source-read checks completed:** Company OS main, product main, actual client login, server sign-up action, local Supabase configuration, and connected hosted project identity/status.
+**Hosted Auth allow-signup setting:** NOT VERIFIED as of this report.
+**Application code changes:** NONE.
 **Next:** owner-provided read-only hosted flag or safe public-settings GET result, then owner-reviewed disposition of MR10-AUD-01.

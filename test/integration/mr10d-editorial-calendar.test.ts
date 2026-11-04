@@ -7,7 +7,6 @@ import {
   REVIEW_CHECKPOINT_LABELS,
   inspectSampleEditorialCalendar,
   simulateEditorialReviewProgress,
-  type SampleEditorialSlot,
 } from "../../src/components/marketing/editorial-calendar";
 import { CAMPAIGN_BRIEFS } from "../../src/components/marketing/campaign-briefs";
 

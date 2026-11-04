@@ -1,9 +1,13 @@
 # MR-10C — Campaign Briefs and Local-Only Preview
 
-**Date:** 2026-11-04  
-**State:** IN PROGRESS — remote engineering prepared, local tests and owner review pending  
-**Branch:** `chatgpt/mr10c-campaign-preview-20261104`  
+**Date:** 2026-11-04
+
+**State:** IN PROGRESS — remote engineering prepared, local tests and owner review pending
+
+**Branch:** `chatgpt/mr10c-campaign-preview-20261104`
+
 **Base:** accepted product `main` at `b230595a7b95ca6cd7194bb527fef3578111f8ca`
+
 
 ## Purpose
 

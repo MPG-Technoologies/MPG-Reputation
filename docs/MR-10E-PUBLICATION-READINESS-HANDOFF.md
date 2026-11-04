@@ -3,8 +3,8 @@
 **Date:** 2026-11-04
 **Status:** IN PROGRESS — remote feature implementation prepared, local verification outstanding
 **Product branch:** `chatgpt/mr10e-publication-readiness-20261104`
-**Base:** product `main` at `035793db4e94f90230e8e126cc4deceae0133c09`
-**Related work:** MR-10C merged; MR-10D draft PR #104 is open and not required by this separate MR-10E branch.
+**Current accepted base:** product `main` at `0d403b2830f650d6d34613d89fb3db4bb55207d0`
+**Related work:** MR-10C and MR-10D are both merged. MR-10E preserves their accepted changes and remains an independent feature branch.
 
 ## Bounded objective
 

@@ -104,7 +104,7 @@ export function buildPublicationReviewPacket(
     mode: "PRELAUNCH_REVIEW_ONLY",
     campaignId: brief.id,
     campaignStatus: "DRAFT_ONLY",
-    reviewItems: PUBLICATION_REVIEW_GATES.map((gate) => ({
+    reviewItems: PUBLICATION_REVIEW_GATES.map((gate): PublicationReviewItem => ({
       id: gate.id,
       title: gate.title,
       requirement: gate.requirement,

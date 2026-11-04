@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CAMPAIGN_BRIEFS } from "@/components/marketing/campaign-briefs";
+import {
+  SAMPLE_EDITORIAL_CALENDAR,
+  REVIEW_CHECKPOINT_LABELS,
+} from "@/components/marketing/editorial-calendar";
 import { SiteNav } from "@/components/marketing/site/SiteNav";
 import { SiteFooter } from "@/components/marketing/site/SiteFooter";
 
@@ -25,7 +29,7 @@ export default function CampaignPreviewPage() {
       <SiteNav />
       <main className="mx-auto max-w-6xl px-5 py-16 sm:px-8">
         <div className="max-w-3xl">
-          <p className="kicker text-ember">MR-10C · Development-only preview</p>
+          <p className="kicker text-ember">MR-10C/D · Development-only preview</p>
           <h1 className="mt-4 font-display text-3xl font-bold text-ink sm:text-4xl">
             Marketing campaign drafts
           </h1>
@@ -75,6 +79,38 @@ export default function CampaignPreviewPage() {
               </article>
             ))}
           </div>
+        </section>
+
+        <section aria-labelledby="mr10-editorial-calendar" className="mt-14">
+          <h2 id="mr10-editorial-calendar" className="text-xl font-semibold text-ink">
+            Example editorial calendar
+          </h2>
+          <p className="mt-3 max-w-3xl text-sm leading-7 text-ink-soft">
+            These are fictional planning placements. Dates are illustrative,
+            not publication deadlines, scheduled jobs, or approved campaigns.
+          </p>
+          <ol className="mt-6 grid gap-4 md:grid-cols-3">
+            {SAMPLE_EDITORIAL_CALENDAR.map((slot) => {
+              const brief = CAMPAIGN_BRIEFS.find((item) => item.id === slot.campaignId);
+              return (
+                <li key={slot.id} className="surface-card flex flex-col p-5">
+                  <p className="kicker text-ember">Sample date · {slot.proposedDate}</p>
+                  <h3 className="mt-3 font-display text-lg font-semibold text-ink">
+                    {brief?.creative.headline ?? "Unlinked draft"}
+                  </h3>
+                  <p className="mt-3 flex-1 text-sm leading-6 text-ink-soft">
+                    Draft surface: {slot.surface}
+                  </p>
+                  <p className="mt-5 border-t border-line pt-4 text-xs text-ink-mute">
+                    Example review checkpoint: {REVIEW_CHECKPOINT_LABELS[slot.checkpoint]}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-ember">
+                    Sample only · never scheduled
+                  </p>
+                </li>
+              );
+            })}
+          </ol>
         </section>
 
         <section aria-labelledby="mr10-review-gates" className="mt-12 rounded-xl border border-line bg-card p-6">

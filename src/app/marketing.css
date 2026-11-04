@@ -1,0 +1,104 @@
+/* MR-9 marketing theme. Imported by globals.css after Tailwind v4.
+   All runtime color values and layout rules are scoped to .mr9-site. */
+@theme inline {
+  --color-paper: hsl(var(--mr9-paper));
+  --color-cream: hsl(var(--mr9-cream));
+  --color-card: hsl(var(--mr9-card));
+  --color-ink: hsl(var(--mr9-ink));
+  --color-ink-soft: hsl(var(--mr9-ink-soft));
+  --color-ink-mute: hsl(var(--mr9-ink-mute));
+  --color-ember: hsl(var(--mr9-ember));
+  --color-ember-deep: hsl(var(--mr9-ember-deep));
+  --color-ember-tint: hsl(var(--mr9-ember-tint));
+  --color-line: hsl(var(--mr9-line));
+  --color-console: hsl(var(--mr9-console));
+  --color-console-2: hsl(var(--mr9-console-2));
+  --color-console-3: hsl(var(--mr9-console-3));
+  --color-console-line: hsl(var(--mr9-console-line));
+  --color-console-ink: hsl(var(--mr9-console-ink));
+  --color-console-mute: hsl(var(--mr9-console-mute));
+  --color-ok: hsl(var(--mr9-ok));
+  --color-ok-bright: hsl(var(--mr9-ok-bright));
+  --color-warn: hsl(var(--mr9-warn));
+  --color-bad: hsl(var(--mr9-bad));
+  --color-info: hsl(var(--mr9-info));
+}
+
+.mr9-site {
+  --mr9-paper: 40 23% 93%;
+  --mr9-cream: 42 33% 96%;
+  --mr9-card: 45 60% 98%;
+  --mr9-ink: 30 14% 11%;
+  --mr9-ink-soft: 32 9% 30%;
+  --mr9-ink-mute: 33 9% 46%;
+  --mr9-ember: 17 88% 47%;
+  --mr9-ember-deep: 16 80% 38%;
+  --mr9-ember-tint: 20 90% 92%;
+  --mr9-line: 35 14% 84%;
+  --mr9-console: 45 8% 8%;
+  --mr9-console-2: 45 7% 11%;
+  --mr9-console-3: 45 6% 15%;
+  --mr9-console-line: 45 6% 22%;
+  --mr9-console-ink: 45 18% 92%;
+  --mr9-console-mute: 40 7% 58%;
+  --mr9-ok: 152 46% 42%;
+  --mr9-ok-bright: 152 60% 55%;
+  --mr9-warn: 32 92% 46%;
+  --mr9-bad: 4 68% 52%;
+  --mr9-info: 210 60% 48%;
+  color: hsl(var(--mr9-ink));
+  background: hsl(var(--mr9-paper));
+  font-family: var(--font-geist-sans), Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  min-height: 100vh;
+  overflow-x: clip;
+}
+.mr9-site .font-display {font-family: "Space Grotesk", var(--font-geist-sans), sans-serif;letter-spacing:-.02em;}
+.mr9-site .font-mono2,.mr9-site .kicker {font-family:var(--font-geist-mono), ui-monospace,monospace;}
+.mr9-site .kicker {font-size:.6875rem;font-weight:500;letter-spacing:.14em;text-transform:uppercase;}
+.mr9-site .surface-card {background:hsl(var(--mr9-card));border:1px solid hsl(var(--mr9-line));border-radius:14px;}
+.mr9-site .console-panel {background:hsl(var(--mr9-console));color:hsl(var(--mr9-console-ink));border:1px solid hsl(var(--mr9-console-line));border-radius:16px;}
+.mr9-site .console-card {background:hsl(var(--mr9-console-3));border:1px solid hsl(var(--mr9-console-line));border-radius:10px;}
+.mr9-site .paper-grain {background-image:radial-gradient(hsl(var(--mr9-ink)/.028) 1px,transparent 1px);background-size:22px 22px;}
+.mr9-site .console-grid {background-image:radial-gradient(hsl(var(--mr9-console-ink)/.05) 1px,transparent 1px);background-size:26px 26px;}
+.mr9-site .reveal {opacity:0;transform:translateY(18px);transition:opacity .7s cubic-bezier(.22,.61,.36,1),transform .7s cubic-bezier(.22,.61,.36,1);transition-delay:var(--reveal-delay,0ms);}
+.mr9-site .reveal.is-visible {opacity:1;transform:translateY(0);}
+.mr9-site :focus-visible {outline:2px solid hsl(var(--mr9-ember));outline-offset:2px;}
+.mr9-site ::selection {background:hsl(var(--mr9-ember)/.22);}
+@media (prefers-reduced-motion:reduce) {.mr9-site .reveal {opacity:1;transform:none;transition:none;} .mr9-site * {scroll-behavior:auto!important;}}
+
+/* MR-9 MPG unified identity: navy / blue */
+/* Site-only overrides. Existing application/admin styles are unchanged. */
+.mr9-site {
+  --mr9-paper: 222.4 54.8% 6.1%;         /* #070C18 - canvas */
+  --mr9-cream: 223.6 52.4% 8.2%;         /* #0A1020 - elevated stripe */
+  --mr9-card: 221.4 50.9% 11.2%;         /* #0E172B - card */
+  --mr9-ink: 210 40% 98%;               /* #F8FAFC - headings */
+  --mr9-ink-soft: 212.7 26.8% 83.9%;    /* #CBD5E1 - body */
+  --mr9-ink-mute: 215 20.2% 65.1%;      /* #94A3B8 - secondary */
+  --mr9-ember: 221.2 83.2% 53.3%;       /* #2563EB - brand blue */
+  --mr9-ember-deep: 224.3 76.3% 48%;    /* #1D4ED8 - hover */
+  --mr9-ember-tint: 219.1 63.5% 20.4%;  /* #132A55 */
+  --mr9-line: 219.2 37.4% 25.7%;        /* #293A5A */
+  --mr9-console: 223.6 52.4% 8.2%;
+  --mr9-console-2: 221.4 50.9% 11.2%;
+  --mr9-console-3: 222.2 49.3% 14.7%;
+  --mr9-console-line: 219.2 37.4% 25.7%;
+  --mr9-console-ink: 210 40% 98%;
+  --mr9-console-mute: 215 20.2% 65.1%;
+  --mr9-ok: 158.1 64.4% 51.6%;
+  --mr9-ok-bright: 156.2 71.6% 66.9%;
+  --mr9-warn: 43.3 96.4% 56.3%;
+  --mr9-bad: 351.3 94.5% 71.4%;
+  --mr9-info: 213.1 93.9% 67.8%;
+  --ember: 221.2 83.2% 53.3%;           /* existing mockup halo */
+}
+/* Maintain readable blue text against dark surfaces. */
+.mr9-site .text-ember { color: #60A5FA; }
+/* Match the admin's blue primary actions, including hover contrast. */
+.mr9-site a.bg-ink,
+.mr9-site button.bg-ink { background-color: #2563EB; color: #FFFFFF; }
+.mr9-site a.bg-ink:hover,
+.mr9-site button.bg-ink:hover { background-color: #1D4ED8; color: #FFFFFF; }
+/* Overrule hardcoded orange radio/checkbox accent inside the imported assessment. */
+.mr9-site input[type="checkbox"],
+.mr9-site input[type="radio"] { accent-color: #3B82F6; }

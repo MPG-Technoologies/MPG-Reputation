@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./marketing.css";
 
 :root {
   --background: #070C18;

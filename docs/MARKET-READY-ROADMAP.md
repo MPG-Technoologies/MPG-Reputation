@@ -66,6 +66,29 @@ This exception does not activate Company Stage 2 or later stages, live Stripe bi
 
 ---
 
+## Current owner-directed sequencing — 2026-11-04 (MPG-DEC-053, draft Company OS PR #4)
+
+The Owner has **reprioritized development work** to **MR-9 — Product Website / Acquisition Funnel**, followed by **MR-10 — Marketing Engine**. This overrides the historical work order **for safe engineering/design activity only**, not the acceptance, pilot, external-provider, legal, or commercial publication gates below.
+
+| Workstream | Current execution disposition |
+|---|---|
+| MR-9 Public product site | **ACTIVE — internal/staging build**, truthful marketing pages, responsive design, product education, SEO preparation, future Free Reputation Check specification |
+| MR-10 Marketing engine | **NEXT — engineering preparation / build**, draft campaign assets, synthetic analytics and attribution models, no real prospect data |
+| MR-5 Billing | **PAUSED / INCOMPLETE**; preserve existing #67–#100 branch work and all payment authority gates |
+| MR-1B-H external messaging validation | **DEFERRED**; no live outbound customer messages |
+| MR-7 remaining trust/compliance work | **PAUSED**, milestone stays **IN PROGRESS**; no claim of legal completion |
+| MR-8 Pilot and MR-11 Market Release | **GATED / NOT STARTED**; no live business-customer or public launch activity |
+
+**Permitted MR-9/MR-10 deliverables now:** static product pages and routes; internal/staging UX; accessibility and responsive validation; factual product walkthroughs; internal-only Free Reputation Check prototype with synthetic/local calculations and no submissions; privacy-preserving analytics plans that are not collecting real users; editorial/calendar/SEO plans; test fixtures and documentation.
+
+**Not authorized by this sequencing change:** publication or promotion of a commercial offer; marketing email delivery, paid advertising, real lead capture, new marketing-tracking scripts/cookies, real user data collection, live billing or messaging, unrestricted signup, real-customer pilot, final prices, binding Terms/Privacy claims or a change to MPG Company Stage. Before any of these actions, the Owner must separately reconcile and authorize the applicable MR-5/MR-1/MR-7/MR-8 and publication/commercial gates. Do not silently interpret a preview branch or preview deployment as commercial launch.
+
+Use one independent feature branch from accepted product `main`; do not base the site on unmerged billing branches. Preserve working authentication, tenant isolation, RLS, suppression, idempotency, neutral solicitation and API boundaries. Website link destinations must not enable gated workflows.
+
+**First smallest slice:** replace the V0.1 placeholder root page with a factual, accessible, responsive *preview* website home, accurate metadata, and static contract tests. No schema, providers, lead forms, tracking scripts, marketing actions or protected app routes are changed. Subsequent route slices: /how-it-works, /faq, Free Reputation Check (local/synthetic prototype), then marketing infrastructure planning. Keep missing legal terms and pricing unpublished until reviewed.
+
+---
+
 ## Detailed Milestone Specifications
 
 ### MR-0 — Governance Reconciliation

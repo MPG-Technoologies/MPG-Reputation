@@ -1,10 +1,15 @@
 import { signIn, signUp } from '@/actions/auth'
 import { SubmitButton } from '@/components/ui/submit-button'
+import { canCreateLocalDevelopmentAccount } from '@/lib/auth/local-development-signup'
 
 export default async function LoginPage(props: {
   searchParams: Promise<{ error?: string; message?: string }>
 }) {
   const searchParams = await props.searchParams
+  const allowLocalSignup = canCreateLocalDevelopmentAccount(
+    process.env.NODE_ENV,
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+  )
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8 text-slate-100">
@@ -89,13 +94,20 @@ export default async function LoginPage(props: {
               >
                 Sign In
               </SubmitButton>
-              <SubmitButton
-                formAction={signUp}
-                pendingText="Creating account…"
-                className="w-full py-2 px-4 border border-slate-700 rounded-md shadow-sm text-sm font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 cursor-pointer"
-              >
-                Create Development Account
-              </SubmitButton>
+              {allowLocalSignup ? (
+                <SubmitButton
+                  formAction={signUp}
+                  pendingText="Creating account…"
+                  className="w-full py-2 px-4 border border-slate-700 rounded-md shadow-sm text-sm font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500 cursor-pointer"
+                >
+                  Create Development Account
+                </SubmitButton>
+              ) : (
+                <p className="text-center text-xs leading-5 text-slate-400">
+                  New account creation is unavailable in this prelaunch workspace.
+                  Existing authorized users can sign in.
+                </p>
+              )}
             </div>
           </form>
         </div>

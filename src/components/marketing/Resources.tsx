@@ -6,6 +6,7 @@ import { SiteFooter } from "@/components/marketing/site/SiteFooter";
 import { Section, SectionHeading } from "@/components/marketing/site/Section";
 import { Reveal } from "@/components/marketing/site/Reveal";
 import { useSeo } from "@/components/marketing/useSeo";
+import { EDITORIAL_ARTICLES } from "@/components/marketing/editorial-library";
 
 /**
  * Editorial categories (MR-10 foundation). Every future article carries one
@@ -97,6 +98,37 @@ export default function Resources() {
           </div>
         </Section>
 
+        <Section>
+          <SectionHeading
+            kicker="Educational guides"
+            title="Build a better review-request process."
+            lede="Practical guidance based on the workflows we have already developed."
+          />
+
+          <div className="mt-10 grid gap-4 md:grid-cols-2">
+            {EDITORIAL_ARTICLES.map((article, index) => (
+              <Reveal key={article.slug} delay={index * 70}>
+                <Link
+                  href={`/resources/${article.slug}`}
+                  className="surface-card block h-full p-6 transition-colors hover:border-ember"
+                >
+                  <p className="kicker text-ember">
+                    {article.category}
+                  </p>
+                  <h3 className="mt-3 font-display text-xl font-semibold text-ink">
+                    {article.title}
+                  </h3>
+                  <p className="mt-3 text-sm leading-7 text-ink-soft">
+                    {article.summary}
+                  </p>
+                  <span className="mt-5 inline-block font-semibold text-ember">
+                    Read guide →
+                  </span>
+                </Link>
+              </Reveal>
+            ))}
+          </div>
+        </Section>
         <Section className="bg-cream">
           <SectionHeading
             kicker="In preparation"

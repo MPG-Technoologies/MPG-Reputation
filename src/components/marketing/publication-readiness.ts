@@ -89,15 +89,20 @@ export function buildPublicationReviewPacket(
     throw new Error("Publication review requires a valid, existing draft campaign.");
   }
 
-  const known = new Set<PublicationReviewGateId>(
-    PUBLICATION_REVIEW_GATES.map((gate) => gate.id),
-  );
-  const prepared = new Set<PublicationReviewGateId>();
+  // Keep the typed API limited to preparatory gates, while validating
+  // runtime inputs defensively (including values cast from untrusted code).
+  const known = new Set<string>(PUBLICATION_REVIEW_GATES.map((gate) => gate.id));
+  const prepared = new Set<string>();
   for (const id of evidenceDrafted) {
-    if (!known.has(id) || id === "owner-publication-decision" || prepared.has(id)) {
+    const requestedGate = String(id);
+    if (
+      !known.has(requestedGate) ||
+      requestedGate === "owner-publication-decision" ||
+      prepared.has(requestedGate)
+    ) {
       throw new Error("Invalid, repeated or owner-restricted evidence gate.");
     }
-    prepared.add(id);
+    prepared.add(requestedGate);
   }
 
   return {
